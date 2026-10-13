@@ -1,0 +1,16 @@
+appId: dev.terminal5.app
+productName: Terminal5
+directories:
+  output: release
+files:
+  - dist/**
+  - dist-electron/**
+  - package.json
+linux:
+  target: [AppImage, deb]
+  category: Office
+mac:
+  target: [dmg]
+  category: public.app-category.finance
+win:
+  target: [nsis]

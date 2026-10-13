@@ -1,0 +1,44 @@
+{
+  "name": "terminal5",
+  "productName": "Terminal5",
+  "version": "0.1.0",
+  "description": "Cross-platform trading terminal with a direct MT5 web-protocol connection",
+  "author": "Aaron Rono",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "dist-electron/electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k -n vite,electron \"vite\" \"npm:dev:electron\"",
+    "dev:electron": "tsc -p tsconfig.electron.json && wait-on tcp:5199 && cross-env TERMINAL5_DEV_URL=http://localhost:5199 electron .",
+    "build": "tsc -p tsconfig.json --noEmit && vite build && tsc -p tsconfig.electron.build.json",
+    "start": "electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "test": "tsx --test src/lib/*.test.ts electron/*.test.ts shared/*.test.ts",
+    "probe:mt5-web": "tsx scripts/mt5-web-probe.ts",
+    "dist": "npm run build && electron-builder",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win"
+  },
+  "dependencies": {
+    "lightweight-charts": "5.2.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/ws": "8.18.1",
+    "@vitejs/plugin-react": "6.1.1",
+    "concurrently": "10.0.5",
+    "cross-env": "10.1.0",
+    "electron": "44.4.5",
+    "electron-builder": "26.17.0",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vite": "8.3.1",
+    "wait-on": "9.4.0"
+  }
+}

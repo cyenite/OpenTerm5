@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.electron.json",
+  "exclude": ["electron/**/*.test.ts", "electron/**/*-fixtures.ts", "shared/**/*.test.ts"]
+}
