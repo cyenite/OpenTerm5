@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { closeChart, loadProfile, makeChart, removeProfile, saveProfile, updateActiveChart, workspace } from './workspace';
+
+test('profile switches retain current edits and persist them without transient UI state', () => {
+  const writes = new Map<string, string>();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { setItem: (key: string, value: string) => writes.set(key, value) } });
+  const chart = makeChart('EURUSD');
+  workspace.set({ charts: [chart], activeChartId: chart.id, activeProfile: 'Default', profiles: [] });
+  saveProfile('London');
+  updateActiveChart({ timeframe: 'M5' });
+  loadProfile('London');
+  assert.equal(workspace.get().charts[0].timeframe, 'M5');
+  saveProfile('New York');
+  updateActiveChart({ timeframe: 'H4' });
+  loadProfile('London');
+  assert.equal(workspace.get().charts[0].timeframe, 'M5');
+  loadProfile('New York');
+  assert.equal(workspace.get().charts[0].timeframe, 'H4');
+  const persisted = JSON.parse(writes.get('terminal5.workspace.v1')!);
+  assert.equal(persisted.profiles.find((profile: { name: string }) => profile.name === 'New York').charts[0].timeframe, 'H4');
+  assert.equal('dialog' in persisted, false);
+  assert.throws(() => removeProfile('New York'));
+  assert.throws(() => removeProfile('Default'));
+  removeProfile('London');
+  assert.equal(workspace.get().profiles.some((profile) => profile.name === 'London'), false);
+  closeChart(workspace.get().charts[0].id);
+  assert.equal(workspace.get().charts.length, 0);
+  assert.equal(JSON.parse(writes.get('terminal5.workspace.v1')!).charts.length, 0);
+  delete (globalThis as { localStorage?: unknown }).localStorage;
+});
