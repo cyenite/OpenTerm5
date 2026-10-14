@@ -92,8 +92,8 @@ To receive TradingView alerts from the internet, keep the server on 127.0.0.1 an
 Not built yet, roughly in order of user impact:
 
 1. **Margin model:** margin, free margin and margin level with open positions, plus a pre-trade margin check. Equity and P/L are live; margin rates per calculation mode have not been verified against a live position.
-2. **Live order verification:** order paths (manual, risk ticket, copier, webhooks) are tested against protocol fixtures and fake brokers, never against a live account. The next step is a supervised test on a demo account.
-3. **Trading from the chart:** dragging SL/TP and pending orders on the chart, a click-and-drag position tool with a risk read-out, and trade arrows from history on the chart.
+2. **Live order verification beyond one account:** risk orders, SL and pending drags, the equity guard and webhook entry/close pass a supervised MetaQuotes demo run. The copier needs two live accounts, and other brokers are unverified.
+3. **Trading from the chart:** trade arrows from history on the chart (dragging SL/TP, pending orders and the risk planner are done).
 4. **Market Watch:** Ticks and Trading tabs, daily high/low/change columns, sorting, and statistics.
 5. **Reports:** balance/equity curve, drawdown, win rate, profit factor and per-symbol breakdown from history; this would also serve copier analytics.
 6. **More indicators and objects:** the rest of the built-in catalogue, object styling, Fibonacci levels editing and dragging, and custom indicators (the remaining big one).
@@ -102,7 +102,7 @@ Not built yet, roughly in order of user impact:
 9. **Broker services:** account opening, deposits and withdrawals, mailbox, news and economic calendar.
 10. **Out of scope by design:** MQL5/EX5 execution, MetaEditor, the Strategy Tester, Market/Signals/VPS. Terminal5 replaces the most common EA use cases with the automation above and the signal API instead.
 
-Only MetaQuotes demo on Linux has been verified live. Other brokers, Windows and macOS packages, and all live write paths remain unverified.
+Only MetaQuotes demo on Linux has been verified live. Login detects a broker's web terminal from its server name for MetaQuotes, FTMO and Pepperstone, and for brokers whose terminal sits on a conventional host. For others, enter the address once under Advanced. Other brokers, Windows and macOS packages, and all live write paths remain unverified.
 
 ## Develop
 
