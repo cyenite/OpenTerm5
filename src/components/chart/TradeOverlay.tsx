@@ -8,6 +8,7 @@ import { riskPreferences, setRiskPreferences } from '../../lib/risk-preferences'
 import { closePosition, log, sendOrder, session } from '../../lib/session';
 import { moneyAt, useMoneyPerUnit } from '../../lib/valuation';
 import { useStore } from '../../lib/store';
+import { useRiskPreview } from '../../lib/risk-preview';
 import { workspace } from '../../lib/workspace';
 import { Segmented, Switch } from '../ui/Controls';
 import type { ChartController } from './controller';
@@ -153,8 +154,6 @@ export function TradeOverlay({ controller, symbol, digits }: TradeOverlayProps) 
   const moneyPerUnit = useMoneyPerUnit(symbol);
   const [plan, setPlan] = useState<Partial<PlanLines>>({});
   const [isMarketForced, setIsMarketForced] = useState(false);
-  const [preview, setPreview] = useState<RiskOrderOutcome | null>(null);
-  const [previewError, setPreviewError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [isPlacing, setIsPlacing] = useState(false);
   const [edit, setEdit] = useState<Edit | null>(null);
@@ -192,18 +191,7 @@ export function TradeOverlay({ controller, symbol, digits }: TradeOverlayProps) 
     ...(plan.target ? { takeProfits: [{ distance: { unit: 'price', value: plan.target }, share: 100 }] } : {}),
     commissionPerLot: preferences.commissionPerLot || undefined,
   } : null;
-  const signature = request ? JSON.stringify({ ...request, ...(decision?.isMarket ? { quote: Math.round((tick?.bid ?? 0) / point / 5) } : {}) }) : '';
-
-  useEffect(() => {
-    if (!request) { setPreview(null); setPreviewError(null); return; }
-    const timer = setTimeout(() => {
-      automation.request('manager.risk', { ...request, isDryRun: true })
-        .then((outcome) => { setPreview(outcome); setPreviewError(null); })
-        .catch((error: Error) => { setPreview(null); setPreviewError(error.message); });
-    }, 200);
-    return () => clearTimeout(timer);
-    // The request is rebuilt every render, so its serialised form is the dependency.
-  }, [signature]);
+  const { preview, problem: previewError, setProblem: setPreviewError } = useRiskPreview(request, decision?.isMarket ? Math.round((tick?.bid ?? 0) / point / 5) : undefined);
 
   const lines: OverlayLine[] = [];
   if (hasPlan) {

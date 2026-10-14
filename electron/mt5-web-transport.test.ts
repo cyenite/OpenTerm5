@@ -125,3 +125,20 @@ test('endpoint validation rejects plaintext and embedded credentials', () => {
   assert.throws(() => new Mt5WebTransport('wss://user:password@example.com/terminal'), /credentials/);
   assert.throws(() => new Mt5WebTransport('wss://example.com/terminal', 0), /timeout/);
 });
+
+test('trade admission is correlated independently of a stalled account response', async (context) => {
+  let finishAccount: (() => void) | undefined;
+  const { transport, requests } = await fixture(context, (command, _payload, reply) => {
+    if (command === 3) finishAccount = () => reply(0, Buffer.from([3]));
+    else if (command === 12) reply(0, Buffer.from([12]));
+  });
+  await transport.connect();
+  let isSettled = false;
+  const account = transport.request(3).then((payload) => { isSettled = true; return payload; });
+  assert.deepEqual(await transport.request(12), Buffer.from([12]));
+  assert.equal(isSettled, false);
+  assert.ok(finishAccount);
+  finishAccount();
+  assert.deepEqual(await account, Buffer.from([3]));
+  assert.deepEqual(requests, [0, 3, 12]);
+});

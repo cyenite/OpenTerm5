@@ -7,6 +7,7 @@ import { BinaryWriter } from './mt5-web-codec';
 import { Mt5WebLink } from './mt5-web-link';
 import { WEB_SYMBOL_DETAILS_BYTES } from './mt5-web-models';
 import { WebProtocolError, type WebSession } from './mt5-web-transport';
+import { WEB_DEAL_BYTES, WEB_POSITION_BYTES } from './mt5-web-trading';
 
 function accountPayload(balance = 10000): Buffer {
   const payload = Buffer.alloc(820);
@@ -399,7 +400,7 @@ test('a broker with decorated symbol names still gets a default Market Watch', a
 });
 
 
-test('queued orders overtake chart reads while active requests remain serialized', async (t) => {
+test('orders finish while an active chart read is still waiting on the broker', async (t) => {
   const { link, clients } = fixture();
   t.after(() => link.disconnect());
   await loggedIn(link);
@@ -407,6 +408,7 @@ test('queued orders overtake chart reads while active requests remain serialized
   const original = client.transport.request.bind(client.transport);
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
+  t.after(() => release());
   let isReading = false;
   client.transport.request = async (command, payload) => {
     if (command === 11 && !isReading) { isReading = true; await gate; }
@@ -420,11 +422,12 @@ test('queued orders overtake chart reads while active requests remain serialized
   await until(() => isReading);
   const chart = link.request('rates.get', { symbol: 'EURUSD', timeframe: 'M5', count: 1 });
   const order = link.request('order.send', marketRequest);
-  assert.equal(client.submissions.length, 0);
+  await until(() => client.submissions.length === 1);
+  assert.equal((await order).isSuccess, true);
   release();
   await Promise.all([active, chart, order]);
   const commands = client.commands.filter((command) => command === 11 || command === 12);
-  assert.deepEqual(commands, [11, 12, 11]);
+  assert.deepEqual(commands, [12, 11, 11]);
 });
 
 test('a final order result returns before the background account refresh finishes', async (t) => {
@@ -455,7 +458,7 @@ test('a quote request wakes on a tick without waiting for a polling timer', asyn
   await loggedIn(link);
   const client = clients.at(-1)!;
   const outcome = link.request('symbols.quote', { symbol: 'EURUSD' });
-  await until(() => client.subscriptions.length > 1);
+  await new Promise((resolve) => setImmediate(resolve));
   client.emit('tick', { symbol: 'EURUSD', timeMs: Date.now(), bid: 1.1, ask: 1.1002 });
   const quote = await Promise.race([outcome, new Promise<never>((_resolve, reject) => setImmediate(() => reject(new Error('Quote waited for a polling timer'))))]);
   assert.equal(quote.symbol, 'EURUSD');
@@ -469,7 +472,159 @@ test('disconnect interrupts a pending quote wait', async (t) => {
   const client = clients.at(-1)!;
   const outcome = link.request('symbols.quote', { symbol: 'EURUSD' });
   const rejected = assert.rejects(outcome, /connection lost/i);
-  await until(() => client.subscriptions.length > 1);
+  await new Promise((resolve) => setImmediate(resolve));
   link.disconnect();
   await rejected;
+});
+
+test('cached trading prerequisites and orders bypass a held history request', { timeout: 1_000 }, async (t) => {
+  const { link, clients } = fixture();
+  t.after(() => link.disconnect());
+  await loggedIn(link);
+  const client = clients.at(-1)!;
+  client.emit('tick', { symbol: 'EURUSD', timeMs: Date.now(), bid: 1.1, ask: 1.1002 });
+  const original = client.transport.request.bind(client.transport);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  t.after(() => release());
+  let isReading = false;
+  client.transport.request = async (command, payload) => {
+    if (command === 5) { isReading = true; await gate; }
+    return original(command, payload);
+  };
+  const history = link.request('history.get', { from: 0, to: 1700000000 });
+  await until(() => isReading);
+  const subscriptions = client.subscriptions.length;
+  const [spec, valuation, quote, account] = await Promise.all([
+    link.request('symbols.info', { symbol: 'EURUSD' }),
+    link.request('symbols.valuation', { symbol: 'EURUSD' }),
+    link.request('symbols.quote', { symbol: 'EURUSD' }),
+    link.request('account.info', {}),
+  ]);
+  assert.equal(spec.name, 'EURUSD');
+  assert.ok(valuation.moneyPerUnit > 0);
+  assert.ok(quote.ask > 0);
+  assert.equal(account?.login, 1234);
+  assert.equal(client.subscriptions.length, subscriptions);
+  const started = performance.now();
+  const order = link.request('order.send', marketRequest);
+  await until(() => client.submissions.length === 1);
+  t.diagnostic(`Submission with held history: ${(performance.now() - started).toFixed(2)} ms (fixture)`);
+  client.notify(client.submissions[0], 10009);
+  assert.equal((await order).isSuccess, true);
+  release();
+  await history;
+});
+
+test('a slow account refresh cannot block the next order and orders stay FIFO', { timeout: 1_000 }, async (t) => {
+  const { link, clients } = fixture();
+  t.after(() => link.disconnect());
+  await loggedIn(link);
+  const client = clients.at(-1)!;
+  const original = client.transport.request.bind(client.transport);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  t.after(() => release());
+  let isRefreshing = false;
+  client.transport.request = async (command, payload) => {
+    if (command === 3) { isRefreshing = true; await gate; }
+    return original(command, payload);
+  };
+  const first = link.request('order.send', marketRequest);
+  const second = link.request('order.send', { ...marketRequest, type: 'sell' });
+  await until(() => client.submissions.length === 1);
+  assert.equal(client.submissions.length, 1);
+  client.notify(client.submissions[0], 10009);
+  assert.equal((await first).isSuccess, true);
+  await until(() => isRefreshing && client.submissions.length === 2);
+  client.notify(client.submissions[1], 10009);
+  assert.equal((await second).isSuccess, true);
+  release();
+  await link.request('trade.snapshot', {});
+});
+
+test('login waits for existing orders and later orders cannot cross its barrier', { timeout: 1_000 }, async (t) => {
+  const { link, clients } = fixture();
+  t.after(() => link.disconnect());
+  await loggedIn(link);
+  const client = clients.at(-1)!;
+  const first = link.request('order.send', marketRequest);
+  await until(() => client.submissions.length === 1);
+  const login = link.request('account.login', { login: 5678, password: 'fixture-password' });
+  const later = link.request('order.send', marketRequest);
+  const rejected = assert.rejects(later, /Connection changed/);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(client.isClosed, false);
+  assert.equal(client.submissions.length, 1);
+  client.notify(client.submissions[0], 10009);
+  assert.equal((await first).isSuccess, true);
+  assert.equal((await login).login, 5678);
+  await rejected;
+  assert.deepEqual(clients.at(-1)!.loginCalls, [5678n]);
+  assert.equal(clients.at(-1)!.submissions.length, 0);
+});
+
+test('an account response cannot overwrite a newer trade transaction balance', async (t) => {
+  const { link, clients } = fixture();
+  t.after(() => link.disconnect());
+  await loggedIn(link);
+  const client = clients.at(-1)!;
+  const original = client.transport.request.bind(client.transport);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  t.after(() => release());
+  let isRefreshing = false;
+  client.transport.request = async (command, payload) => {
+    if (command !== 3) return original(command, payload);
+    isRefreshing = true;
+    await gate;
+    return accountPayload(10000);
+  };
+  const snapshot = link.request('trade.snapshot', {});
+  await until(() => isRefreshing);
+  const transaction = new BinaryWriter(12 + WEB_DEAL_BYTES + WEB_POSITION_BYTES + 48)
+    .u32(2).u32(4).u32(0).bytes(Buffer.alloc(WEB_DEAL_BYTES + WEB_POSITION_BYTES))
+    .f64(10100).f64(5).bytes(Buffer.alloc(24)).u32(0).u32(0).finish();
+  client.transport.emit('notification', { command: 10, status: 0, payload: transaction });
+  assert.equal((await link.request('account.info', {}))?.balance, 10100);
+  assert.equal((await link.request('account.info', {}))?.equity, 10105);
+  release();
+  assert.equal((await snapshot).account?.balance, 10100);
+  assert.equal((await link.request('account.info', {}))?.credit, 5);
+  assert.equal((await link.request('account.info', {}))?.equity, 10105);
+});
+
+test('existing stream subscriptions are reused across charts, watchlists and quotes', async (t) => {
+  const { link, clients } = fixture();
+  t.after(() => link.disconnect());
+  await loggedIn(link);
+  const client = clients.at(-1)!;
+  client.emit('tick', { symbol: 'EURUSD', timeMs: Date.now(), bid: 1.1, ask: 1.1002 });
+  const before = client.subscriptions.length;
+  await link.request('ticks.subscribe', { symbols: ['EURUSD'] });
+  await link.request('rates.subscribe', { symbol: 'EURUSD', timeframe: 'M1' });
+  await link.request('rates.subscribe', { symbol: 'EURUSD', timeframe: 'M5' });
+  await link.request('symbols.quote', { symbol: 'EURUSD' });
+  assert.equal(client.subscriptions.length, before);
+});
+
+test('failed stream subscriptions can be retried without poisoning the cache', async (t) => {
+  const { link, clients } = fixture((client) => {
+    const symbols = client.marketSymbols.bind(client);
+    client.marketSymbols = async () => [...await symbols(), { id: 18, flags: 0, digits: 5, calcMode: 0, name: 'GBPJPY', path: 'Forex', basis: '', description: 'Pound Yen' }];
+  });
+  t.after(() => link.disconnect());
+  await loggedIn(link);
+  const client = clients.at(-1)!;
+  client.detailsName = 'GBPJPY';
+  const subscribe = client.subscribe.bind(client);
+  let attempts = 0;
+  client.subscribe = async (names) => {
+    if (++attempts === 1) throw new Error('fixture subscription failed');
+    return subscribe(names);
+  };
+  await assert.rejects(link.request('ticks.subscribe', { symbols: ['GBPJPY'] }), /subscription failed/);
+  await link.request('ticks.subscribe', { symbols: ['GBPJPY'] });
+  assert.equal(attempts, 2);
+  assert.deepEqual(client.subscriptions.at(-1), ['GBPJPY', 'EURUSD']);
 });

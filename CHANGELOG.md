@@ -7,6 +7,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Warm orders and cached trading prerequisites no longer wait for active chart/history reads or
+  account refreshes. Orders remain serialized and login waits for existing orders to settle.
+- The Journal reports order queue/preparation and broker-confirmation timings separately.
+- Risk previews start immediately, coalesce pending edits and ignore obsolete results. Existing quote
+  subscriptions are reused instead of restoring the same stream repeatedly during preparation.
+
 ## [0.1.2] - 2026-10-14
 
 ### Fixed

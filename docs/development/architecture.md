@@ -80,10 +80,17 @@ pure logic for risk sizing (`risk.ts`), currency valuation (`valuation.ts`) and 
 Chart bars are requested on demand (command 11). Timeframes that the server does not provide are
 aggregated from smaller bars.
 
-Quote requests wake on incoming ticks instead of checking on a polling timer. Requests remain
-serialized, but orders and account/symbol reads used to prepare trades take priority over queued
-chart/history work. Requests already in flight finish first; login barriers and connection-generation
-checks prevent work moving across account changes.
+Quote requests wake on incoming ticks instead of checking on a polling timer. Cached account,
+symbol, subscribed quote and valuation reads return immediately. Orders use a separate serialized
+queue, so an active chart/history read or account refresh cannot hold up a warm order. Missing symbol
+metadata is loaded through the general request queue before trading. Login waits for earlier orders
+to settle; connection-generation checks reject later work captured for the previous account.
+
+Risk Ticket and chart-planner previews use `src/lib/risk-preview.ts` with `shared/latest-task.ts`.
+The first calculation starts immediately; while it runs, subsequent edits replace the pending input.
+Obsolete replies cannot overwrite a newer preview. Market-price updates trigger fresh calculations
+without restarting a trailing debounce timer. The link records successful quote subscriptions and
+reuses an unchanged symbol set, clearing that cache on disconnect or reconnect.
 
 ### Trading
 
@@ -95,6 +102,9 @@ checks prevent work moving across account changes.
 
 The final result returns to the caller before a supplementary account refresh runs in the queue.
 Broker execution and network round trips still determine the minimum achievable latency.
+The Journal reports the time from the main process receiving an order to submission (queue and
+preparation), followed by the time spent awaiting broker confirmation. These timings exclude time
+spent in renderer or automation logic before the order reaches the link.
 
 A request whose outcome is unknown, for example after a disconnection, is reported as unknown and is
 never repeated. The engines follow the same rule: the copier looks for a matching position and the
