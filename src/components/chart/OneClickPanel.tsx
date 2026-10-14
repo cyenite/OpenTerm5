@@ -13,13 +13,13 @@ export function OneClickPanel({ symbol, digits }: OneClickPanelProps) {
   const spec = useStore(session, (state) => state.symbols[symbol]);
   const canTrade = useStore(session, (state) => !!state.account && state.status?.isTradeAllowed === true && state.status?.capabilities?.trading === true && state.link.state === 'open');
   const [volume, setVolume] = useState(0.1);
-  const [isBusy, setIsBusy] = useState(false);
+  const [pendingSide, setPendingSide] = useState<'buy' | 'sell' | null>(null);
   const step = spec?.volumeStep ?? 0.01;
 
   const trade = async (type: 'buy' | 'sell') => {
-    setIsBusy(true);
+    setPendingSide(type);
     const result = await sendOrder({ action: 'deal', symbol, type, volume });
-    setIsBusy(false);
+    setPendingSide(null);
     if (!result.isSuccess) {
       log(`one click ${type} ${formatVolume(volume)} ${symbol} failed: ${result.comment}`, 'Trades');
     }
@@ -33,8 +33,8 @@ export function OneClickPanel({ symbol, digits }: OneClickPanelProps) {
 
   return (
     <div className="one-click" onMouseDown={(event) => event.stopPropagation()}>
-      <button className="one-click-side is-sell" disabled={!canTrade || isBusy || !tick} onClick={() => trade('sell')}>
-        <span>SELL</span>
+      <button className="one-click-side is-sell" disabled={!canTrade || !!pendingSide || !tick} aria-busy={pendingSide === 'sell'} onClick={() => trade('sell')}>
+        <span>{pendingSide === 'sell' && <span className="spinner" aria-hidden />}SELL</span>
         <strong>{formatPrice(tick?.bid, digits)}</strong>
       </button>
       <div className="one-click-volume">
@@ -48,8 +48,8 @@ export function OneClickPanel({ symbol, digits }: OneClickPanelProps) {
         />
         <button onClick={() => adjust(step)} aria-label="Increase volume">+</button>
       </div>
-      <button className="one-click-side is-buy" disabled={!canTrade || isBusy || !tick} onClick={() => trade('buy')}>
-        <span>BUY</span>
+      <button className="one-click-side is-buy" disabled={!canTrade || !!pendingSide || !tick} aria-busy={pendingSide === 'buy'} onClick={() => trade('buy')}>
+        <span>{pendingSide === 'buy' && <span className="spinner" aria-hidden />}BUY</span>
         <strong>{formatPrice(tick?.ask, digits)}</strong>
       </button>
     </div>

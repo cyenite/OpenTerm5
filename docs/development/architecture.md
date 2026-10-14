@@ -80,21 +80,39 @@ pure logic for risk sizing (`risk.ts`), currency valuation (`valuation.ts`) and 
 Chart bars are requested on demand (command 11). Timeframes that the server does not provide are
 aggregated from smaller bars.
 
-Quote requests wake on incoming ticks instead of checking on a polling timer. Requests remain
-serialized, but orders and account/symbol reads used to prepare trades take priority over queued
-chart/history work. Requests already in flight finish first; login barriers and connection-generation
-checks prevent work moving across account changes.
+Quote requests wake on incoming ticks instead of checking on a polling timer. Cached account,
+symbol, subscribed quote and valuation reads return immediately. Orders use a separate serialized
+queue, so an active chart/history read or account refresh cannot hold up a warm order. Missing symbol
+metadata is loaded through the general request queue before trading. Login waits for earlier orders
+to settle; connection-generation checks reject later work captured for the previous account.
+
+Risk Ticket and chart-planner previews use `src/lib/risk-preview.ts` with `shared/latest-task.ts`.
+The first calculation starts immediately; while it runs, subsequent edits replace the pending input.
+Obsolete replies cannot overwrite a newer preview. Market-price updates trigger fresh calculations
+without restarting a trailing debounce timer. The link records successful quote subscriptions and
+reuses an unchanged symbol set, clearing that cache on disconnect or reconnect.
 
 ### Trading
 
 1. A dialog or engine sends an `order.send` request.
-2. The link encodes it (command 12), registers the request ID and waits for the final result
-   (notification 19). Admission by the server is not treated as execution.
+2. The link encodes it (command 12), registers the request ID and waits for the server to admit it.
+   The next order is sent as soon as the previous one is admitted, as in the official web client;
+   only one command 12 is on the wire at a time because its reply carries no request ID. The caller
+   still receives the final result (notification 19), matched by request ID. Admission by the server
+   is not treated as execution.
 3. Trade transaction notifications (notification 10) update positions, orders and the balance, and a
    `trade` event refreshes the interface.
 
 The final result returns to the caller before a supplementary account refresh runs in the queue.
 Broker execution and network round trips still determine the minimum achievable latency.
+The Journal reports the time from the main process receiving an order to submission (queue and
+preparation), the time until the broker admitted it, and the time until its final result. These timings exclude time
+spent in renderer or automation logic before the order reaches the link.
+
+The renderer tracks every order it sends (`trackTrade` in `src/lib/session.ts`, used by `sendOrder`
+and the risk and bulk helpers in `src/lib/automation.ts`). Dialogs show a sending state as soon as
+an order is submitted, the status bar shows the order in flight and then its result, and Toolbox
+rows for a position or order with a request in flight are disabled until it settles.
 
 A request whose outcome is unknown, for example after a disconnection, is reported as unknown and is
 never repeated. The engines follow the same rule: the copier looks for a matching position and the

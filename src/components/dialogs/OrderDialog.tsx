@@ -13,13 +13,21 @@ const pendingTypes = orderTypes.filter((type) => type.isPending);
 
 interface ResultViewProps {
   title: string;
-  result: TradeResult;
+  result: TradeResult | null;
   onBack: () => void;
 }
 
 export function ResultView({ title, result, onBack }: ResultViewProps) {
+  if (!result) {
+    return (
+      <div className="order-result" role="status" aria-live="polite">
+        <p>{title}</p>
+        <p className="order-sending"><span className="spinner" aria-hidden /> Sending to the broker…</p>
+      </div>
+    );
+  }
   return (
-    <div className="order-result">
+    <div className="order-result" role="status" aria-live="polite">
       <p className={result.isSuccess ? 'is-profit' : 'is-loss'}>{title}</p>
       <p>
         {result.comment} (retcode {result.retcode})
@@ -74,8 +82,7 @@ export function OrderDialog({ initialSymbol, initialVolume, initialPrice, initia
   const [comment, setComment] = useState('');
   const [expiration, setExpiration] = useState('');
   const [check, setCheck] = useState<CheckResult | null>(null);
-  const [result, setResult] = useState<{ title: string; value: TradeResult } | null>(null);
-  const [isBusy, setIsBusy] = useState(false);
+  const [result, setResult] = useState<{ title: string; value: TradeResult | null } | null>(null);
   const [ticket, setTicket] = useState<'standard' | 'risk'>('standard');
   const digits = spec?.digits ?? 5;
   const step = spec?.volumeStep ?? 0.01;
@@ -101,10 +108,8 @@ export function OrderDialog({ initialSymbol, initialVolume, initialPrice, initia
   }, [symbol, volume, spec]);
 
   const submit = async (request: TradeRequest, title: string) => {
-    setIsBusy(true);
-    const value = await sendOrder(request);
-    setIsBusy(false);
-    setResult({ title, value });
+    setResult({ title, value: null });
+    setResult({ title, value: await sendOrder(request, title) });
   };
 
   const market = (type: 'buy' | 'sell') => {
@@ -207,10 +212,10 @@ export function OrderDialog({ initialSymbol, initialVolume, initialPrice, initia
                   <span className="is-buy">{formatPrice(tick?.ask, digits)}</span>
                 </div>
                 <div className="dialog-actions is-split">
-                  <button className="is-sell" disabled={!canTrade || isBusy || !tick || !isVolumeValid} onClick={() => market('sell')}>
+                  <button className="is-sell" disabled={!canTrade || !tick || !isVolumeValid} onClick={() => market('sell')}>
                     Sell by Market
                   </button>
-                  <button className="is-buy" disabled={!canTrade || isBusy || !tick || !isVolumeValid} onClick={() => market('buy')}>
+                  <button className="is-buy" disabled={!canTrade || !tick || !isVolumeValid} onClick={() => market('buy')}>
                     Buy by Market
                   </button>
                 </div>
@@ -218,7 +223,7 @@ export function OrderDialog({ initialSymbol, initialVolume, initialPrice, initia
               </>
             ) : (
               <div className="dialog-actions">
-                <button className="is-primary" disabled={!canTrade || isBusy || !isVolumeValid || price <= 0} onClick={place}>
+                <button className="is-primary" disabled={!canTrade || !isVolumeValid || price <= 0} onClick={place}>
                   Place
                 </button>
               </div>

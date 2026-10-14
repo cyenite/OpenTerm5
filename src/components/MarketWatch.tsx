@@ -1,4 +1,4 @@
-import { Component, useState } from 'react';
+import { Component, PureComponent, useMemo, useState } from 'react';
 import type { SymbolSpec } from '../../shared/protocol';
 import { newOrder, toggleDepth, togglePanel } from '../lib/commands';
 import { formatClock, formatPrice } from '../lib/format';
@@ -10,6 +10,27 @@ import { openContextMenu } from '../lib/context-menu';
 import { Panel } from './Panel';
 
 const tabs = ['Symbols', 'Details'] as const;
+
+interface SymbolSuggestionsProps {
+  symbols: Record<string, SymbolSpec>;
+}
+
+// Thousands of options; re-rendering them on every tick dominated renderer CPU.
+class SymbolSuggestions extends PureComponent<SymbolSuggestionsProps> {
+  render() {
+    return (
+      <datalist id="openterm-symbols">
+        {Object.values(this.props.symbols)
+          .filter((spec) => !spec.visible)
+          .map((spec) => (
+            <option key={spec.name} value={spec.name}>
+              {spec.description}
+            </option>
+          ))}
+      </datalist>
+    );
+  }
+}
 
 interface QuoteRowProps {
   spec: SymbolSpec;
@@ -88,6 +109,7 @@ export function MarketWatch() {
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const time = useStore(session, (state) => Math.max(0, ...Object.values(state.ticks).map((tick) => tick.time)));
+  const symbolCount = useMemo(() => Object.keys(all).length, [all]);
 
   const hide = (name: string) => setSymbolVisible(name, false).catch((error: Error) => log(`cannot hide ${name}: ${error.message}`));
 
@@ -149,20 +171,12 @@ export function MarketWatch() {
                     onChange={(event) => setQuery(event.target.value)}
                     onKeyDown={(event) => event.key === 'Enter' && addSymbol()}
                   />
-                  <datalist id="openterm-symbols">
-                    {Object.values(all)
-                      .filter((spec) => !spec.visible)
-                      .map((spec) => (
-                        <option key={spec.name} value={spec.name}>
-                          {spec.description}
-                        </option>
-                      ))}
-                  </datalist>
+                  <SymbolSuggestions symbols={all} />
                 </td>
               </tr>
             </tbody>
           </table>
-          <div className="panel-footer">{symbols.length} / {Object.keys(all).length}</div>
+          <div className="panel-footer">{symbols.length} / {symbolCount}</div>
         </div>
       ) : (
         <div className="scroll">

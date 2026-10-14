@@ -7,6 +7,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Orders show their progress immediately. Order and modify dialogs switch to a "Sending to the
+  broker" view, the status bar shows each order in flight with a live timer and then its result,
+  Toolbox rows show a spinner while their position or order is being closed, and One-Click and the
+  chart risk planner show which order is pending.
+
+### Changed
+
+- Orders overlap the way the official web client sends them: the next order goes to the broker as
+  soon as the previous one is admitted, instead of waiting for its final execution result. Closing
+  several positions or deleting several orders at once sends them back to back. Risk-order legs and
+  Reverse remain sequential so a failed step still stops the next one.
+
+### Fixed
+
+- Market Watch no longer re-filters every broker symbol and rebuilds its symbol suggestions on every
+  quote. This took most of the interface's processing time and delayed clicks, order results and
+  risk previews by up to several hundred milliseconds.
+- A second click on a Toolbox close or delete button no longer sends a duplicate request while the
+  first is in flight.
+
+- Warm orders and cached trading prerequisites no longer wait for active chart/history reads or
+  account refreshes. Orders remain serialized and login waits for existing orders to settle.
+- The Journal reports order queue/preparation and broker-confirmation timings separately.
+- Risk previews start immediately, coalesce pending edits and ignore obsolete results. Existing quote
+  subscriptions are reused instead of restoring the same stream repeatedly during preparation.
+
 ## [0.1.2] - 2026-10-14
 
 ### Fixed

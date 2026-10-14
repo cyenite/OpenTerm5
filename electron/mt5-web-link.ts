@@ -30,6 +30,7 @@ export class Mt5WebLink extends EventEmitter {
   private epoch = 0;
   private backoff = 500;
   private nextId = randomInt(1, 0x7fffffff);
+  private pendingLogins = 0;
   private isStopped = true;
   private isPolling = false;
   private isLoggedIn = false;
@@ -41,6 +42,7 @@ export class Mt5WebLink extends EventEmitter {
   private profile?: WebAccountModel;
   private credentials?: WebCredentials;
   private readonly queue = new RequestQueue();
+  private readonly trades = new RequestQueue();
   private positions: Position[] = [];
   private orders: Order[] = [];
   private endpoint = '';
@@ -56,9 +58,11 @@ export class Mt5WebLink extends EventEmitter {
   private readonly summaries = new Map<string, SymbolSpec>();
   private readonly symbolIds = new Map<string, number>();
   private readonly pendingTrades = new Map<number, PendingTrade>();
+  private readonly tradeOutcomes = new Set<Promise<TradeResult>>();
   private readonly conversions = new Set<string>();
   private readonly pinned = new Set<string>();
   private readonly untrusted = new Set<string>();
+  private readonly subscribed = new Set<string>();
   state: LinkState = { url: '', state: 'idle' };
 
   constructor(private readonly createClient = (endpoint: string) => new Mt5WebClient(endpoint), private readonly retryDelay = 500) {
@@ -101,6 +105,7 @@ export class Mt5WebLink extends EventEmitter {
     this.conversions.clear();
     this.pinned.clear();
     this.untrusted.clear();
+    this.subscribed.clear();
     clearTimeout(this.livePublish);
     this.failTrades();
     this.publishState({ state: 'closed' });
@@ -115,10 +120,58 @@ export class Mt5WebLink extends EventEmitter {
 
   request<M extends TerminalMethod>(method: M, params: TerminalMethods[M][0]): Promise<TerminalMethods[M][1]> {
     const epoch = this.epoch;
-    return this.queue.enqueue(async () => {
+    const started = performance.now();
+    const guard = () => {
       if (epoch !== this.epoch || this.isStopped) throw new Error('Connection changed before the request could run');
+    };
+    const values = params as Record<string, any>;
+    const canRead = this.isLoggedIn && !this.isStopped && !this.pendingLogins;
+    if (method === 'order.send') {
+      const symbol = values.symbol ?? this.positions.find((position) => position.ticket === values.position)?.symbol
+        ?? this.orders.find((order) => order.ticket === values.order)?.symbol;
+      const ready = canRead && this.details.has(symbol) ? Promise.resolve() : this.queue.enqueue(async () => {
+        guard();
+        await this.loadDetails([this.enriched(params as TradeRequest).symbol ?? '']);
+      }, true);
+      void ready.catch(() => {});
+      // The lane is held only until the broker admits the request, as the official web client does;
+      // the final result arrives later by request id, so the next order need not wait for it.
+      return this.trades.enqueue(async () => {
+        await ready;
+        guard();
+        return this.submitTrade(params as TradeRequest, started);
+      }).then((submission) => submission.outcome) as Promise<TerminalMethods[M][1]>;
+    }
+    if (canRead) {
+      let cached: unknown;
+      switch (method) {
+        case 'terminal.status': cached = this.status(); break;
+        case 'account.info': cached = this.account(); break;
+        case 'symbols.info': cached = this.details.get(values.symbol)?.spec; break;
+        case 'symbols.valuation': {
+          const valuation = this.valuation(values.symbol);
+          if (valuation && valuation.via.every((symbol) => this.subscribed.has(symbol))) cached = valuation;
+          break;
+        }
+        case 'symbols.quote': {
+          const quote = this.quote(values.symbol);
+          if (quote && this.subscribed.has(values.symbol)) {
+            this.pinned.add(values.symbol);
+            cached = { symbol: values.symbol, ...quote, time: this.rawTicks.get(values.symbol)!.time };
+          }
+          break;
+        }
+      }
+      if (cached !== undefined) return Promise.resolve(cached) as Promise<TerminalMethods[M][1]>;
+    }
+    const settled = method === 'account.login' ? this.trades.enqueue(async () => {}).then(() => Promise.allSettled([...this.tradeOutcomes])) : undefined;
+    if (method === 'account.login') this.pendingLogins++;
+    const run = this.queue.enqueue(async () => {
+      if (settled) await settled;
+      guard();
       return this.route(method, params);
     }, method.startsWith('order.') || ['account.info', 'symbols.info', 'symbols.quote', 'symbols.valuation'].includes(method), method === 'account.login') as Promise<TerminalMethods[M][1]>;
+    return method === 'account.login' ? run.finally(() => { this.pendingLogins--; }) : run;
   }
 
   private publish<E extends TerminalEvent>(event: E, data: TerminalEvents[E]): void { this.emit('event', event, data); }
@@ -222,6 +275,7 @@ export class Mt5WebLink extends EventEmitter {
     this.isLoggedIn = false;
     clearInterval(this.poller);
     this.rawTicks.clear();
+    this.subscribed.clear();
     this.depthBooks.clear();
     for (const symbol of this.depthSymbols) this.publish('book', { symbol, levels: [], isAvailable: false });
     this.failTrades();
@@ -291,11 +345,21 @@ export class Mt5WebLink extends EventEmitter {
     if (missing.some((name) => !this.details.has(name))) throw new Error('Broker did not supply the requested symbol metadata');
   }
 
+  private subscriptionNames(): string[] {
+    return [...new Set([...this.watched, ...this.visible, ...this.depthSymbols, ...[...this.charts.values()].map((chart) => chart.symbol), ...this.positions.map((position) => position.symbol), ...this.conversions, ...this.pinned])];
+  }
+
   private async restoreSubscriptions(): Promise<void> {
-    const names = [...new Set([...this.watched, ...this.visible, ...this.depthSymbols, ...[...this.charts.values()].map((chart) => chart.symbol), ...this.positions.map((position) => position.symbol), ...this.conversions, ...this.pinned])];
+    const names = this.subscriptionNames();
     if (!names.length) return;
     await this.loadDetails(names);
-    await this.authenticated().subscribe(names);
+    if (names.length !== this.subscribed.size || names.some((name) => !this.subscribed.has(name))) {
+      const epoch = this.epoch;
+      await this.authenticated().subscribe(names);
+      if (epoch !== this.epoch) throw new Error('Connection changed during quote subscription');
+      this.subscribed.clear();
+      for (const name of names) this.subscribed.add(name);
+    }
     if (this.depthSymbols.size) await this.subscribeDepth();
   }
 
@@ -425,7 +489,13 @@ export class Mt5WebLink extends EventEmitter {
   private async snapshot(isInitial = false): Promise<TradeSnapshot> {
     if (!this.isLoggedIn) return { account: null, orders: [], positions: [] };
     const client = this.authenticated();
-    this.profile = parseAccountModel(await client.transport.request(3), Number(this.credentials!.login));
+    const profile = this.profile;
+    const refreshed = parseAccountModel(await client.transport.request(3), Number(this.credentials!.login));
+    // A transaction received during this read carries newer balances than the response.
+    if (this.profile && this.profile !== profile) {
+      const { balance, credit } = this.profile.account;
+      this.profile = { ...refreshed, account: { ...refreshed.account, balance, credit, equity: balance + credit, marginFree: balance + credit } };
+    } else this.profile = refreshed;
     if (isInitial) {
       const snapshot = parseTradeSnapshot(await client.transport.request(4));
       this.orders = snapshot.orders;
@@ -446,7 +516,8 @@ export class Mt5WebLink extends EventEmitter {
       if (transaction.kind === 'order') this.orders = applyOrderChange(this.orders, transaction.action, transaction.order);
       if (transaction.kind !== 'deal') continue;
       if (transaction.action === TransactionAction.added && this.profile) {
-        this.profile = { ...this.profile, account: { ...this.profile.account, balance: transaction.balance, credit: transaction.credit } };
+        const { balance, credit } = transaction;
+        this.profile = { ...this.profile, account: { ...this.profile.account, balance, credit, equity: balance + credit, marginFree: balance + credit } };
       }
       for (const position of [transaction.position, ...transaction.positions]) {
         if (position) this.positions = applyPositionChange(this.positions, position);
@@ -546,37 +617,44 @@ export class Mt5WebLink extends EventEmitter {
     return encodeTradeRequest({ ...request, price }, { ...details.trade, requestId, symbol: details.spec.name, expirationMode: order?.expirationMode, isNegativePriceAllowed: details.allowsNegativePrices });
   }
 
-  private async sendTrade(request: TradeRequest): Promise<TradeResult> {
+  private async submitTrade(request: TradeRequest, started = performance.now()): Promise<{ readonly outcome: Promise<TradeResult> }> {
     request = this.enriched(request);
     await this.loadDetails([request.symbol ?? '']);
     const id = this.nextId++;
     if (this.nextId > 0xffffffff) this.nextId = 1;
     const payload = this.prepare(request, id);
-    let outcome: Promise<TradeResult>;
-    outcome = new Promise((resolve, reject) => {
+    const submitted = performance.now();
+    const final = new Promise<TradeResult>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingTrades.delete(id);
         reject(new Error('Order result timed out. Its outcome is unknown; check broker positions and history before repeating it.'));
       }, 30_000);
       this.pendingTrades.set(id, { timer, reject, resolve });
     });
-    void outcome.catch(() => {});
+    void final.catch(() => {});
+    let admitted: number;
     try {
       const code = parseTradeAdmission(await this.authenticated().transport.request(12, payload));
+      admitted = performance.now();
       if (code !== 0) {
         const pending = this.pendingTrades.get(id);
         if (pending) { clearTimeout(pending.timer); this.pendingTrades.delete(id); pending.resolve({ retcode: code, isSuccess: false, comment: `Broker declined the request (${code})` }); }
       }
-      const result = await outcome;
-      void this.request('trade.snapshot', {}).then((snapshot) => this.publish('trade', snapshot))
-        .catch(() => this.journal('Trade result received; broker snapshot refresh is pending.'));
-      return result;
     } catch (error) {
       const pending = this.pendingTrades.get(id);
       if (pending) { clearTimeout(pending.timer); this.pendingTrades.delete(id); pending.reject(error instanceof Error ? error : new Error('Order outcome is unknown')); }
       if (!(error instanceof WebProtocolError)) throw new Error('Order outcome is unknown. Reconcile broker positions and history before submitting it again.');
       throw error;
     }
+    const outcome = final.then((result) => {
+      this.journal(`Order timing: main-process queue/preparation ${(submitted - started).toFixed(1)} ms; broker admission ${(admitted - submitted).toFixed(1)} ms; final result ${(performance.now() - submitted).toFixed(1)} ms.`);
+      void this.request('trade.snapshot', {}).then((snapshot) => this.publish('trade', snapshot))
+        .catch(() => this.journal('Trade result received; broker snapshot refresh is pending.'));
+      return result;
+    });
+    this.tradeOutcomes.add(outcome);
+    void outcome.catch(() => {}).finally(() => this.tradeOutcomes.delete(outcome));
+    return { outcome };
   }
 
   private async route(method: TerminalMethod, values: unknown): Promise<unknown> {
@@ -632,7 +710,7 @@ export class Mt5WebLink extends EventEmitter {
         const result: CheckResult = { retcode: 0, isSuccess: true, hasMarginEstimate: false, comment: 'Order fields validated locally. Margin and execution conditions are checked by the broker on submission.', balance: account.balance, equity: account.equity, margin: Number.NaN, marginFree: Number.NaN, marginLevel: Number.NaN };
         return result;
       }
-      case 'order.send': return this.sendTrade(params as TradeRequest);
+      case 'order.send': return (await this.submitTrade(params as TradeRequest)).outcome;
       case 'symbols.quote': {
         if (!this.pinned.has(params.symbol)) {
           await this.loadDetails([params.symbol]);

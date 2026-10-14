@@ -3,17 +3,18 @@ import { orderType, type Account, type History, type Order, type Position } from
 import { showToolbox, togglePanel } from '../lib/commands';
 import { downloadHistory } from '../lib/history-export';
 import { formatMoney, formatPrice, formatTime, formatVolume } from '../lib/format';
-import { closePosition, log, sendOrder, session, terminal } from '../lib/session';
+import { closePosition, isTradePending, log, sendOrder, session, terminal } from '../lib/session';
 import { useStore } from '../lib/store';
 import { openDialog, workspace, type ToolboxTab } from '../lib/workspace';
 import { openContextMenu } from '../lib/context-menu';
 import { defaultSymbol } from '../lib/broker-symbols';
-import type { BulkKind } from '../../shared/automation';
-import { automation } from '../lib/automation';
+import { bulkKinds, type BulkKind } from '../../shared/automation';
+import { runBulkTrades } from '../lib/automation';
 
 async function runBulk(kind: BulkKind, ticket?: number, symbol?: string): Promise<void> {
+  const label = `${bulkKinds.find((candidate) => candidate.key === kind)?.label ?? kind}${ticket ? ` #${ticket}` : ''}${symbol ? ` ${symbol}` : ''}`;
   try {
-    const outcomes = await automation.request('manager.bulk', { kind, ticket, symbol });
+    const outcomes = await runBulkTrades(label, { kind, ticket, symbol });
     const failed = outcomes.filter((outcome) => !outcome.result.isSuccess);
     if (failed.length) log(`${kind}: ${failed.length} of ${outcomes.length} failed: ${failed[0].result.comment}`, 'Trades');
   } catch (error) {
@@ -51,6 +52,7 @@ interface PositionRowProps {
 
 function PositionRow({ position, onMenu }: PositionRowProps) {
   const digits = useDigits(position.symbol);
+  const isClosing = useStore(session, (state) => isTradePending(state, { position: position.ticket }));
   const close = async () => {
     const result = await closePosition(position);
     if (!result.isSuccess) {
@@ -58,7 +60,7 @@ function PositionRow({ position, onMenu }: PositionRowProps) {
     }
   };
   return (
-    <tr onDoubleClick={() => openDialog({ kind: 'modifyPosition', ticket: position.ticket })} onContextMenu={onMenu}>
+    <tr className={isClosing ? 'is-pending' : undefined} aria-busy={isClosing} onDoubleClick={() => openDialog({ kind: 'modifyPosition', ticket: position.ticket })} onContextMenu={onMenu}>
       <td>{position.symbol}</td>
       <td className="num">{position.ticket}</td>
       <td>{formatTime(position.time)}</td>
@@ -72,7 +74,7 @@ function PositionRow({ position, onMenu }: PositionRowProps) {
       <td className={`num ${profitClass(position.profit)}`}>{formatMoney(position.profit)}</td>
       <td>{position.comment}</td>
       <td>
-        <button className="row-close" title="Close position" onClick={close}>×</button>
+        <button className="row-close" title={isClosing ? 'Sending to the broker…' : 'Close position'} disabled={isClosing} onClick={close}>{isClosing ? <span className="spinner" aria-hidden /> : '×'}</button>
       </td>
     </tr>
   );
@@ -85,6 +87,7 @@ interface OrderRowProps {
 
 function OrderRow({ order, onMenu }: OrderRowProps) {
   const digits = useDigits(order.symbol);
+  const isRemoving = useStore(session, (state) => isTradePending(state, { order: order.ticket }));
   const cancel = async () => {
     const result = await sendOrder({ action: 'remove', order: order.ticket });
     if (!result.isSuccess) {
@@ -92,7 +95,7 @@ function OrderRow({ order, onMenu }: OrderRowProps) {
     }
   };
   return (
-    <tr className="is-order" onDoubleClick={() => openDialog({ kind: 'modifyOrder', ticket: order.ticket })} onContextMenu={onMenu}>
+    <tr className={isRemoving ? 'is-order is-pending' : 'is-order'} aria-busy={isRemoving} onDoubleClick={() => openDialog({ kind: 'modifyOrder', ticket: order.ticket })} onContextMenu={onMenu}>
       <td>{order.symbol}</td>
       <td className="num">{order.ticket}</td>
       <td>{formatTime(order.time)}</td>
@@ -106,7 +109,7 @@ function OrderRow({ order, onMenu }: OrderRowProps) {
       <td className="num is-muted">placed</td>
       <td>{order.comment}</td>
       <td>
-        <button className="row-close" title="Delete order" onClick={cancel}>×</button>
+        <button className="row-close" title={isRemoving ? 'Sending to the broker…' : 'Delete order'} disabled={isRemoving} onClick={cancel}>{isRemoving ? <span className="spinner" aria-hidden /> : '×'}</button>
       </td>
     </tr>
   );

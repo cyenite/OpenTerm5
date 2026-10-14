@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react';
-import type { RiskOrderOutcome, RiskOrderRequest } from '../../../shared/automation';
-import type { OrderTypeKey, TradeResult } from '../../../shared/protocol';
+import type { RiskOrderRequest } from '../../../shared/automation';
+import { orderType, type OrderTypeKey, type TradeResult } from '../../../shared/protocol';
 import { distanceUnits, riskModes, type DistanceUnit, type RiskMode } from '../../../shared/risk';
-import { automation } from '../../lib/automation';
+import { placeRiskOrder } from '../../lib/automation';
 import { formatMoney, formatPrice } from '../../lib/format';
 import { session } from '../../lib/session';
 import { useStore } from '../../lib/store';
+import { useRiskPreview } from '../../lib/risk-preview';
 import { NumberField, Segmented, SelectField, Switch, TextField } from '../ui/Controls';
 
 interface RiskTicketProps {
   symbol: string;
   canTrade: boolean;
-  onResult: (title: string, result: TradeResult) => void;
+  onResult: (title: string, result: TradeResult | null) => void;
 }
 
 const entryKinds = [
@@ -51,8 +52,6 @@ export function RiskTicket({ symbol, canTrade, onResult }: RiskTicketProps) {
   const [entry, setEntry] = useState<EntryKind>('market');
   const [price, setPrice] = useState(0);
   const [preferences, setPreferences] = useState(loadPreferences);
-  const [preview, setPreview] = useState<RiskOrderOutcome | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const set = (patch: Partial<Preferences>) => setPreferences({ ...preferences, ...patch });
 
@@ -80,23 +79,14 @@ export function RiskTicket({ symbol, canTrade, onResult }: RiskTicketProps) {
       ...(preferences.trailing > 0 ? { trailing: { startPoints: preferences.trailing, distancePoints: preferences.trailing, stepPoints: 10 } } : {}),
     },
   };
-  const signature = JSON.stringify(request);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      automation.request('manager.risk', { ...request, isDryRun: true })
-        .then((outcome) => { setPreview(outcome); setProblem(null); })
-        .catch((error: Error) => { setPreview(null); setProblem(error.message); });
-    }, 300);
-    return () => clearTimeout(timer);
-    // The request is rebuilt every render, so its serialised form is the dependency;
-    // quotes only matter once, when the first one arrives.
-  }, [signature, tick?.bid === undefined]);
+  const { preview, problem } = useRiskPreview(request, entry === 'market' ? `${tick?.bid}:${tick?.ask}` : tick?.bid === undefined);
 
   const place = async () => {
+    const label = `Risk ${orderType(type)?.label.toLowerCase() ?? type} ${preview?.lots ?? ''} ${symbol}`.replace(/\s+/g, ' ');
     setIsBusy(true);
+    onResult(label, null);
     try {
-      const outcome = await automation.request('manager.risk', request);
+      const outcome = await placeRiskOrder(label, request);
       const failed = outcome.results.find((result) => !result.isSuccess);
       onResult(
         `${type} ${outcome.lots} ${symbol} in ${outcome.results.length} order${outcome.results.length === 1 ? '' : 's'}, risk ${formatMoney(outcome.riskMoney)} ${currency}`,

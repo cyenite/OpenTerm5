@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AccountGuard, BulkKind, PositionRule } from '../../../shared/automation';
 import { bulkKinds, guardActions } from '../../../shared/automation';
-import { accountLabel, automation, automationStore } from '../../lib/automation';
+import { accountLabel, automation, automationStore, runBulkTrades } from '../../lib/automation';
 import { formatMoney, formatTime } from '../../lib/format';
 import { log, session } from '../../lib/session';
 import { useStore } from '../../lib/store';
@@ -66,7 +66,7 @@ function BulkActions({ accountId }: BulkActionsProps) {
   const [result, setResult] = useState<string | null>(null);
   const run = (kind: BulkKind, label: string) => {
     if (!window.confirm(`${label}${kind === 'closeSymbol' ? ` ${symbol}` : ''} on ${accountLabel(accountId)}?`)) return;
-    automation.request('manager.bulk', { kind, accountId, ...(kind === 'closeSymbol' ? { symbol } : {}) })
+    runBulkTrades(`${label}${kind === 'closeSymbol' ? ` ${symbol}` : ''}`, { kind, accountId, ...(kind === 'closeSymbol' ? { symbol } : {}) })
       .then((outcomes) => setResult(`${label}: ${outcomes.filter((outcome) => outcome.result.isSuccess).length} of ${outcomes.length} succeeded${outcomes.some((outcome) => !outcome.result.isSuccess) ? ` (${outcomes.find((outcome) => !outcome.result.isSuccess)!.result.comment})` : ''}`))
       .catch((error: Error) => setResult(error.message));
   };
