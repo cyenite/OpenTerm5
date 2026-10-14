@@ -46,7 +46,7 @@ test('a bearer-authenticated signal is sized by risk and executed', async () => 
   const record = await response.json() as SignalRecord;
   assert.equal(record.status, 'executed');
   assert.equal(link.sent[0].volume, 0.2);
-  assert.equal(link.sent[0].comment, '', 'entries carry no Terminal5 tag');
+  assert.equal(link.sent[0].comment, '', 'entries carry no OpenTerm tag');
   assert.equal(await ownership.owns('src-token-1', link.positions[0].ticket), true);
   assert.equal('secret' in record.payload, false);
 });
@@ -74,11 +74,14 @@ test('HMAC signatures are verified with a replay window', async () => {
   const { post, link } = await setup();
   const body = JSON.stringify({ action: 'buy', symbol: 'EURUSD', volume: 0.3 });
   const now = Math.floor(Date.now() / 1000);
-  const ok = await post('/v1/signals?wait=1', body, { 'x-t5-source': 'src-hmac-1', 'x-t5-timestamp': String(now), 'x-t5-signature': signBody('hmac secret', now, body) });
+  const ok = await post('/v1/signals?wait=1', body, { 'x-openterm-source': 'src-hmac-1', 'x-openterm-timestamp': String(now), 'x-openterm-signature': signBody('hmac secret', now, body) });
   assert.equal(ok.status, 200);
   assert.equal(link.sent[0].volume, 0.3);
   const stale = now - 600;
-  assert.equal((await post('/v1/signals', body, { 'x-t5-source': 'src-hmac-1', 'x-t5-timestamp': String(stale), 'x-t5-signature': signBody('hmac secret', stale, body) })).status, 401);
+  assert.equal((await post('/v1/signals', body, { 'x-openterm-source': 'src-hmac-1', 'x-openterm-timestamp': String(stale), 'x-openterm-signature': signBody('hmac secret', stale, body) })).status, 401);
+  const legacyBody = JSON.stringify({ action: 'buy', symbol: 'EURUSD', volume: 0.2 });
+  const legacy = await post('/v1/signals?wait=1', legacyBody, { 'x-t5-source': 'src-hmac-1', 'x-t5-timestamp': String(now), 'x-t5-signature': signBody('hmac secret', now, legacyBody) });
+  assert.equal(legacy.status, 200, 'pre-rename X-T5-* headers are still accepted');
   assert.equal((await post('/v1/signals', body.replace('0.3', '3'), { 'x-t5-source': 'src-hmac-1', 'x-t5-timestamp': String(now), 'x-t5-signature': signBody('hmac secret', now, body) })).status, 401, 'tampered body');
 });
 

@@ -149,6 +149,12 @@ export class WebhookServer extends EventEmitter {
     throw new HttpError(401, 'Authentication failed');
   }
 
+  // X-T5-* are the names used before the rename to OpenTerm; existing senders keep working.
+  private header(request: IncomingMessage, name: 'source' | 'timestamp' | 'signature'): string | undefined {
+    const value = request.headers[`x-openterm-${name}`] ?? request.headers[`x-t5-${name}`];
+    return typeof value === 'string' ? value : undefined;
+  }
+
   private bearer(request: IncomingMessage): string | undefined {
     const header = request.headers.authorization;
     return header?.startsWith('Bearer ') ? header.slice(7).trim() : undefined;
@@ -157,11 +163,11 @@ export class WebhookServer extends EventEmitter {
   private authenticate(request: IncomingMessage, url: URL, body: string, raw: Record<string, unknown> | null, sourceId?: string): WebhookSource {
     const remote = this.remote(request);
     if ((this.failures.get(remote) ?? []).filter((time) => this.now() - time < FAILURE_WINDOW_MS).length >= MAX_AUTH_FAILURES) throw new HttpError(429, 'Too many failed authentication attempts; try again later');
-    const signature = request.headers['x-t5-signature'];
-    const claimedSource = sourceId ?? (typeof request.headers['x-t5-source'] === 'string' ? request.headers['x-t5-source'] : undefined);
-    if (typeof signature === 'string') {
+    const signature = this.header(request, 'signature');
+    const claimedSource = sourceId ?? this.header(request, 'source');
+    if (signature !== undefined) {
       const source = this.settings.sources.find((item) => item.id === claimedSource && item.auth === 'hmac');
-      const timestamp = Number(request.headers['x-t5-timestamp']);
+      const timestamp = Number(this.header(request, 'timestamp'));
       if (!source || !Number.isFinite(timestamp)) this.failAuth(remote);
       if (Math.abs(this.now() - timestamp * 1000) > REPLAY_WINDOW_MS) throw new HttpError(401, 'Signature timestamp is outside the 5 minute window');
       if (!secretEquals(signature, signBody(source.secret, timestamp, body))) this.failAuth(remote);
