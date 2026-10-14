@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { orderType, orderTypes, type CheckResult, type OrderTypeKey, type TradeRequest, type TradeResult } from '../../../shared/protocol';
 import { formatMoney, formatPrice, formatVolume, roundToStep } from '../../lib/format';
-import { sendOrder, session, terminal, watchlist } from '../../lib/session';
+import { sendOrder, session, terminal } from '../../lib/session';
+import { useWatchedSpecs } from '../../lib/watchlists';
 import { useStore } from '../../lib/store';
 import { closeDialog } from '../../lib/workspace';
 import { Dialog } from './Dialog';
@@ -67,7 +68,7 @@ interface OrderDialogProps {
 }
 
 export function OrderDialog({ initialSymbol, initialVolume, initialPrice, initialType }: OrderDialogProps) {
-  const symbols = useStore(session, watchlist);
+  const symbols = useWatchedSpecs();
   const [symbol, setSymbol] = useState(initialSymbol);
   const spec = useStore(session, (state) => state.symbols[symbol]);
   const tick = useStore(session, (state) => state.ticks[symbol]);

@@ -75,3 +75,13 @@ test('auto-mapping follows prefixes as well as suffixes, in both directions', ()
   assert.equal(passesFilters(filtered, { side: 'buy', symbol: 'mEURUSD', comment: '', magic: 0 }), null);
   assert.match(passesFilters(filtered, { side: 'buy', symbol: 'mGBPUSD', comment: '', magic: 0 }) ?? '', /filtered/);
 });
+
+test('explicit mappings cover decorated master names and follow the follower decoration', () => {
+  const names = ['XAUUSD.pro', 'EURUSD.pro', 'GER40.pro'];
+  const mapped = { ...follower, symbolMap: { DE40: 'GER40', GOLD: 'XAUUSD.pro' } };
+  assert.equal(mapFollowerSymbol('DE40.m', mapped, names), 'GER40.pro');
+  assert.equal(mapFollowerSymbol('mGOLD', mapped, names), 'XAUUSD.pro');
+  assert.equal(mapFollowerSymbol('DE40.m', { ...mapped, isSuffixAutoMapped: false }, names), 'GER40');
+  assert.equal(mapFollowerSymbol('GOLD.m', follower, names), 'XAUUSD.pro');
+  assert.equal(mapFollowerSymbol('BRK.B', follower, ['BRK.A']), null);
+});

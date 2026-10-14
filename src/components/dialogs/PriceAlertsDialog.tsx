@@ -2,6 +2,7 @@ import { Component } from 'react';
 import { alertConditions, type AlertCondition, type PriceAlert } from '../../lib/price-alerts-model';
 import { priceAlerts, updateAlerts } from '../../lib/price-alerts';
 import { requireSymbols, session } from '../../lib/session';
+import { currentWatchedSpecs } from '../../lib/watchlists';
 import { closeDialog } from '../../lib/workspace';
 import { Dialog } from './Dialog';
 
@@ -14,7 +15,7 @@ interface AlertsState {
 }
 
 export class PriceAlertsDialog extends Component<Record<string, never>, AlertsState> {
-  state: AlertsState = { error: '', price: '', symbol: Object.values(session.get().symbols).find((item) => item.visible)?.name ?? '', condition: 'bidAbove', alerts: priceAlerts.get().alerts };
+  state: AlertsState = { error: '', price: '', symbol: currentWatchedSpecs()[0]?.name ?? '', condition: 'bidAbove', alerts: priceAlerts.get().alerts };
   private unsubscribe?: () => void;
 
   componentDidMount(): void { this.unsubscribe = priceAlerts.subscribe(() => this.setState({ alerts: priceAlerts.get().alerts })); }
@@ -42,7 +43,9 @@ export class PriceAlertsDialog extends Component<Record<string, never>, AlertsSt
 
   render() {
     const { symbol, price, condition, error, alerts } = this.state;
-    const visible = Object.values(session.get().symbols).filter((item) => item.visible || item.name === symbol);
+    const watched = currentWatchedSpecs();
+    const current = session.get().symbols[symbol];
+    const visible = current && !watched.includes(current) ? [current, ...watched] : watched;
     return <Dialog title="Price Alerts" width={650}>
       <p className="is-muted">Alerts fire once in the Journal while this app is running and the matching account is connected. Inactive accounts are not monitored.</p>
       <form className="order-form" onSubmit={(event) => { event.preventDefault(); void this.save(); }}>

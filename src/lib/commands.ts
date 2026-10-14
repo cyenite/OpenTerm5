@@ -68,7 +68,8 @@ export function closeActiveChart(): void {
 }
 
 export function handleShortcut(event: KeyboardEvent): boolean {
-  if (event.target instanceof Element && event.target.closest('input, textarea, select')) {
+  // A focused panel that used the key (typing into Market Watch starts a search) has claimed it.
+  if (event.defaultPrevented || event.target instanceof Element && event.target.closest('input, textarea, select')) {
     return false;
   }
   const key = event.key.toLowerCase();

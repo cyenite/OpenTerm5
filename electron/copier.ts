@@ -306,6 +306,8 @@ export class Copier extends EventEmitter {
   private async reconcileFollower(config: CopierConfig, follower: FollowerConfig, master: TradeSnapshot, snapshot: TradeSnapshot, link: TradingLink): Promise<void> {
     const ignored = this.baseline(config, follower, master);
     const detected = this.now();
+    // Adoption maps the master symbol onto the follower's names, which may not be cached after a restart.
+    if (this.state.mappings.some((item) => item.followerId === follower.id && item.status === 'unknown')) await this.symbolNames(link, follower.accountId).catch(() => undefined);
     const tripped = this.protection(follower, snapshot);
     const protectionState = this.state.protections.find((item) => item.followerId === follower.id);
     if (tripped && protectionState?.trippedAt && protectionState.trippedAt >= detected - 1 && follower.equityProtection.action === 'closeAll') {

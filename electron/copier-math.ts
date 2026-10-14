@@ -69,8 +69,11 @@ export function copyVolume(follower: Pick<FollowerConfig, 'riskType' | 'riskValu
   return note ? { lots, note } : { lots };
 }
 
+// An explicit entry written plainly (EURUSD) also covers the master's decorated names (EURUSD.m), and
+// with auto-mapping its target follows the follower's own decoration when it is not listed exactly.
 export function mapFollowerSymbol(symbol: string, follower: Pick<FollowerConfig, 'symbolMap' | 'isSuffixAutoMapped'>, followerNames: readonly string[]): string | null {
-  if (follower.symbolMap[symbol]) return follower.symbolMap[symbol];
+  const explicit = follower.symbolMap[symbol] ?? Object.entries(follower.symbolMap).find(([master]) => isListedSymbol(master, symbol))?.[1];
+  if (explicit) return follower.isSuffixAutoMapped ? matchSymbol(explicit, followerNames) ?? explicit : explicit;
   if (followerNames.includes(symbol)) return symbol;
   return follower.isSuffixAutoMapped ? matchSymbol(symbol, followerNames) : null;
 }
