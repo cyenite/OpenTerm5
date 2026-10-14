@@ -14,8 +14,15 @@ import {
 import { indicatorKinds } from '../lib/indicators';
 import { session, watchlist } from '../lib/session';
 import { useStore } from '../lib/store';
+import { windowArrangements } from '../lib/chart-windows';
 import {
   activeChart,
+  arrangeIcons,
+  arrangeWindows,
+  focusChart,
+  maximizeChart,
+  minimizeChart,
+  restoreWindows,
   chartTypes,
   tools,
   colorSchemes,
@@ -60,7 +67,6 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
         ] },
         separator,
         { label: 'Accounts...', action: () => openDialog({ kind: 'accounts' }) },
-        { label: 'Find Broker / Server...', action: () => openDialog({ kind: 'servers' }) },
         { label: 'Login to Trade Account', action: () => openDialog({ kind: 'login' }) },
         { label: 'Connection...', action: () => openDialog({ kind: 'connection' }) },
         separator,
@@ -142,13 +148,17 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
     {
       label: 'Window',
       items: [
-        { label: 'Tile Windows', shortcut: 'Alt+R', isChecked: state.layout === 'tile', action: () => workspace.set({ layout: 'tile' }) },
-        { label: 'Tabbed', isChecked: state.layout === 'tabs', action: () => workspace.set({ layout: 'tabs' }) },
+        ...windowArrangements.map((arrangement) => ({ label: arrangement.label, shortcut: 'shortcut' in arrangement ? arrangement.shortcut : undefined, isDisabled: !hasChart, action: () => arrangeWindows(arrangement.key) })),
+        { label: 'Arrange Icons', isDisabled: !hasChart, action: arrangeIcons },
+        separator,
+        { label: 'Tabbed', isChecked: state.layout === 'tabs', isDisabled: !hasChart, action: () => chart && maximizeChart(chart.id) },
+        { label: 'Floating Windows', isChecked: state.layout === 'windows', isDisabled: !hasChart, action: restoreWindows },
+        { label: 'Minimize', isDisabled: !hasChart, action: () => chart && minimizeChart(chart.id) },
         separator,
         ...state.charts.map((candidate, index) => ({
-          label: `${index + 1} ${candidate.symbol},${candidate.timeframe}`,
+          label: `${index + 1} ${candidate.symbol},${candidate.timeframe}${candidate.isMinimized ? ' (minimized)' : ''}`,
           isChecked: candidate.id === chart?.id,
-          action: () => workspace.set({ activeChartId: candidate.id }),
+          action: () => focusChart(candidate.id),
         })),
       ],
     },

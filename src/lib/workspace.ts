@@ -1,7 +1,8 @@
 import type { OrderTypeKey, Timeframe } from '../../shared/protocol';
 import { indicatorKind, type IndicatorConfig, type IndicatorKey } from './indicators';
 import { Store } from './store';
-import { applyTemplate, captureProfile, captureTemplate, restoreProfiles, restoreTemplates, type ChartProfile, type ChartTemplate } from './presets';
+import { arrangeFrames, clampFrame, raise, type ChartFrame, type WindowArrangement } from './chart-windows';
+import { applyTemplate, captureProfile, captureTemplate, restoreLayout, restoreProfiles, restoreTemplates, type ChartProfile, type ChartTemplate } from './presets';
 
 export const chartTypes = [
   { key: 'bars', label: 'Bar Chart', shortcut: 'Alt+1' },
@@ -48,7 +49,16 @@ export interface ChartConfig {
   indicators: IndicatorConfig[];
   isGridShown: boolean;
   isVolumeShown: boolean;
+  frame?: ChartFrame;
+  isMinimized?: boolean;
 }
+
+export const chartLayouts = [
+  { key: 'tabs', label: 'Tabbed (maximized)' },
+  { key: 'windows', label: 'Floating windows' },
+] as const;
+
+export type ChartLayout = (typeof chartLayouts)[number]['key'];
 
 export type ToolboxTab = 'trade' | 'exposure' | 'history' | 'journal';
 
@@ -73,7 +83,6 @@ export type Dialog =
   | { kind: 'connection' }
   | { kind: 'login'; profileId?: string }
   | { kind: 'accounts' }
-  | { kind: 'servers' }
   | { kind: 'alerts' }
   | { kind: 'indicator'; chartId: string; indicator: IndicatorKey }
   | { kind: 'profile' }
@@ -83,8 +92,9 @@ export type Dialog =
 export interface WorkspaceState {
   page: Page;
   tool: Tool;
-  layout: 'tabs' | 'tile';
+  layout: ChartLayout;
   activeChartId: string;
+  windowStack: string[];
   toolboxTab: ToolboxTab;
   scheme: ColorScheme;
   depthSymbol: string | null;
@@ -127,6 +137,7 @@ function initialState(): WorkspaceState {
     tool: 'cursor',
     layout: 'tabs',
     activeChartId: charts[0].id,
+    windowStack: charts.map((chart) => chart.id),
     toolboxTab: 'trade',
     scheme: 'greenOnBlack',
     depthSymbol: null,
@@ -148,7 +159,8 @@ function initialState(): WorkspaceState {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as Partial<WorkspaceState> | null;
     if (saved && Array.isArray(saved.charts)) {
-      const restored = { ...defaults, ...saved, profiles: restoreProfiles(saved.profiles), templates: restoreTemplates(saved.templates), dialog: null, depthSymbol: null, tool: 'cursor' as const };
+      const restored = { ...defaults, ...saved, ...restoreLayout(saved.layout as string | undefined, saved.charts), profiles: restoreProfiles(saved.profiles), templates: restoreTemplates(saved.templates), dialog: null, depthSymbol: null, tool: 'cursor' as const };
+      restored.windowStack = [...(saved.windowStack ?? []).filter((id) => restored.charts.some((chart) => chart.id === id)), ...restored.charts.map((chart) => chart.id).filter((id) => !saved.windowStack?.includes(id))];
       if (!restored.profiles.some((profile) => profile.name === restored.activeProfile)) restored.activeProfile = 'Default';
       if (!restored.profiles.some((profile) => profile.name === 'Default')) restored.profiles = [captureProfile(restored, 'Default'), ...restored.profiles];
       return restored;
@@ -190,16 +202,65 @@ export function updateActiveChart(patch: Partial<ChartConfig> | ((chart: ChartCo
 }
 
 export function openChart(symbol: string, timeframe?: Timeframe): void {
-  const chart = makeChart(symbol, timeframe ?? activeChart(workspace.get())?.timeframe ?? 'H1');
-  workspace.set((state) => ({ charts: [...state.charts, chart], activeChartId: chart.id }));
+  const state = workspace.get();
+  const frame = arrangeFrames(state.charts.length + 1, 'cascade').at(-1);
+  const chart = { ...makeChart(symbol, timeframe ?? activeChart(state)?.timeframe ?? 'H1'), frame };
+  workspace.set((current) => ({ charts: [...current.charts, chart], activeChartId: chart.id, windowStack: raise(current.windowStack, chart.id) }));
 }
 
 export function closeChart(id: string): void {
   workspace.set((state) => {
     const charts = state.charts.filter((chart) => chart.id !== id);
-    const activeChartId = state.activeChartId === id ? charts.at(-1)?.id ?? '' : state.activeChartId;
-    return { charts, activeChartId };
+    const windowStack = state.windowStack.filter((candidate) => candidate !== id);
+    const visible = windowStack.filter((candidate) => !charts.find((chart) => chart.id === candidate)?.isMinimized);
+    const activeChartId = state.activeChartId === id ? visible.at(-1) ?? charts.at(-1)?.id ?? '' : state.activeChartId;
+    return { charts, activeChartId, windowStack };
   });
+}
+
+export function focusChart(id: string): void {
+  workspace.set((state) => ({
+    activeChartId: id,
+    windowStack: raise(state.windowStack, id),
+    charts: state.charts.map((chart) => chart.id === id && chart.isMinimized ? { ...chart, isMinimized: false } : chart),
+  }));
+}
+
+export function setChartFrame(id: string, frame: ChartFrame): void {
+  updateChart(id, { frame: clampFrame(frame) });
+}
+
+export function minimizeChart(id: string): void {
+  workspace.set((state) => {
+    const charts = state.charts.map((chart) => chart.id === id ? { ...chart, isMinimized: true } : chart);
+    const next = [...state.windowStack].reverse().find((candidate) => candidate !== id && !charts.find((chart) => chart.id === candidate)?.isMinimized);
+    return { charts, layout: 'windows', activeChartId: state.activeChartId === id && next ? next : state.activeChartId };
+  });
+}
+
+export function maximizeChart(id: string): void {
+  focusChart(id);
+  workspace.set({ layout: 'tabs' });
+}
+
+export function restoreWindows(): void {
+  workspace.set((state) => {
+    const frames = arrangeFrames(state.charts.length, 'cascade');
+    return { layout: 'windows', charts: state.charts.map((chart, index) => chart.frame ? chart : { ...chart, frame: frames[index] }) };
+  });
+}
+
+export function arrangeWindows(arrangement: WindowArrangement): void {
+  workspace.set((state) => {
+    const ordered = arrangement === 'cascade' ? state.windowStack : state.charts.map((chart) => chart.id);
+    const open = ordered.map((id) => state.charts.find((chart) => chart.id === id)).filter((chart): chart is ChartConfig => !!chart && !chart.isMinimized);
+    const frames = new Map(arrangeFrames(open.length, arrangement).map((frame, index) => [open[index].id, frame]));
+    return { layout: 'windows', charts: state.charts.map((chart) => frames.has(chart.id) ? { ...chart, frame: frames.get(chart.id) } : chart) };
+  });
+}
+
+export function arrangeIcons(): void {
+  workspace.set((state) => ({ layout: 'windows', charts: state.charts.map((chart) => ({ ...chart, isMinimized: true })) }));
 }
 
 export function addIndicator(chartId: string, kind: IndicatorKey, params: Record<string, number | boolean>): void {

@@ -41,6 +41,9 @@ test('persisted presets discard corrupt shapes instead of breaking chart renderi
   const template = captureTemplate(chart, 'greenOnBlack', 'Valid');
   assert.deepEqual(restoreTemplates([null, {}, { ...template, settings: { ...template.settings, indicators: [{ kind: 'unknown' }] } }, template]), [template]);
   const profile = captureProfile({ charts: [chart], activeChartId: chart.id, scheme: 'greenOnBlack', layout: 'tile' } as WorkspaceState, 'Valid');
-  assert.deepEqual(restoreProfiles([{}, { ...profile, charts: [null] }, profile]), [profile]);
+  const [restored] = restoreProfiles([{}, { ...profile, charts: [null] }, profile]);
+  assert.equal(restored.layout, 'windows');
+  assert.deepEqual(restored.charts, [{ ...chart, frame: { left: 0, top: 0, width: 1, height: 1 } }]);
+  assert.equal(restoreProfiles([{ ...profile, charts: [{ ...chart, frame: { left: 0, top: 0, width: 4, height: 1 } }] }]).length, 0);
   assert.deepEqual(restoreProfiles('invalid'), []);
 });

@@ -1,6 +1,6 @@
 import type { Timeframe } from '../../shared/protocol';
 import { session } from './session';
-import { activeChart, closeChart, openDialog, pages, updateActiveChart, workspace, type ChartType, type ToolboxTab, type WorkspaceState } from './workspace';
+import { activeChart, arrangeWindows, closeChart, openDialog, pages, updateActiveChart, workspace, type ChartType, type ToolboxTab, type WorkspaceState } from './workspace';
 
 type PanelFlag = 'isMarketWatchShown' | 'isNavigatorShown' | 'isToolboxShown' | 'isDataWindowShown' | 'isStatusBarShown' | 'isChartBarShown';
 
@@ -83,7 +83,7 @@ export function handleShortcut(event: KeyboardEvent): boolean {
     if (event.altKey && key === '2') return () => setChartType('candles');
     if (event.altKey && key === '3') return () => setChartType('line');
     if (event.altKey && key === 'b') return () => toggleDepth();
-    if (event.altKey && key === 'r') return () => workspace.set((state) => ({ layout: state.layout === 'tile' ? 'tabs' : 'tile' }));
+    if (event.altKey && key === 'r') return () => arrangeWindows('tile');
     if (isCtrl && /^[1-4]$/.test(key)) return () => workspace.set({ page: pages[Number(key) - 1].key });
     if (isCtrl && key === 'm') return () => togglePanel('isMarketWatchShown');
     if (isCtrl && key === 'n') return () => togglePanel('isNavigatorShown');

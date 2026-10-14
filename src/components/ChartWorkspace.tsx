@@ -1,13 +1,16 @@
 import { useStore } from '../lib/store';
-import { activeChart, closeChart, openChart, workspace } from '../lib/workspace';
-import { ChartWindow } from './chart/ChartWindow';
+import { activeChart, closeChart, focusChart, openChart, restoreWindows, workspace } from '../lib/workspace';
+import { ChartFrameWindow } from './chart/ChartFrameWindow';
+import { chartMenu } from '../lib/chart-menu';
+import { openContextMenu } from '../lib/context-menu';
 
 export function ChartWorkspace() {
   const charts = useStore(workspace, (state) => state.charts);
   const layout = useStore(workspace, (state) => state.layout);
+  const stack = useStore(workspace, (state) => state.windowStack);
   const isChartBarShown = useStore(workspace, (state) => state.isChartBarShown);
   const activeId = useStore(workspace, (state) => activeChart(state)?.id);
-  const columns = Math.ceil(Math.sqrt(charts.length));
+  const icons = charts.filter((chart) => chart.isMinimized).map((chart) => chart.id);
 
   return (
     <div
@@ -20,30 +23,38 @@ export function ChartWorkspace() {
         }
       }}
     >
-      <div
-        className={`chart-area is-${layout}`}
-        style={layout === 'tile' ? { gridTemplateColumns: `repeat(${columns}, 1fr)`, gridTemplateRows: `repeat(${Math.ceil(charts.length / columns)}, 1fr)` } : undefined}
-      >
+      <div className={`chart-area is-${layout}`}>
         {charts.length === 0 && <p className="empty">Drag a symbol from Market Watch here, or use File &gt; New Chart</p>}
         {charts.map((chart) => (
-          <div key={chart.id} className={`chart-slot${layout === 'tabs' && chart.id !== activeId ? ' is-background' : ''}`}>
-            <ChartWindow chart={chart} isActive={chart.id === activeId} />
-          </div>
+          <ChartFrameWindow
+            key={chart.id}
+            chart={chart}
+            layout={layout}
+            zIndex={(chart.isMinimized ? charts.length : 0) + stack.indexOf(chart.id) + 1}
+            isActive={chart.id === activeId}
+            isHidden={layout === 'tabs' && chart.id !== activeId}
+            iconIndex={icons.indexOf(chart.id)}
+            iconBand={layout === 'windows' && icons.length ? 26 : 0}
+          />
         ))}
       </div>
       {isChartBarShown && (
         <nav className="chart-bar">
           {charts.map((chart) => (
-            <button
+            <div
               key={chart.id}
-              className={chart.id === activeId ? 'is-active' : ''}
-              onClick={() => workspace.set({ activeChartId: chart.id })}
+              role="tab"
+              aria-selected={chart.id === activeId}
+              className={['chart-tab', chart.id === activeId && 'is-active', chart.isMinimized && layout === 'windows' && 'is-minimized'].filter(Boolean).join(' ')}
+              onMouseDown={(event) => event.button === 0 && focusChart(chart.id)}
               onAuxClick={(event) => event.button === 1 && closeChart(chart.id)}
-              title="Middle-click to close"
+              onContextMenu={(event) => openContextMenu(event, chartMenu(chart.id))}
             >
-              {chart.symbol},{chart.timeframe}
-            </button>
+              <span>{chart.symbol},{chart.timeframe}</span>
+              <button className="chart-tab-close" title="Close chart" aria-label={`Close ${chart.symbol},${chart.timeframe}`} onMouseDown={(event) => event.stopPropagation()} onClick={() => closeChart(chart.id)}>×</button>
+            </div>
           ))}
+          {layout === 'tabs' && charts.length > 0 && <button className="chart-bar-restore" title="Restore floating windows" onClick={restoreWindows}>❐</button>}
         </nav>
       )}
     </div>
