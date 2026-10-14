@@ -58,7 +58,7 @@ export function Navigator() {
     <Panel title="Navigator" onClose={() => togglePanel('isNavigatorShown')}>
       <div className="scroll">
         <ul className="tree" role="tree">
-          <TreeNode label={status?.company || 'OpenTerm'} icon="◈">
+          <TreeNode label={status?.company || 'OpenTerm5'} icon="◈">
             <TreeNode label="Accounts" icon="👤" menu={() => [{ label: 'Login to Trade Account...', action: () => openDialog({ kind: 'login' }) }, { label: 'Manage Accounts...', action: () => openDialog({ kind: 'accounts' }) }]}>
               {accounts.map((profile) => {
                 const isActive = profileId === profile.id;

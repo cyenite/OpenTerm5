@@ -162,7 +162,7 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
         })),
       ],
     },
-    { label: 'Help', items: [{ label: 'About OpenTerm', action: () => openDialog({ kind: 'about' }) }] },
+    { label: 'Help', items: [{ label: 'About OpenTerm5', action: () => openDialog({ kind: 'about' }) }] },
   ];
 }
 

@@ -225,7 +225,7 @@ function CopierEditor({ draft, isSaved, onChange, onSaved, onDeleted }: CopierEd
     <div className="page-scroll">
       <Section
         title={draft.name || 'New copier'}
-        detail="One master, any number of followers. Copies run while OpenTerm is open."
+        detail="One master, any number of followers. Copies run while OpenTerm5 is open."
         actions={(
           <>
             {isSaved && <button type="button" className="is-danger" onClick={() => { if (window.confirm(`Delete ${draft.name}? Open copies stay open on the follower accounts.`)) void automation.request('copier.remove', { id: draft.id }).then(onDeleted); }}>Delete</button>}
@@ -256,7 +256,7 @@ function CopierEditor({ draft, isSaved, onChange, onSaved, onDeleted }: CopierEd
           </div>
         )}
       >
-        {draft.followers.length === 0 ? <EmptyState title="No followers yet" detail="Add an account that should receive the master's trades. Log in to it once (File > Accounts) so OpenTerm knows it." /> : (
+        {draft.followers.length === 0 ? <EmptyState title="No followers yet" detail="Add an account that should receive the master's trades. Log in to it once (File > Accounts) so OpenTerm5 knows it." /> : (
           <table className="grid selectable">
             <thead><tr><th>Account</th><th>Risk</th><th>Connection</th><th className="num">Open copies</th><th>Status</th><th /></tr></thead>
             <tbody>

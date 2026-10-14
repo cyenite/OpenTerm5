@@ -111,7 +111,7 @@ function SourceEditor({ source, baseUrl, onChange, onRemove }: SourceEditorProps
       )}
       {tab === 'connect' && (
         <div className="stack">
-          <p className="is-muted">Entries carry only the comment the signal sends, like trades placed by hand. OpenTerm remembers which tickets this source opened; close, modify and cancel only touch those, unless a signal sends "scope": "symbol".</p>
+          <p className="is-muted">Entries carry only the comment the signal sends, like trades placed by hand. OpenTerm5 remembers which tickets this source opened; close, modify and cancel only touch those, unless a signal sends "scope": "symbol".</p>
           <CopyBlock label="TradingView webhook URL" text={hookUrl} />
           <CopyBlock label="TradingView alert message" text={tradingView} />
           <CopyBlock label={source.auth === 'token' ? 'curl with a bearer token' : 'Signed request (bash)'} text={curl} />
@@ -126,7 +126,7 @@ function SourceEditor({ source, baseUrl, onChange, onRemove }: SourceEditorProps
                 <tr><th>sl | sl_points | sl_pips</th><td>Stop as a price or a distance from entry.</td></tr>
                 <tr><th>tp | tp_points | tp_pips | tp_r</th><td>Up to 5 targets; each gets an equal share. tp_r is a multiple of the stop distance.</td></tr>
                 <tr><th>price, expiration_minutes</th><td>For limit and stop orders.</td></tr>
-                <tr><th>trailing_points, trailing_start_points, breakeven_r</th><td>Managed by OpenTerm while it is running.</td></tr>
+                <tr><th>trailing_points, trailing_start_points, breakeven_r</th><td>Managed by OpenTerm5 while it is running.</td></tr>
                 <tr><th>close_percent, ticket, scope</th><td>Partial closes, one ticket, or "symbol" to include trades not opened by this source.</td></tr>
                 <tr><th>id</th><td>Idempotency key: a repeated id within 24 hours is answered without trading again.</td></tr>
               </tbody>
@@ -236,7 +236,7 @@ export function SignalsPage() {
     <div className="page-scroll single">
       <Section
         title="Signal API"
-        detail="Receive trade signals over HTTP from TradingView alerts, bots, scripts or other platforms. Signals execute while OpenTerm is running."
+        detail="Receive trade signals over HTTP from TradingView alerts, bots, scripts or other platforms. Signals execute while OpenTerm5 is running."
         actions={(
           <>
             <button type="button" className={draft.isPaused ? 'is-primary' : 'is-danger'} onClick={() => void save({ ...draft, isPaused: !draft.isPaused })}>{draft.isPaused ? 'Resume intake' : 'Pause all signals'}</button>
