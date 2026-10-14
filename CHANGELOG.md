@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-14
+
 ### Fixed
 
 - Broker discovery returns on an exact match and cancels unused probes, avoiding delays from slow
@@ -60,5 +62,6 @@ First public release of OpenTerm5 (previously developed as Terminal5), under the
 - **Project files:** documentation under `docs/`, a contributing guide, code of conduct, security
   policy, issue and pull request templates, and CI on Linux, macOS and Windows.
 
-[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/cyenite/OpenTerm5/compare/v0.1.1...v0.1.2
 [0.1.0]: https://github.com/cyenite/OpenTerm5/releases/tag/v0.1.0
