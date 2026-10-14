@@ -1,6 +1,6 @@
 # Security policy
 
-OpenTerm handles trading account credentials and can place orders with real money. We take security
+OpenTerm5 handles trading account credentials and can place orders with real money. We take security
 reports seriously and appreciate responsible disclosure.
 
 ## Supported versions
@@ -47,7 +47,7 @@ Reports in these areas are especially valuable:
   and request parsing (`electron/webhook-server.ts`, `electron/webhook-signal.ts`).
 - **Electron hardening:** context isolation, the preload bridge, navigation and window-open handling,
   and the Content Security Policy.
-- **Order safety:** any way to make OpenTerm send an order the user did not request, or repeat one.
+- **Order safety:** any way to make OpenTerm5 send an order the user did not request, or repeat one.
 
 Out of scope:
 
@@ -58,7 +58,7 @@ Out of scope:
 
 ## Good practice for users
 
-- Download OpenTerm only from this repository's releases page.
+- Download OpenTerm5 only from this repository's releases page.
 - Keep **Save password securely** off on shared computers.
 - Keep the signal server bound to `127.0.0.1`. Publish it through an HTTPS tunnel or reverse proxy
   only when you need to.

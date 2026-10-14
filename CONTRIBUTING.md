@@ -1,6 +1,6 @@
-# Contributing to OpenTerm
+# Contributing to OpenTerm5
 
-Thank you for helping build OpenTerm. This guide explains how to set up a development environment,
+Thank you for helping build OpenTerm5. This guide explains how to set up a development environment,
 how the project is organised and what a pull request needs before it can be merged.
 
 By taking part you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md). Security problems
@@ -8,12 +8,12 @@ must not be reported in public issues; see [SECURITY.md](SECURITY.md).
 
 ## Ways to contribute
 
-- **Report a bug** with the bug report form. Include the OpenTerm version, your OS, the broker server
+- **Report a bug** with the bug report form. Include the OpenTerm5 version, your OS, the broker server
   (for example `MetaQuotes-Demo`) and the steps that reproduce the problem.
 - **Suggest a feature** with the feature request form. Explain the trading workflow it supports.
 - **Improve the documentation.** Fixes to `docs/` are always welcome and are a good first contribution.
 - **Fix an issue.** Issues labelled `good first issue` are self-contained and well described.
-- **Test with your broker.** OpenTerm is verified against a small number of brokers. Reports from
+- **Test with your broker.** OpenTerm5 is verified against a small number of brokers. Reports from
   other brokers, especially their web trading address, help everyone (see
   [Accounts and brokers](docs/user-guide/accounts-and-brokers.md#adding-a-broker-to-the-directory)).
 
@@ -72,7 +72,7 @@ docs/       User and developer documentation
 
 ## Coding guidelines
 
-OpenTerm is written in strict TypeScript. Match the style of the code around your change. The main
+OpenTerm5 is written in strict TypeScript. Match the style of the code around your change. The main
 conventions are:
 
 - **Group declarations by kind, then by name length.** Class fields, constructor parameters and blocks
@@ -124,5 +124,5 @@ For user-visible changes, add an entry under **Unreleased** in [CHANGELOG.md](CH
 
 ## Licence
 
-OpenTerm is released under the [MIT License](LICENSE). By contributing, you agree that your
+OpenTerm5 is released under the [MIT License](LICENSE). By contributing, you agree that your
 contributions are licensed under the same terms.

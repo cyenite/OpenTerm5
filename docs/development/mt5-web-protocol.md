@@ -1,6 +1,6 @@
 # MT5 web protocol notes
 
-OpenTerm talks to brokers with the same protocol that MT5 web trading uses. The protocol is not
+OpenTerm5 talks to brokers with the same protocol that MT5 web trading uses. The protocol is not
 publicly documented. This page records what the client relies on, so that contributors can maintain
 it. Each statement is backed by a parser or encoder and its tests under `electron/mt5-web-*`.
 

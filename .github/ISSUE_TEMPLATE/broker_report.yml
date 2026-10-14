@@ -1,11 +1,11 @@
 name: Broker compatibility report
-description: Tell us whether OpenTerm works with your broker, or share its web trading address.
+description: Tell us whether OpenTerm5 works with your broker, or share its web trading address.
 labels: [broker, triage]
 body:
   - type: markdown
     attributes:
       value: |
-        These reports grow the list of brokers OpenTerm can find automatically.
+        These reports grow the list of brokers OpenTerm5 can find automatically.
         **Only share the server name and the web trading address. Never your login or password.**
   - type: input
     id: server

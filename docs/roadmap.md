@@ -1,6 +1,6 @@
 # Roadmap
 
-OpenTerm aims to cover the everyday MetaTrader 5 desktop workflow, and to add the tools traders
+OpenTerm5 aims to cover the everyday MetaTrader 5 desktop workflow, and to add the tools traders
 otherwise buy as Expert Advisors. This page lists what is not built yet, roughly in order of impact.
 Issues tagged `roadmap` track each item; comment there before starting work on one.
 
@@ -17,7 +17,7 @@ Issues tagged `roadmap` track each item; comment there before starting work on o
    also for copier analytics.
 6. **Indicators and objects.** The rest of the MT5 indicator catalogue, object styling, editable
    Fibonacci levels, direct dragging of drawn objects, and custom indicators.
-7. **Alerts and notifications.** Price alerts that keep working while OpenTerm is closed, and push
+7. **Alerts and notifications.** Price alerts that keep working while OpenTerm5 is closed, and push
    notifications.
 8. **Execution modes and market data.** Request execution with requotes, exchange Time & Sales, tick
    history export, and custom symbols.
@@ -26,7 +26,7 @@ Issues tagged `roadmap` track each item; comment there before starting work on o
 
 ## Not planned
 
-- **MQL5 Expert Advisors and indicators, MetaEditor and the Strategy Tester.** OpenTerm does not run
+- **MQL5 Expert Advisors and indicators, MetaEditor and the Strategy Tester.** OpenTerm5 does not run
   compiled MT5 programs. Its automation, copy trading and signal API cover the most common reasons to
   use them.
 - **MetaQuotes services** such as the Market, Signals and VPS.
@@ -35,7 +35,7 @@ Issues tagged `roadmap` track each item; comment there before starting work on o
 
 ## Known limitations
 
-- Automation, copying and signals run inside OpenTerm and stop when it is closed.
+- Automation, copying and signals run inside OpenTerm5 and stop when it is closed.
 - Copies are observed through each master's own session, so they are slower than a copier running on
   the broker's server.
 - Brokers whose web trading address cannot be detected need the address entered once by hand.
