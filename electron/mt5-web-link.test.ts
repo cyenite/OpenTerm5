@@ -181,7 +181,7 @@ test('admission zero cannot resolve an order until its matching final notificati
   assert.equal(result.isSuccess, true);
   assert.equal(result.retcode, 10009);
   assert.equal(client.submissions.length, 1);
-  assert.equal(client.commands.filter((command) => command === 4).length, 2);
+  assert.equal(client.commands.filter((command) => command === 4).length, 1);
 });
 
 test('broker admission rejection returns failure without waiting for execution', async (t) => {

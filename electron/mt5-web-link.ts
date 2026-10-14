@@ -8,7 +8,7 @@ import { buildSymbolSubscription, type WebTickUpdate } from './mt5-web-market';
 import { adjustQuote, parseAccountModel, parseSymbolDetails, type WebAccountModel, type WebSymbolDetails } from './mt5-web-models';
 import { aggregateRates, timeframePlan, timeframeStart } from './mt5-web-timeframes';
 import { decodeHistory, decodeRates, encodeHistoryRequest, encodeRatesRequest } from './mt5-web-history';
-import { encodeTradeRequest, parseTradeAdmission, parseTradeResponse, parseTradeSnapshot } from './mt5-web-trading';
+import { applyOrderChange, applyPositionChange, encodeTradeRequest, parseTradeAdmission, parseTradeResponse, parseTradeSnapshot, parseTradeTransactions, TransactionAction } from './mt5-web-trading';
 import { conversionCandidates, conversionRate, floatingProfit, moneyPerUnit, type Quote, type Valuation } from '../shared/valuation';
 
 interface PendingTrade {
@@ -126,7 +126,7 @@ export class Mt5WebLink extends EventEmitter {
     this.publish('link', this.state);
     if (patch.state !== undefined) this.publish('status', this.status());
   }
-  private journal(message: string): void { this.publish('journal', { source: 'MT5 Web', time: Date.now(), message }); }
+  private journal(message: string): void { this.publish('journal', { source: 'Network', time: Date.now(), message }); }
 
   private async open(): Promise<void> {
     const epoch = ++this.epoch;
@@ -155,6 +155,13 @@ export class Mt5WebLink extends EventEmitter {
           for (const symbol of this.depthSymbols) this.publish('book', { symbol, levels: [], isAvailable: false });
           this.journal('Broker market depth is unavailable or requires a fresh snapshot.');
         }
+        return;
+      }
+      if (response.command === 10) {
+        try {
+          if (response.status) throw new Error('Broker trade transaction returned an error');
+          this.applyTransactions(response.payload);
+        } catch { this.lost(new Error('Unrecognized broker trade transaction; reconnecting to read positions and orders again')); }
         return;
       }
       if (response.command !== 19) return;
@@ -252,7 +259,7 @@ export class Mt5WebLink extends EventEmitter {
     }
     this.details.clear();
     await this.loadDetails([...this.visible]);
-    await this.snapshot();
+    await this.snapshot(true);
   }
 
   private authenticated(): Mt5WebClient {
@@ -386,13 +393,17 @@ export class Mt5WebLink extends EventEmitter {
     return { ...account, profit, equity, isEquityLive: positions.every((position, index) => position !== this.positions[index] || !position.profit), margin: Number.NaN, marginFree: Number.NaN, marginLevel: Number.NaN };
   }
 
-  private async snapshot(): Promise<TradeSnapshot> {
+  // Command 4 answers with the state captured at login, so it is read once per session and
+  // notification 10 keeps positions and orders current afterwards.
+  private async snapshot(isInitial = false): Promise<TradeSnapshot> {
     if (!this.isLoggedIn) return { account: null, orders: [], positions: [] };
     const client = this.authenticated();
     this.profile = parseAccountModel(await client.transport.request(3), Number(this.credentials!.login));
-    const snapshot = parseTradeSnapshot(await client.transport.request(4));
-    this.orders = snapshot.orders;
-    this.positions = snapshot.positions;
+    if (isInitial) {
+      const snapshot = parseTradeSnapshot(await client.transport.request(4));
+      this.orders = snapshot.orders;
+      this.positions = snapshot.positions;
+    }
     const symbols = this.positions.map((position) => position.symbol);
     try {
       await this.loadDetails(symbols);
@@ -403,9 +414,23 @@ export class Mt5WebLink extends EventEmitter {
     return { account: this.account(), orders: this.orders, positions: this.livePositions() };
   }
 
+  private applyTransactions(payload: Uint8Array): void {
+    for (const transaction of parseTradeTransactions(payload)) {
+      if (transaction.kind === 'order') this.orders = applyOrderChange(this.orders, transaction.action, transaction.order);
+      if (transaction.kind !== 'deal') continue;
+      if (transaction.action === TransactionAction.added && this.profile) {
+        this.profile = { ...this.profile, account: { ...this.profile.account, balance: transaction.balance, credit: transaction.credit } };
+      }
+      for (const position of [transaction.position, ...transaction.positions]) {
+        if (position) this.positions = applyPositionChange(this.positions, position);
+      }
+    }
+    this.publish('trade', { account: this.account(), orders: this.orders, positions: this.livePositions() });
+  }
+
   private status(): TerminalStatus {
     return {
-      mode: 'mt5-web', name: 'Independent MT5 web client', build: this.build,
+      mode: 'mt5-web', name: 'Terminal5', build: this.build,
       company: this.profile?.account.company, isConnected: this.isLoggedIn,
       isTradeAllowed: this.isLoggedIn && !!this.profile?.account.isTradeAllowed,
       connectionState: this.state.state === 'connecting' ? 'reconnecting' : this.isLoggedIn ? 'connected' : this.state.state === 'open' ? 'login-required' : 'disconnected',

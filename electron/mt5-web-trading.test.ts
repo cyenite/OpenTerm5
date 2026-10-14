@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { BinaryWriter } from './mt5-web-codec';
-import { encodeTradeRequest, encodeTradeVolume, parseTradeAdmission, parseTradeResponse, parseTradeSnapshot, parseWebOrder, parseWebPosition, safeTradeNumber, WEB_ORDER_BYTES, WEB_POSITION_BYTES } from './mt5-web-trading';
+import { applyOrderChange, applyPositionChange, encodeTradeRequest, encodeTradeVolume, parseTradeAdmission, parseTradeResponse, parseTradeSnapshot, parseTradeTransactions, parseWebOrder, parseWebPosition, safeTradeNumber, TransactionAction, WEB_DEAL_BYTES, WEB_ORDER_BYTES, WEB_POSITION_BYTES } from './mt5-web-trading';
 
 const context = { digits: 5, requestId: 17, executionMode: 2, fillingFlags: 3, volumeMin: 0.01, volumeMax: 100, volumeStep: 0.01, symbol: 'EURUSD' };
 
@@ -80,6 +80,8 @@ test('position and order records decode fixed offsets and snapshot counts', () =
   position.writeDoubleLE(-0.5, 164);
   position.write('hello', 188, 'utf16le');
   position.writeInt32LE(123, 336);
+  position.writeUInt32LE(5, 260);
+  position.writeUInt32LE(2, 264);
   const order = Buffer.alloc(WEB_ORDER_BYTES);
   order.writeBigInt64LE(52n, 0);
   order.write('EURUSD', 72, 'utf16le');
@@ -91,6 +93,7 @@ test('position and order records decode fixed offsets and snapshot counts', () =
   order.writeDoubleLE(1.05, 172);
   order.writeBigInt64LE(1000000n, 204);
   order.writeBigInt64LE(1000000n, 212);
+  order.writeUInt32LE(5, 312);
   const snapshot = parseTradeSnapshot(new BinaryWriter(8 + position.length + order.length).u32(1).bytes(position).u32(1).bytes(order).finish());
   assert.equal(snapshot.positions[0].side, 'sell');
   assert.equal(snapshot.positions[0].profit, 5.5);
@@ -104,6 +107,9 @@ test('position and order records decode fixed offsets and snapshot counts', () =
   assert.equal(snapshot.orders[0].expirationMode, 2);
   assert.throws(() => parseTradeSnapshot(Buffer.alloc(7)));
   assert.throws(() => parseTradeSnapshot(new BinaryWriter(8).u32(2).u32(0).finish()));
+  const padded = parseTradeSnapshot(new BinaryWriter(8 + 2 * position.length + 24).u32(2).bytes(position).bytes(position).u32(0).bytes(Buffer.alloc(24)).finish());
+  assert.deepEqual([padded.positions.length, padded.orders.length], [2, 0]);
+  assert.throws(() => parseTradeSnapshot(new BinaryWriter(8 + position.length).u32(1).bytes(position).u32(1).finish()), /exceeds/);
   assert.throws(() => parseWebPosition(position.subarray(1)));
   assert.throws(() => parseWebOrder(order.subarray(1)));
   position.writeBigInt64LE(9007199254740992n, 0);
@@ -137,4 +143,49 @@ test('close-by encodes source opcode, two position identifiers and closing flags
   assert.throws(() => encodeTradeRequest({ ...request, positionBy: 51 }, { ...context, orderFlags: 64 }), /distinct/);
   assert.throws(() => encodeTradeRequest(request, { ...context, orderFlags: 63 }), /disabled/);
   assert.throws(() => encodeTradeRequest({ ...request, positionBy: Number.MAX_SAFE_INTEGER + 1 }, { ...context, orderFlags: 64 }), /identifier/);
+});
+
+function positionRecord(ticket: bigint, lots: bigint): Buffer {
+  const record = Buffer.alloc(WEB_POSITION_BYTES);
+  record.writeBigInt64LE(ticket, 0);
+  record.write('EURUSD', 24, 'utf16le');
+  record.writeBigUInt64LE(lots, 124);
+  return record;
+}
+
+function orderRecord(ticket: bigint, state: number): Buffer {
+  const record = Buffer.alloc(WEB_ORDER_BYTES);
+  record.writeBigInt64LE(ticket, 0);
+  record.write('EURUSD', 72, 'utf16le');
+  record.writeUInt32LE(state, 220);
+  return record;
+}
+
+test('trade transactions mirror the live fill sequence and keep positions current', () => {
+  const placed = new BinaryWriter(12 + WEB_ORDER_BYTES).u32(0).u32(1).u32(0).bytes(orderRecord(7n, 0)).finish();
+  const filled = new BinaryWriter(2 * (12 + WEB_ORDER_BYTES)).u32(0).u32(2).u32(2).bytes(orderRecord(7n, 4)).u32(1).u32(3).u32(0).bytes(orderRecord(7n, 4)).finish();
+  const deal = (lots: bigint) => new BinaryWriter(12 + WEB_DEAL_BYTES + WEB_POSITION_BYTES + 40 + 8)
+    .u32(2).u32(4).u32(0).bytes(Buffer.alloc(WEB_DEAL_BYTES)).bytes(positionRecord(7n, lots)).f64(1000).f64(5).bytes(Buffer.alloc(24)).u32(0).u32(0).finish();
+  const [first] = parseTradeTransactions(placed);
+  assert.equal(first.kind, 'order');
+  if (first.kind !== 'order') return;
+  let orders = applyOrderChange([], TransactionAction.added, first.order);
+  assert.equal(orders.length, 1);
+  const fill = parseTradeTransactions(filled);
+  assert.deepEqual(fill.map((item) => [item.kind, item.action]), [['order', TransactionAction.removed], ['historyOrder', TransactionAction.added]]);
+  for (const item of fill) if (item.kind === 'order') orders = applyOrderChange(orders, item.action, item.order);
+  assert.equal(orders.length, 0);
+  const [opened] = parseTradeTransactions(deal(1000000n));
+  assert.equal(opened.kind, 'deal');
+  if (opened.kind !== 'deal') return;
+  assert.deepEqual([opened.balance, opened.credit, opened.position?.volume], [1000, 5, 0.01]);
+  let positions = applyPositionChange([], opened.position!);
+  assert.equal(positions.length, 1);
+  const [closed] = parseTradeTransactions(deal(0n));
+  if (closed.kind === 'deal') positions = applyPositionChange(positions, closed.position!);
+  assert.equal(positions.length, 0);
+  const empty = new BinaryWriter(12 + WEB_DEAL_BYTES + WEB_POSITION_BYTES + 48).u32(2).u32(5).u32(0).bytes(Buffer.alloc(WEB_DEAL_BYTES + WEB_POSITION_BYTES + 48)).finish();
+  assert.equal((parseTradeTransactions(empty)[0] as { position: unknown }).position, null);
+  assert.throws(() => parseTradeTransactions(new BinaryWriter(12 + WEB_ORDER_BYTES).u32(9).u32(0).u32(0).bytes(Buffer.alloc(WEB_ORDER_BYTES)).finish()), /kind/);
+  assert.throws(() => parseTradeTransactions(placed.subarray(0, 100)));
 });
