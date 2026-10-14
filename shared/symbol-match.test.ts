@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isSameInstrument, matchSymbol, symbolCore } from './symbol-match';
+import { isListedSymbol, matchSymbol, symbolCore } from './symbol-match';
 
 test('broker decorations reduce to the instrument', () => {
   for (const name of ['EURUSD', 'EURUSD.m', 'EURUSDm', 'mEURUSD', '#EURUSD', 'EURUSD-STD', 'EURUSD_i', 'EURUSD+', 'EURUSDpro', 'FXEURUSD', 'EURUSDSB']) {
@@ -27,7 +27,11 @@ test('among several decorations the request decoration wins, then the account st
   assert.equal(matchSymbol('BRK.B', ['BRK.A', 'BRK.B']), 'BRK.B');
 });
 
-test('instruments compare across decorations', () => {
-  assert.equal(isSameInstrument('EURUSD.m', 'mEURUSD'), true);
-  assert.equal(isSameInstrument('EURUSD', 'EURGBP'), false);
+test('list entries admit their exact symbol or, written plainly, any decoration of it', () => {
+  assert.equal(isListedSymbol('EURUSD', 'EURUSD.m'), true);
+  assert.equal(isListedSymbol('EURUSD', 'mEURUSD'), true);
+  assert.equal(isListedSymbol('EURUSD.m', 'EURUSD.m'), true);
+  assert.equal(isListedSymbol('EURUSD.m', 'EURUSD.pro'), false);
+  assert.equal(isListedSymbol('BRK.A', 'BRK.B'), false);
+  assert.equal(isListedSymbol('EURUSD', 'EURGBP'), false);
 });

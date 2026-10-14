@@ -5,6 +5,7 @@ import { adjustDepthPrice, decodeDepth, WebDepthBook } from './mt5-web-depth';
 import { Mt5WebClient, type WebCredentials } from './mt5-web-client';
 import { WebProtocolError } from './mt5-web-transport';
 import { BotCheckError } from './bot-check';
+import { RequestQueue } from './request-queue';
 import { matchSymbol } from '../shared/symbol-match';
 import { buildSymbolSubscription, type WebTickUpdate } from './mt5-web-market';
 import { adjustQuote, parseAccountModel, parseSymbolDetails, type WebAccountModel, type WebSymbolDetails } from './mt5-web-models';
@@ -39,7 +40,7 @@ export class Mt5WebLink extends EventEmitter {
   private client?: Mt5WebClient;
   private profile?: WebAccountModel;
   private credentials?: WebCredentials;
-  private queue: Promise<unknown> = Promise.resolve();
+  private readonly queue = new RequestQueue();
   private positions: Position[] = [];
   private orders: Order[] = [];
   private endpoint = '';
@@ -114,12 +115,10 @@ export class Mt5WebLink extends EventEmitter {
 
   request<M extends TerminalMethod>(method: M, params: TerminalMethods[M][0]): Promise<TerminalMethods[M][1]> {
     const epoch = this.epoch;
-    const run = this.queue.then(() => {
+    return this.queue.enqueue(async () => {
       if (epoch !== this.epoch || this.isStopped) throw new Error('Connection changed before the request could run');
       return this.route(method, params);
-    });
-    this.queue = run.catch(() => {});
-    return run as Promise<TerminalMethods[M][1]>;
+    }, method.startsWith('order.') || ['account.info', 'symbols.info', 'symbols.quote', 'symbols.valuation'].includes(method), method === 'account.login') as Promise<TerminalMethods[M][1]>;
   }
 
   private publish<E extends TerminalEvent>(event: E, data: TerminalEvents[E]): void { this.emit('event', event, data); }
@@ -338,6 +337,23 @@ export class Mt5WebLink extends EventEmitter {
     return adjustQuote(raw.bid, raw.ask, details);
   }
 
+  private waitForQuote(symbol: string): Promise<void> {
+    if (this.quote(symbol)) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const finish = (error?: Error) => {
+        clearTimeout(timer);
+        this.off('event', updated);
+        error ? reject(error) : resolve();
+      };
+      const updated = (event: TerminalEvent) => {
+        if (!this.isLoggedIn) finish(new Error('Broker connection lost while waiting for a quote'));
+        else if (event === 'tick' && this.quote(symbol)) finish();
+      };
+      const timer = setTimeout(() => finish(new Error(`No live quote for ${symbol}; the market may be closed`)), 3_000);
+      this.on('event', updated);
+    });
+  }
+
   private valuation(symbol: string): Valuation | null {
     const detail = this.details.get(symbol);
     const account = this.profile?.account;
@@ -552,8 +568,8 @@ export class Mt5WebLink extends EventEmitter {
         if (pending) { clearTimeout(pending.timer); this.pendingTrades.delete(id); pending.resolve({ retcode: code, isSuccess: false, comment: `Broker declined the request (${code})` }); }
       }
       const result = await outcome;
-      try { this.publish('trade', await this.snapshot()); }
-      catch { this.journal('Trade result received; broker snapshot refresh is pending.'); }
+      void this.request('trade.snapshot', {}).then((snapshot) => this.publish('trade', snapshot))
+        .catch(() => this.journal('Trade result received; broker snapshot refresh is pending.'));
       return result;
     } catch (error) {
       const pending = this.pendingTrades.get(id);
@@ -623,7 +639,7 @@ export class Mt5WebLink extends EventEmitter {
           this.pinned.add(params.symbol);
           await this.restoreSubscriptions();
         }
-        for (let waited = 0; !this.quote(params.symbol) && waited < 3_000; waited += 100) await new Promise((resolve) => setTimeout(resolve, 100));
+        await this.waitForQuote(params.symbol);
         const quote = this.quote(params.symbol);
         if (!quote) throw new Error(`No live quote for ${params.symbol}; the market may be closed`);
         return { symbol: params.symbol, ...quote, time: this.rawTicks.get(params.symbol)!.time };

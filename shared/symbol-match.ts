@@ -60,6 +60,10 @@ export function matchSymbol(name: string, available: readonly string[]): string 
   })[0];
 }
 
-export function isSameInstrument(left: string, right: string): boolean {
-  return left === right || symbolCore(left) === symbolCore(right);
+// Allow and filter lists are permissions, so they never widen across decorations: an entry names
+// one symbol exactly, or, written plainly (EURUSD), that instrument under any broker decoration.
+// BRK.A therefore never admits BRK.B.
+export function isListedSymbol(entry: string, symbol: string): boolean {
+  const core = symbolCore(entry);
+  return entry === symbol || entry.trim().toUpperCase() === core && symbolCore(symbol) === core;
 }

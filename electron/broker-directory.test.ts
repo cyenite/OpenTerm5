@@ -89,3 +89,29 @@ test('when only bot-checked hosts answer, the failure names the bot check', asyn
   const brokers = new BrokerDirectory(await mkdtemp(path.join(tmpdir(), 'brokers-')), fakeFetch({}, [], ['webtrader.acme.com']));
   await assert.rejects(brokers.resolve('Acme-Demo'), /webtrader\.acme\.com is protected by a Cloudflare bot check/);
 });
+
+
+test('known terminals resolve without probing guessed hosts', async () => {
+  const calls: string[] = [];
+  const brokers = await directory({ 'https://mt5webterminal.ftmo.com/terminal': page('FTMO', ['FTMO-Server']) }, calls);
+  assert.equal((await brokers.resolve('FTMO-Server')).source, 'known');
+  assert.deepEqual(calls, ['https://mt5webterminal.ftmo.com/terminal']);
+});
+
+test('an exact match returns before slow sibling probes and cancels them', { timeout: 1_000 }, async (t) => {
+  const signals: AbortSignal[] = [];
+  const fetchPage = (async (input: string | URL | Request, options?: RequestInit) => {
+    if (String(input) === 'https://webterminal.acme.com/terminal') return new Response(page('Acme', ['Acme-Live']));
+    const signal = options!.signal!;
+    signals.push(signal);
+    return new Promise<Response>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+  }) as typeof fetch;
+  const brokers = new BrokerDirectory(await mkdtemp(path.join(tmpdir(), 'brokers-')), fetchPage);
+  const started = performance.now();
+  const result = await brokers.resolve('Acme-Live');
+  t.diagnostic(`Exact-match lookup with stalled siblings: ${(performance.now() - started).toFixed(2)} ms`);
+  assert.equal(result.source, 'discovered');
+  assert.equal(result.webUrl, 'https://webterminal.acme.com/terminal');
+  assert.equal(signals.length, 9);
+  assert.ok(signals.every((signal) => signal.aborted));
+});

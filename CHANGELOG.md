@@ -7,6 +7,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-14
+
+### Fixed
+
+- Broker discovery returns on an exact match and cancels unused probes, avoiding delays from slow
+  speculative hosts. Verified broker terminals are checked before guessed addresses.
+- Orders and their prerequisite reads take priority over queued chart/history requests. Quotes wake
+  on incoming ticks, and confirmed orders return without waiting for an account refresh.
+- Broker relay pages remain available for 30 idle seconds, avoiding renderer recreation during
+  login and reconnects. Hidden relays no longer prevent normal main-window close or macOS activation.
+- Signal allowlists and copier symbol filters keep decorated symbols distinct, so an entry such as
+  `BRK.A` cannot admit `BRK.B`. Signal allowlists check the broker symbol actually selected for trading.
+- Copier reconciliation after an unknown outcome requires the exact mapped follower symbol before
+  adopting a position. Getting-started instructions now use the published installer filenames.
+
 ## [0.1.0] - 2026-10-14
 
 First public release of OpenTerm5 (previously developed as Terminal5), under the MIT License.
@@ -51,5 +66,6 @@ First public release of OpenTerm5 (previously developed as Terminal5), under the
 - **Project files:** documentation under `docs/`, a contributing guide, code of conduct, security
   policy, issue and pull request templates, and CI on Linux, macOS and Windows.
 
-[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/cyenite/OpenTerm5/compare/v0.1.1...v0.1.2
 [0.1.0]: https://github.com/cyenite/OpenTerm5/releases/tag/v0.1.0

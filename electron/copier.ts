@@ -5,7 +5,6 @@ import type { Order, Position, SymbolSpec, TradeRequest, TradeResult, TradeSnaps
 import { orderType } from '../shared/protocol';
 import { floorToStep } from '../shared/risk';
 import { copyStops, copyVolume, isWithinHours, mapFollowerSymbol, passesFilters } from './copier-math';
-import { isSameInstrument } from '../shared/symbol-match';
 import type { SessionPool, TradingLink } from './session-pool';
 import { dayKey } from './trade-manager';
 
@@ -493,7 +492,8 @@ export class Copier extends EventEmitter {
     const claimed = new Set(this.state.mappings.filter((item) => item.followerId === follower.id).map((item) => item.followerTicket));
     const master = this.snapshots.get(config.masterId)?.positions.find((item) => item.ticket === mapping.masterTicket);
     const side = master && (follower.isReversed ? (master.side === 'buy' ? 'sell' : 'buy') : master.side);
-    const match = snapshot.positions.find((position) => !claimed.has(position.ticket) && position.side === side && isSameInstrument(position.symbol, mapping.symbol) && position.time >= mapping.createdAt - 60_000);
+    const target = mapFollowerSymbol(mapping.symbol, follower, this.symbolLists.get(follower.accountId) ?? []);
+    const match = snapshot.positions.find((position) => !claimed.has(position.ticket) && position.side === side && position.symbol === target && position.time >= mapping.createdAt - 60_000);
     if (match) {
       this.update(mapping, { status: 'open', symbol: match.symbol, followerTicket: match.ticket, followerVolume: match.volume, reason: 'adopted after unknown outcome' });
       this.log({ copierId: config.id, followerId: follower.id, event: 'reconcile', status: 'ok', symbol: match.symbol, message: `Found follower #${match.ticket} for master #${mapping.masterTicket} after an unknown outcome`, masterTicket: mapping.masterTicket, followerTicket: match.ticket });

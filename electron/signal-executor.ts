@@ -6,7 +6,7 @@ import type { SessionPool, TradingLink } from './session-pool';
 import type { SignalOwnership } from './signal-ownership';
 import type { TradeManager } from './trade-manager';
 import { mapSymbol, pendingTypes, signalActions, type Signal } from './webhook-signal';
-import { isSameInstrument, matchSymbol } from '../shared/symbol-match';
+import { isListedSymbol, matchSymbol } from '../shared/symbol-match';
 
 export interface Execution {
   status: 'executed' | 'failed' | 'dryRun';
@@ -43,9 +43,9 @@ export class SignalExecutor {
   async execute(source: WebhookSource, signal: Signal): Promise<Execution> {
     if (source.allowedActions.length && !source.allowedActions.includes(signal.action)) throw new SignalRejected(`Action "${signal.action}" is not allowed for this source`);
     const mapped = mapSymbol(signal.symbol, source.symbolMap, source.symbolSuffix);
-    if (mapped && source.allowedSymbols.length && !source.allowedSymbols.some((allowed) => isSameInstrument(allowed, mapped))) throw new SignalRejected(`${mapped} is not in this source's allowed symbols`);
     const link = this.pool.require(source.accountId);
     const symbol = mapped && await this.brokerSymbol(link, mapped);
+    if (symbol && source.allowedSymbols.length && !source.allowedSymbols.some((allowed) => isListedSymbol(allowed, symbol))) throw new SignalRejected(`${symbol} is not in this source's allowed symbols`);
     const isOpening = signalActions.find((item) => item.key === signal.action)!.isOpening;
     if (isOpening) return this.open(source, signal, symbol);
     const snapshot = await link.request('trade.snapshot', {});
