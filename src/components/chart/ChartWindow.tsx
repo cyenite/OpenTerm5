@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { cursor } from '../../lib/cursor';
-import { formatVolume } from '../../lib/format';
 import { describeIndicator } from '../../lib/indicators';
 import { log, requireSymbols, session, terminal } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { newId, updateChart, workspace, type ChartConfig } from '../../lib/workspace';
-import { ChartController, type Pick, type TradeLevel } from './controller';
+import { ChartController, type Pick } from './controller';
+import { chartMenu } from '../../lib/chart-menu';
+import { openContextMenu } from '../../lib/context-menu';
 import { OneClickPanel } from './OneClickPanel';
 import { TradeOverlay } from './TradeOverlay';
 import { chartThemes } from './theme';
@@ -31,7 +32,6 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
   const isLinked = useStore(session, (state) => state.link.state === 'open' && (state.status?.mode !== 'mt5-web' || !!state.account));
   const spec = useStore(session, (state) => state.symbols[chart.symbol]);
   const tick = useStore(session, (state) => state.ticks[chart.symbol]);
-  const positions = useStore(session, (state) => state.positions);
   const theme = chartThemes[scheme];
   const digits = spec?.digits ?? 5;
   const activeRef = useRef(isActive);
@@ -139,16 +139,6 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
     };
   }, [chart.symbol, chart.timeframe, isLinked]);
 
-  const levels = useMemo<TradeLevel[]>(() => {
-    const result: TradeLevel[] = [];
-    for (const position of positions.filter((candidate) => candidate.symbol === chart.symbol)) {
-      result.push({ kind: 'entry', price: position.priceOpen, label: `#${position.ticket} ${position.side} ${formatVolume(position.volume)}` });
-    }
-    // Stops, targets and pending orders are drawn by TradeOverlay so they can be dragged.
-    return result;
-  }, [positions, chart.symbol]);
-
-  useEffect(() => controller.current?.setLevels(levels), [levels]);
 
   useEffect(() => {
     const zoom = (event: Event) => {
@@ -185,7 +175,15 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
   const legend = [`${chart.symbol},${chart.timeframe}`, spec?.description, ...chart.indicators.map(describeIndicator)].filter(Boolean).join('  ');
 
   return (
-    <div className={`chart-window${isActive ? ' is-active' : ''}`} onMouseDown={() => workspace.set({ activeChartId: chart.id })}>
+    <div
+      className={`chart-window${isActive ? ' is-active' : ''}`}
+      onMouseDown={() => workspace.set({ activeChartId: chart.id })}
+      onContextMenu={(event) => {
+        const box = container.current?.getBoundingClientRect();
+        const price = box ? controller.current?.yToPrice(event.clientY - box.top) ?? undefined : undefined;
+        openContextMenu(event, chartMenu(chart.id, price));
+      }}
+    >
       <div className="chart-canvas" ref={container} data-tool={tool} />
       <div className="chart-legend" style={{ color: theme.text }}>{legend}</div>
       {isSelectingAnchor && <div className="chart-status" style={{ color: theme.text }}>Click the second anchor point. Select Cursor to cancel.</div>}

@@ -23,12 +23,6 @@ import type { ChartTheme } from './theme';
 import { IchimokuCloud } from './IchimokuCloud';
 import { DrawingPrimitive } from './drawing-primitive';
 
-export interface TradeLevel {
-  label: string;
-  price: number;
-  kind: 'entry' | 'stop' | 'pending';
-}
-
 export interface Build {
   type: ChartType;
   theme: ChartTheme;
@@ -64,13 +58,11 @@ export class ChartController {
   private indicators: IndicatorSeries[] = [];
   private clouds: IchimokuCloud[] = [];
   private trendSeries: ISeriesApi<'Line'>[] = [];
-  private levelLines: IPriceLine[] = [];
   private drawingLines: IPriceLine[] = [];
   private askLine?: IPriceLine;
   private build?: Build;
   private drawings: Drawing[] = [];
   private drawingPrimitive?: DrawingPrimitive;
-  private levels: TradeLevel[] = [];
   private ask = 0;
   private tool: Tool = 'cursor';
   private pointerStart?: { x: number; y: number };
@@ -144,7 +136,6 @@ export class ChartController {
     this.indicators = [];
     this.clouds = [];
     this.trendSeries = [];
-    this.levelLines = [];
     this.drawingLines = [];
     this.askLine = undefined;
     this.build = build;
@@ -183,7 +174,7 @@ export class ChartController {
     this.main.attachPrimitive(this.drawingPrimitive);
     this.addIndicators(build);
     this.render();
-    this.applyLevels();
+    this.setAsk(this.ask);
     this.applyDrawings();
     if (range) {
       this.chart.timeScale().setVisibleLogicalRange(range as LogicalRange);
@@ -343,32 +334,6 @@ export class ChartController {
     } else {
       this.askLine = this.main.createPriceLine({ price: ask, color: this.build.theme.askLine, lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: '' });
     }
-  }
-
-  setLevels(levels: TradeLevel[]): void {
-    this.levels = levels;
-    this.applyLevels();
-  }
-
-  private applyLevels(): void {
-    if (!this.main || !this.build) {
-      return;
-    }
-    for (const line of this.levelLines) {
-      this.main.removePriceLine(line);
-    }
-    const { theme } = this.build;
-    this.levelLines = this.levels.map((level) =>
-      this.main!.createPriceLine({
-        price: level.price,
-        title: level.label,
-        color: level.kind === 'stop' ? theme.stopLevel : theme.tradeLevel,
-        lineWidth: 1,
-        lineStyle: level.kind === 'entry' ? LineStyle.Dashed : LineStyle.Dotted,
-        axisLabelVisible: true,
-      }),
-    );
-    this.setAsk(this.ask);
   }
 
   setDrawings(drawings: Drawing[]): void {

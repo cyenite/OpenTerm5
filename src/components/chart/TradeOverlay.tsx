@@ -5,13 +5,14 @@ import { orderType, type Order, type Position } from '../../../shared/protocol';
 import { automation } from '../../lib/automation';
 import { formatMoney, formatPrice, formatVolume } from '../../lib/format';
 import { riskPreferences, setRiskPreferences } from '../../lib/risk-preferences';
-import { log, sendOrder, session } from '../../lib/session';
+import { closePosition, log, sendOrder, session } from '../../lib/session';
+import { moneyAt, useMoneyPerUnit } from '../../lib/valuation';
 import { useStore } from '../../lib/store';
 import { workspace } from '../../lib/workspace';
 import { Segmented, Switch } from '../ui/Controls';
 import type { ChartController } from './controller';
 
-type LineRole = 'entry' | 'stop' | 'target' | 'pending';
+type LineRole = 'entry' | 'position' | 'stop' | 'target' | 'pending';
 
 interface OverlayLine {
   id: string;
@@ -19,6 +20,10 @@ interface OverlayLine {
   price: number;
   label: string;
   isDraggable: boolean;
+  title?: string;
+  moneyAt?: (price: number) => number;
+  ghosts?: { kind: 'sl' | 'tp'; line: OverlayLine }[];
+  onClose?: () => void;
   onMove?: (price: number) => void;
   onDrop?: (price: number) => void;
 }
@@ -38,12 +43,14 @@ interface LineHandleProps {
   width: number;
   edit?: Edit;
   digits: number;
+  currency: string;
   onStartDrag: (line: OverlayLine, event: ReactPointerEvent) => void;
   onApply: () => void;
   onDiscard: () => void;
 }
 
-function LineHandle({ line, y, width, edit, digits, onStartDrag, onApply, onDiscard }: LineHandleProps) {
+function LineHandle({ line, y, width, edit, digits, currency, onStartDrag, onApply, onDiscard }: LineHandleProps) {
+  const money = line.moneyAt?.(line.price);
   return (
     <div
       className={`overlay-line is-${line.role}${line.isDraggable ? ' is-draggable' : ''}${edit ? ' is-edited' : ''}`}
@@ -52,10 +59,17 @@ function LineHandle({ line, y, width, edit, digits, onStartDrag, onApply, onDisc
       role={line.isDraggable ? 'slider' : undefined}
       aria-label={line.label}
       aria-valuenow={line.price}
+      title={line.title}
     >
       <span className="overlay-rule" />
       <span className="overlay-label">
-        {line.label} {formatPrice(line.price, digits)}
+        <span>{line.label}</span>
+        {money !== undefined && Number.isFinite(money) && <b className={money > 0 ? 'is-up' : money < 0 ? 'is-down' : ''}>{money > 0 ? '+' : ''}{formatMoney(money)} {currency}</b>}
+        <span className="overlay-price">{formatPrice(line.price, digits)}</span>
+        {line.ghosts?.map((ghost) => (
+          <button key={ghost.kind} type="button" className={`overlay-ghost is-${ghost.kind}`} title={`Drag ${ghost.kind === 'tp' ? 'up or down' : 'away'} to set the ${ghost.kind === 'tp' ? 'take profit' : 'stop loss'}`} onPointerDown={(event) => onStartDrag(ghost.line, event)}>{ghost.kind.toUpperCase()}</button>
+        ))}
+        {line.onClose && <button type="button" className="overlay-close" title="Close position" aria-label="Close position" onPointerDown={(event) => event.stopPropagation()} onClick={line.onClose}>×</button>}
         {edit && (
           <span className="overlay-actions" onPointerDown={(event) => event.stopPropagation()}>
             {edit.error ? <em>{edit.error}</em> : <button type="button" onClick={onApply}>Apply</button>}
@@ -134,6 +148,9 @@ export function TradeOverlay({ controller, symbol, digits }: TradeOverlayProps) 
   const positions = useStore(session, (state) => state.positions);
   const orders = useStore(session, (state) => state.orders);
   const preferences = useStore(riskPreferences, (state) => state);
+  const currency = useStore(session, (state) => state.account?.currency ?? '');
+  const isOneClick = useStore(workspace, (state) => state.isOneClickEnabled);
+  const moneyPerUnit = useMoneyPerUnit(symbol);
   const [plan, setPlan] = useState<Partial<PlanLines>>({});
   const [isMarketForced, setIsMarketForced] = useState(false);
   const [preview, setPreview] = useState<RiskOrderOutcome | null>(null);
@@ -151,17 +168,22 @@ export function TradeOverlay({ controller, symbol, digits }: TradeOverlayProps) 
     const step = spec?.tickSize && spec.tickSize > 0 ? spec.tickSize : point;
     return Number((Math.round(price / step) * step).toFixed(digits));
   };
+  const positionMoney = (position: Position) => moneyPerUnit === null ? undefined : (price: number) => moneyAt(position.side, position.priceOpen, position.volume, price, moneyPerUnit);
+
   const decision = plan.entry !== undefined ? decidePlan(plan as PlanLines, tick, isMarketForced, (spec?.stopsLevel ?? 0) * point) : null;
   const hasPlan = plan.entry !== undefined;
 
+  // Keyed on one flag: the global Escape shortcut resets the tool first, and a listener removed
+  // mid-dispatch by that re-render would never see the same key press.
+  const isPlannerActive = isPlanning || hasPlan;
   useEffect(() => {
-    if (!isPlanning && !hasPlan) return;
+    if (!isPlannerActive) return;
     const cancel = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { setPlan({}); setIsMarketForced(false); if (workspace.get().tool === 'riskOrder') workspace.set({ tool: 'cursor' }); }
     };
-    window.addEventListener('keydown', cancel);
-    return () => window.removeEventListener('keydown', cancel);
-  }, [isPlanning, hasPlan]);
+    window.addEventListener('keydown', cancel, true);
+    return () => window.removeEventListener('keydown', cancel, true);
+  }, [isPlannerActive]);
 
   const request: RiskOrderRequest | null = decision?.type && plan.stop ? {
     type: decision.type, symbol, mode: preferences.mode, value: preferences.value,
@@ -169,7 +191,6 @@ export function TradeOverlay({ controller, symbol, digits }: TradeOverlayProps) 
     stopLoss: { unit: 'price', value: plan.stop },
     ...(plan.target ? { takeProfits: [{ distance: { unit: 'price', value: plan.target }, share: 100 }] } : {}),
     commissionPerLot: preferences.commissionPerLot || undefined,
-    comment: 'T5 chart risk',
   } : null;
   const signature = request ? JSON.stringify({ ...request, ...(decision?.isMarket ? { quote: Math.round((tick?.bid ?? 0) / point / 5) } : {}) }) : '';
 
@@ -195,15 +216,29 @@ export function TradeOverlay({ controller, symbol, digits }: TradeOverlayProps) 
     }
   }
   const quoteFor = (side: 'buy' | 'sell') => (side === 'buy' ? tick?.bid : tick?.ask) ?? 0;
-  const modifyPosition = (position: Position, kind: 'sl' | 'tp', label: string): OverlayLine => ({
-    id: `pos-${position.ticket}-${kind}`, role: kind === 'sl' ? 'stop' : 'target', price: kind === 'sl' ? position.sl : position.tp, label: `#${position.ticket} ${label}`, isDraggable: canTrade,
-    onDrop: (price) => setEdit({
-      id: `pos-${position.ticket}-${kind}`, price, error: validateDrag({ kind, side: position.side, price, reference: quoteFor(position.side) }) ?? undefined,
-      apply: async (value) => {
-        const result = await sendOrder({ action: 'sltp', symbol: position.symbol, position: position.ticket, sl: kind === 'sl' ? value : position.sl, tp: kind === 'tp' ? value : position.tp });
-        log(`#${position.ticket} ${label} to ${formatPrice(value, digits)}: ${result.isSuccess ? 'done' : result.comment}`, 'Trades');
+  const modifyPosition = (position: Position, kind: 'sl' | 'tp', price = kind === 'sl' ? position.sl : position.tp): OverlayLine => ({
+    id: `pos-${position.ticket}-${kind}`, role: kind === 'sl' ? 'stop' : 'target', price, label: kind.toUpperCase(), isDraggable: canTrade,
+    title: `#${position.ticket} ${position.side} ${formatVolume(position.volume)} ${kind === 'sl' ? 'stop loss' : 'take profit'}`,
+    moneyAt: positionMoney(position),
+    onDrop: (value) => setEdit({
+      id: `pos-${position.ticket}-${kind}`, price: value, error: validateDrag({ kind, side: position.side, price: value, reference: quoteFor(position.side) }) ?? undefined,
+      apply: async (next) => {
+        const result = await sendOrder({ action: 'sltp', symbol: position.symbol, position: position.ticket, sl: kind === 'sl' ? next : position.sl, tp: kind === 'tp' ? next : position.tp });
+        log(`#${position.ticket} ${kind} to ${formatPrice(next, digits)}: ${result.isSuccess ? 'done' : result.comment}`, 'Trades');
       },
     }),
+  });
+  const closeFromChart = (position: Position) => {
+    if (!isOneClick && !window.confirm(`Close #${position.ticket} ${position.side} ${formatVolume(position.volume)} ${position.symbol}?`)) return;
+    void closePosition(position).then((result) => log(`close #${position.ticket} from chart: ${result.isSuccess ? 'done' : result.comment}`, 'Trades'));
+  };
+  const entryLine = (position: Position): OverlayLine => ({
+    id: `pos-${position.ticket}-entry`, role: 'position', price: position.priceOpen, isDraggable: false,
+    label: `${position.side.toUpperCase()} ${formatVolume(position.volume)}`,
+    title: `#${position.ticket} ${position.comment}`.trim(),
+    moneyAt: () => position.profit + position.swap,
+    ghosts: canTrade ? (['tp', 'sl'] as const).filter((kind) => !(kind === 'sl' ? position.sl : position.tp)).map((kind) => ({ kind, line: modifyPosition(position, kind, position.priceOpen) })) : [],
+    onClose: canTrade ? () => closeFromChart(position) : undefined,
   });
   const modifyOrder = (order: Order, kind: 'price' | 'sl' | 'tp'): OverlayLine => {
     const definition = orderType(order.type)!;
@@ -212,7 +247,9 @@ export function TradeOverlay({ controller, symbol, digits }: TradeOverlayProps) 
     const id = `ord-${order.ticket}-${kind}`;
     return {
       id, role: kind === 'price' ? 'pending' : kind === 'sl' ? 'stop' : 'target', price, isDraggable: canTrade,
-      label: kind === 'price' ? `#${order.ticket} ${definition.label} ${formatVolume(order.volume)}` : `#${order.ticket} ${kind}`,
+      label: kind === 'price' ? `${definition.label} ${formatVolume(order.volume)}` : kind.toUpperCase(),
+      title: `Order #${order.ticket}`,
+      moneyAt: kind === 'price' || moneyPerUnit === null ? undefined : (value) => moneyAt(side, order.priceOpen, order.volume, value, moneyPerUnit),
       onDrop: (value) => setEdit({
         id, price: value, error: validateDrag({ kind, side, price: value, reference: order.priceOpen }) ?? undefined,
         apply: async (next) => {
@@ -223,8 +260,11 @@ export function TradeOverlay({ controller, symbol, digits }: TradeOverlayProps) 
     };
   };
   for (const position of positions.filter((item) => item.symbol === symbol)) {
-    if (position.sl) lines.push(modifyPosition(position, 'sl', 'sl'));
-    if (position.tp) lines.push(modifyPosition(position, 'tp', 'tp'));
+    lines.push(entryLine(position));
+    for (const kind of ['sl', 'tp'] as const) {
+      const hasLevel = kind === 'sl' ? !!position.sl : !!position.tp;
+      if (hasLevel || edit?.id === `pos-${position.ticket}-${kind}`) lines.push(modifyPosition(position, kind, hasLevel ? undefined : position.priceOpen));
+    }
   }
   for (const order of orders.filter((item) => item.symbol === symbol && orderType(item.type)?.isPending)) {
     lines.push(modifyOrder(order, 'price'));
@@ -264,6 +304,7 @@ export function TradeOverlay({ controller, symbol, digits }: TradeOverlayProps) 
     event.stopPropagation();
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     drag.current = { line, pointerId: event.pointerId };
+    if (!line.onMove) setEdit({ id: line.id, price: line.price, apply: async () => undefined });
     controller?.setDragging(true);
   };
 
@@ -329,7 +370,7 @@ export function TradeOverlay({ controller, symbol, digits }: TradeOverlayProps) 
       {shown.map((line) => {
         const y = geometry.ys[line.id];
         if (y === null || y === undefined || y < 0 || y > geometry.height) return null;
-        return <LineHandle key={line.id} line={line} y={y} width={geometry.width} digits={digits} edit={edit?.id === line.id && !drag.current ? edit : undefined} onStartDrag={startDrag} onApply={() => { const current = edit!; setEdit(null); void current.apply(current.price); }} onDiscard={() => setEdit(null)} />;
+        return <LineHandle key={line.id} line={line} y={y} width={geometry.width} digits={digits} currency={currency} edit={edit?.id === line.id && !drag.current ? edit : undefined} onStartDrag={startDrag} onApply={() => { const current = edit!; setEdit(null); void current.apply(current.price); }} onDiscard={() => setEdit(null)} />;
       })}
       {hasPlan && plan.stop !== undefined && (
         <PlannerPanel symbol={symbol} lines={plan as PlanLines} digits={digits} error={panelError} title={title} preview={preview} isBusy={isBusy} isMarketForced={isMarketForced} onMarket={setIsMarketForced} onPlace={() => void submit()} onCancel={() => { setPlan({}); setIsMarketForced(false); if (workspace.get().tool === 'riskOrder') workspace.set({ tool: 'cursor' }); }} />
