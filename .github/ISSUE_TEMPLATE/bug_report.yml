@@ -1,0 +1,72 @@
+name: Bug report
+description: Something in OpenTerm does not work as expected.
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem.
+        **Do not include passwords, live account numbers or webhook secrets.** Security issues belong in a [private report](https://github.com/cyenite/OpenTerm5/security/advisories/new), not here.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: A clear description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Log in to MetaQuotes-Demo
+        2. Open a EURUSD chart
+        3. Drag the stop loss line
+        4. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: OpenTerm version
+      description: Help → About OpenTerm, or the commit hash if you build from source.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Linux, macOS, Windows]
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version
+      placeholder: Ubuntu 26.04, macOS 16, Windows 11 ...
+  - type: input
+    id: server
+    attributes:
+      label: Broker trade server
+      description: The server name only, for example MetaQuotes-Demo. Never your login.
+  - type: dropdown
+    id: account
+    attributes:
+      label: Account type
+      options: [Demo, Real, Contest, Not logged in]
+  - type: textarea
+    id: journal
+    attributes:
+      label: Journal entries
+      description: Relevant lines from Toolbox → Journal (right-click → Copy All). Remove anything personal.
+      render: text
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or other context

@@ -1,0 +1,38 @@
+name: Broker compatibility report
+description: Tell us whether OpenTerm works with your broker, or share its web trading address.
+labels: [broker, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        These reports grow the list of brokers OpenTerm can find automatically.
+        **Only share the server name and the web trading address. Never your login or password.**
+  - type: input
+    id: server
+    attributes:
+      label: Trade server name
+      placeholder: Pepperstone-Demo
+    validations:
+      required: true
+  - type: input
+    id: address
+    attributes:
+      label: Web trading address
+      description: The address that worked under Advanced in the login dialog, or the address of the broker's MT5 web terminal.
+      placeholder: https://mt5-demo01.pepperstone.com/terminal
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Login and trading work
+        - Login works, something else does not
+        - Login fails
+        - Address not found automatically
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: What worked and what did not. Journal lines help (remove anything personal).

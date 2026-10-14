@@ -1,7 +1,18 @@
+# Dependencies and build output
 node_modules/
 dist/
 dist-electron/
 release/
-__pycache__/
-*.pyc
+
+# Logs and editor or OS files
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Local environment and private notes (never commit credentials)
+.env
+.env.*
 .docs/
