@@ -83,7 +83,7 @@ function SourceEditor({ source, baseUrl, onChange, onRemove }: SourceEditorProps
           <NumberField label="Rate limit" value={source.maxPerMinute} suffix="/ min" onChange={(maxPerMinute) => set({ maxPerMinute: Math.round(maxPerMinute) })} />
           <SelectField label="Default stop unit" value={source.defaultStop?.unit ?? 'pips'} options={distanceUnits.filter((unit) => unit.key !== 'price')} onChange={(unit) => set({ defaultStop: { unit, value: source.defaultStop?.value ?? 0 } })} />
           <NumberField label="Default stop" value={source.defaultStop?.value ?? 0} hint="Used when a signal has no stop. 0 is none." onChange={(value) => set({ defaultStop: value > 0 ? { unit: source.defaultStop?.unit ?? 'pips', value } : undefined })} />
-          <TextField label="Symbol suffix" value={source.symbolSuffix} placeholder=".m" hint="Appended to incoming symbols, e.g. EURUSD becomes EURUSD.m." onChange={(symbolSuffix) => set({ symbolSuffix })} />
+          <TextField label="Symbol suffix" value={source.symbolSuffix} placeholder=".m" hint="Optional. Prefixed and suffixed broker names are found automatically; set this only to force one, e.g. EURUSD becomes EURUSD.m." onChange={(symbolSuffix) => set({ symbolSuffix })} />
           <TextField label="Allowed symbols" value={source.allowedSymbols.join(', ')} placeholder="All symbols" onChange={(value) => set({ allowedSymbols: value.split(',').map((item) => item.trim()).filter(Boolean) })} />
           <label className="form-field is-wide">
             <span>Symbol map</span>

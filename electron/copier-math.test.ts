@@ -66,3 +66,12 @@ test('stops copy by price or distance, refine, fall back to fixed pips and drop 
   assert.deepEqual(copyStops({ ...follower, isReversed: true }, { ...input, side: 'sell' }), { sl: 0, tp: 0 });
   assert.deepEqual(copyStops({ ...follower, isReversed: true, fixedStopPips: 20 }, { ...input, side: 'sell' }), { sl: 1.1023, tp: 0 });
 });
+
+test('auto-mapping follows prefixes as well as suffixes, in both directions', () => {
+  assert.equal(mapFollowerSymbol('EURUSD', follower, ['mGBPUSD', 'mEURUSD']), 'mEURUSD');
+  assert.equal(mapFollowerSymbol('EURUSD.m', follower, ['#EURUSD', '#XAUUSD']), '#EURUSD');
+  assert.equal(mapFollowerSymbol('mXAUUSD', follower, ['XAUUSD', 'XAUUSD.pro']), 'XAUUSD');
+  const filtered = { ...follower, symbolFilter: { mode: 'copy' as const, values: ['EURUSD'] } };
+  assert.equal(passesFilters(filtered, { side: 'buy', symbol: 'mEURUSD', comment: '', magic: 0 }), null);
+  assert.match(passesFilters(filtered, { side: 'buy', symbol: 'mGBPUSD', comment: '', magic: 0 }) ?? '', /filtered/);
+});

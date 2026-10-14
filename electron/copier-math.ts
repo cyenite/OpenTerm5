@@ -2,6 +2,7 @@ import type { FollowerConfig, TradingWindow } from '../shared/automation';
 import type { Position, SymbolSpec } from '../shared/protocol';
 import { floorToStep, stepDecimals } from '../shared/risk';
 import { pipFactor } from '../shared/valuation';
+import { isSameInstrument, matchSymbol } from '../shared/symbol-match';
 
 export interface SizingContext {
   masterLots: number;
@@ -68,18 +69,10 @@ export function copyVolume(follower: Pick<FollowerConfig, 'riskType' | 'riskValu
   return note ? { lots, note } : { lots };
 }
 
-export function baseName(symbol: string): string {
-  const match = /^[A-Z0-9]+/.exec(symbol);
-  return match ? match[0] : symbol;
-}
-
 export function mapFollowerSymbol(symbol: string, follower: Pick<FollowerConfig, 'symbolMap' | 'isSuffixAutoMapped'>, followerNames: readonly string[]): string | null {
   if (follower.symbolMap[symbol]) return follower.symbolMap[symbol];
   if (followerNames.includes(symbol)) return symbol;
-  if (!follower.isSuffixAutoMapped) return null;
-  const base = baseName(symbol);
-  const candidates = followerNames.filter((name) => name === base || name.startsWith(base) && !/[A-Z0-9]/.test(name[base.length]));
-  return candidates.sort((left, right) => left.length - right.length)[0] ?? null;
+  return follower.isSuffixAutoMapped ? matchSymbol(symbol, followerNames) : null;
 }
 
 export function passesFilters(follower: FollowerConfig, trade: Pick<Position, 'side' | 'symbol' | 'comment' | 'magic'>): string | null {
@@ -94,7 +87,7 @@ export function passesFilters(follower: FollowerConfig, trade: Pick<Position, 's
     if (commentFilter.mode === 'copy' ? !isListed : isListed) return 'comment is filtered';
   }
   if (symbolFilter.mode !== 'off' && symbolFilter.values.length) {
-    const isListed = symbolFilter.values.includes(trade.symbol) || symbolFilter.values.includes(baseName(trade.symbol));
+    const isListed = symbolFilter.values.some((value) => isSameInstrument(value, trade.symbol));
     if (symbolFilter.mode === 'copy' ? !isListed : isListed) return `${trade.symbol} is filtered`;
   }
   return null;
