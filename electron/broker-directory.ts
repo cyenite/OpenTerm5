@@ -108,9 +108,10 @@ export class BrokerDirectory {
     const cached = resolved[name];
     if (cached) return this.result(name, cached.webUrl, cached.broker, cached.isListed, 'saved');
     const known = knownTerminals.filter((terminal) => terminal.prefixes.some((prefix) => name.startsWith(prefix))).map((terminal) => terminal.webUrl);
-    const candidates = [...new Set([...known, ...candidateTerminals(name)])];
+    const candidates = candidateTerminals(name).filter((url) => !known.includes(url));
     const blocked: string[] = [];
-    const found = await this.probe(name, candidates, new Set(known), blocked);
+    const trusted = new Set(known);
+    const found = await this.probe(name, known, trusted, blocked) ?? await this.probe(name, candidates, trusted, blocked);
     if (!found && blocked.length) throw new BotCheckError(blocked[0]);
     if (!found) throw new Error(`Could not find the address of ${name}. Ask your broker for its MT5 web trading address and enter it under Advanced.`);
     return this.result(name, found.webUrl, found.broker, found.isListed, known.includes(found.webUrl) ? 'known' : 'discovered');
@@ -142,28 +143,34 @@ export class BrokerDirectory {
   private async probe(server: string, candidates: readonly string[], trusted: ReadonlySet<string>, blocked: string[]) {
     for (let index = 0; index < candidates.length; index += probeLimit) {
       const batch = candidates.slice(index, index + probeLimit);
-      const results = await Promise.all(batch.map((webUrl) => this.match(server, webUrl, trusted.has(webUrl)).catch((error: unknown) => {
-        if (error instanceof BotCheckError) blocked.push(error.host);
-        return null;
-      })));
-      const listed = results.find((result) => result?.isListed);
-      if (listed) return listed;
-      const trustedMatch = results.find((result) => result && trusted.has(result.webUrl));
-      if (trustedMatch) return trustedMatch;
+      const controller = new AbortController();
+      const result = await new Promise<Awaited<ReturnType<BrokerDirectory['match']>>>((resolve) => {
+        let remaining = batch.length;
+        let fallback: Awaited<ReturnType<BrokerDirectory['match']>> = null;
+        for (const webUrl of batch) {
+          void this.match(server, webUrl, trusted.has(webUrl), controller.signal).then((found) => {
+            if (found?.isListed) { resolve(found); controller.abort(); }
+            else if (found && trusted.has(found.webUrl)) fallback ??= found;
+          }).catch((error: unknown) => {
+            if (!controller.signal.aborted && error instanceof BotCheckError) blocked.push(error.host);
+          }).finally(() => { if (--remaining === 0) resolve(fallback); });
+        }
+      });
+      if (result) return result;
     }
     return null;
   }
 
   // A guessed host is accepted only when its page declares the exact server name, so an
   // unrelated site on a look-alike domain is never handed the user's password.
-  private async match(server: string, webUrl: string, isTrusted: boolean): Promise<{ webUrl: string; broker: string; server: string; isListed: boolean } | null> {
+  private async match(server: string, webUrl: string, isTrusted: boolean, signal?: AbortSignal): Promise<{ webUrl: string; broker: string; server: string; isListed: boolean } | null> {
     let url = webUrl;
-    let html = await fetchTerminalPage(url, this.fetchPage, probeTimeout);
+    let html = await fetchTerminalPage(url, this.fetchPage, probeTimeout, signal);
     if (!html.includes('__terminal_params')) {
       const frame = findTerminalFrame(html, url);
       if (!frame) return null;
       url = frame;
-      html = await fetchTerminalPage(url, this.fetchPage, probeTimeout);
+      html = await fetchTerminalPage(url, this.fetchPage, probeTimeout, signal);
     }
     const servers = parseServerMetadata(html, url);
     const exact = servers.find((entry) => entry.server.toLowerCase() === server.toLowerCase());

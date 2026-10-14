@@ -7,6 +7,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Broker discovery returns on an exact match and cancels unused probes, avoiding delays from slow
+  speculative hosts. Verified broker terminals are checked before guessed addresses.
+- Orders and their prerequisite reads take priority over queued chart/history requests. Quotes wake
+  on incoming ticks, and confirmed orders return without waiting for an account refresh.
+- Broker relay pages remain available for 30 idle seconds, avoiding renderer recreation during
+  login and reconnects. Hidden relays no longer prevent normal main-window close or macOS activation.
+
 ## [0.1.0] - 2026-10-14
 
 First public release of OpenTerm5 (previously developed as Terminal5), under the MIT License.

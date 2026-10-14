@@ -5,6 +5,7 @@ import { BrowserSocket, chromeUserAgent } from './browser-socket';
 import type { SocketOpener } from './mt5-web-transport';
 
 const maxPayload = 104_857_600;
+const relayIdleMs = 30_000;
 
 const relayPage = `<!doctype html><meta charset="utf-8"><script>
 window.addEventListener('message', (event) => {
@@ -48,6 +49,7 @@ async function isChallenged(url: string): Promise<boolean> {
 // and cookies the broker's own web terminal would.
 class RelayHost {
   private users = 0;
+  private idle?: NodeJS.Timeout;
   private readonly window: BrowserWindow;
   private readonly loaded: Promise<void>;
 
@@ -59,22 +61,25 @@ class RelayHost {
     this.window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     this.window.webContents.on('will-navigate', (event) => event.preventDefault());
     this.window.webContents.on('render-process-gone', () => this.destroy());
+    this.window.on('closed', () => this.destroy());
     this.loaded = this.window.loadURL(`data:text/html;base64,${Buffer.from(relayPage).toString('base64')}`, { baseURLForDataURL: `${origin}/` });
   }
 
   open(url: string, port: MessagePortMain): void {
+    clearTimeout(this.idle);
     this.users++;
     this.loaded.then(() => {
       if (this.window.isDestroyed()) throw new Error('Relay page closed');
       this.window.webContents.postMessage('relay:socket', url, [port]);
-    }).catch(() => port.emit('close'));
+    }).catch(() => { this.destroy(); port.emit('close'); });
   }
 
   release(): void {
-    if (--this.users <= 0) this.destroy();
+    if (--this.users <= 0 && !this.window.isDestroyed()) this.idle = setTimeout(() => this.destroy(), relayIdleMs);
   }
 
   private destroy(): void {
+    clearTimeout(this.idle);
     if (relays.get(this.origin) === this) relays.delete(this.origin);
     if (!this.window.isDestroyed()) this.window.destroy();
   }

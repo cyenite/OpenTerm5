@@ -61,11 +61,11 @@ export function parseServerMetadata(html: string, webUrl: string): ServerLookupR
   });
 }
 
-export async function fetchTerminalPage(webUrl: string, fetchPage: typeof fetch = fetch, timeout = 10_000): Promise<string> {
+export async function fetchTerminalPage(webUrl: string, fetchPage: typeof fetch = fetch, timeout = 10_000, signal?: AbortSignal): Promise<string> {
   const url = validateTerminalUrl(webUrl);
   const response = await fetchPage(url.href, {
     redirect: 'error',
-    signal: AbortSignal.timeout(timeout),
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout),
     headers: { Accept: 'text/html' },
   });
   if (isBotCheck(response.status, response.headers)) throw new BotCheckError(url.hostname);

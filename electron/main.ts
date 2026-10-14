@@ -92,7 +92,10 @@ function createWindow(): void {
       : [{ role: 'copy' }];
     Menu.buildFromTemplate(template).popup({ window });
   });
-  window.on('closed', () => (window = undefined));
+  window.on('closed', () => {
+    window = undefined;
+    if (process.platform !== 'darwin') app.quit();
+  });
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://')) {
       void shell.openExternal(url);
@@ -270,7 +273,7 @@ if (!app.requestSingleInstanceLock()) {
     }
     automation = new AutomationHost({ pool, userData: app.getPath('userData'), cipher: secretCipher, accounts: () => accounts, send: sendAutomation, journal });
     await automation.init();
-    app.on('activate', () => BrowserWindow.getAllWindows().length === 0 && createWindow());
+    app.on('activate', () => !window && createWindow());
   });
 }
 

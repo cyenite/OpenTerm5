@@ -40,6 +40,8 @@ fit together, so you can find where a change belongs.
 | `mt5-web-codec.ts` | Bounded binary reader and writer |
 | `mt5-web-client.ts` | Login, heartbeat, account and symbol commands, quote decoding |
 | `mt5-web-link.ts` | One account session: state, subscriptions, polling, reconnection, trading |
+| `request-queue.ts` | Serialized requests, urgent trading work and login barriers |
+| `browser-network.ts`, `browser-socket.ts`, `relay-preload.ts` | Chromium broker session and WebSocket relay pages |
 | `mt5-web-trading.ts`, `-history.ts`, `-market.ts`, `-models.ts`, `-depth.ts` | Record parsers and request encoders |
 | `session-pool.ts` | One `Mt5WebLink` per account; the UI account shares the interface's link |
 | `broker-directory.ts`, `mt5-web-discovery.ts` | Server search and broker address resolution |
@@ -78,6 +80,11 @@ pure logic for risk sizing (`risk.ts`), currency valuation (`valuation.ts`) and 
 Chart bars are requested on demand (command 11). Timeframes that the server does not provide are
 aggregated from smaller bars.
 
+Quote requests wake on incoming ticks instead of checking on a polling timer. Requests remain
+serialized, but orders and account/symbol reads used to prepare trades take priority over queued
+chart/history work. Requests already in flight finish first; login barriers and connection-generation
+checks prevent work moving across account changes.
+
 ### Trading
 
 1. A dialog or engine sends an `order.send` request.
@@ -85,6 +92,9 @@ aggregated from smaller bars.
    (notification 19). Admission by the server is not treated as execution.
 3. Trade transaction notifications (notification 10) update positions, orders and the balance, and a
    `trade` event refreshes the interface.
+
+The final result returns to the caller before a supplementary account refresh runs in the queue.
+Broker execution and network round trips still determine the minimum achievable latency.
 
 A request whose outcome is unknown, for example after a disconnection, is reported as unknown and is
 never repeated. The engines follow the same rule: the copier looks for a matching position and the
@@ -95,6 +105,12 @@ trade manager pauses the rule.
 `SessionPool` keeps one link per account. The Trading workspace uses the active account's link.
 The copier and signal sources acquire links for the other accounts they need. MT5 allows one web
 session per login, so every account has exactly one link.
+
+Broker traffic uses Chromium's persistent broker session. One hidden relay page per broker origin
+owns its WebSockets and remains available for 30 seconds after its last socket closes, allowing
+login and reconnects to reuse the renderer. Broker discovery checks known hosts before speculative
+addresses and cancels the remaining probes when an exact server match arrives. Discovered addresses
+still require approval before credentials are sent.
 
 ## Persistence
 

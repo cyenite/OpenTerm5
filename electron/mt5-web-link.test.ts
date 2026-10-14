@@ -397,3 +397,79 @@ test('a broker with decorated symbol names still gets a default Market Watch', a
   const visible = (await link.request('symbols.list', {})).filter((symbol) => symbol.visible).map((symbol) => symbol.name);
   assert.deepEqual(visible, ['EURUSD.m']);
 });
+
+
+test('queued orders overtake chart reads while active requests remain serialized', async (t) => {
+  const { link, clients } = fixture();
+  t.after(() => link.disconnect());
+  await loggedIn(link);
+  const client = clients.at(-1)!;
+  const original = client.transport.request.bind(client.transport);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let isReading = false;
+  client.transport.request = async (command, payload) => {
+    if (command === 11 && !isReading) { isReading = true; await gate; }
+    return original(command, payload);
+  };
+  client.onSubmit = async (request) => {
+    queueMicrotask(() => client.notify(request, 10009));
+    return new BinaryWriter(4).u32(0).finish();
+  };
+  const active = link.request('rates.get', { symbol: 'EURUSD', timeframe: 'M1', count: 1 });
+  await until(() => isReading);
+  const chart = link.request('rates.get', { symbol: 'EURUSD', timeframe: 'M5', count: 1 });
+  const order = link.request('order.send', marketRequest);
+  assert.equal(client.submissions.length, 0);
+  release();
+  await Promise.all([active, chart, order]);
+  const commands = client.commands.filter((command) => command === 11 || command === 12);
+  assert.deepEqual(commands, [11, 12, 11]);
+});
+
+test('a final order result returns before the background account refresh finishes', async (t) => {
+  const { link, clients } = fixture();
+  t.after(() => link.disconnect());
+  await loggedIn(link);
+  const client = clients.at(-1)!;
+  const original = client.transport.request.bind(client.transport);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  t.after(() => release());
+  client.transport.request = async (command, payload) => {
+    if (command === 3) await gate;
+    return original(command, payload);
+  };
+  const outcome = link.request('order.send', marketRequest);
+  await until(() => client.submissions.length === 1);
+  client.notify(client.submissions[0], 10009);
+  const result = await Promise.race([outcome, new Promise<never>((_resolve, reject) => setImmediate(() => reject(new Error('Order result waited for account refresh'))))]);
+  assert.equal(result.retcode, 10009);
+  release();
+  await link.request('terminal.status', {});
+});
+
+test('a quote request wakes on a tick without waiting for a polling timer', async (t) => {
+  const { link, clients } = fixture();
+  t.after(() => link.disconnect());
+  await loggedIn(link);
+  const client = clients.at(-1)!;
+  const outcome = link.request('symbols.quote', { symbol: 'EURUSD' });
+  await until(() => client.subscriptions.length > 1);
+  client.emit('tick', { symbol: 'EURUSD', timeMs: Date.now(), bid: 1.1, ask: 1.1002 });
+  const quote = await Promise.race([outcome, new Promise<never>((_resolve, reject) => setImmediate(() => reject(new Error('Quote waited for a polling timer'))))]);
+  assert.equal(quote.symbol, 'EURUSD');
+  assert.ok(quote.ask > 0);
+});
+
+test('disconnect interrupts a pending quote wait', async (t) => {
+  const { link, clients } = fixture();
+  t.after(() => link.disconnect());
+  await loggedIn(link);
+  const client = clients.at(-1)!;
+  const outcome = link.request('symbols.quote', { symbol: 'EURUSD' });
+  const rejected = assert.rejects(outcome, /connection lost/i);
+  await until(() => client.subscriptions.length > 1);
+  link.disconnect();
+  await rejected;
+});
