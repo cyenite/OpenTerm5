@@ -5,9 +5,9 @@ import { arrangeFrames, clampFrame, raise, type ChartFrame, type WindowArrangeme
 import { applyTemplate, captureProfile, captureTemplate, restoreLayout, restoreProfiles, restoreTemplates, type ChartProfile, type ChartTemplate } from './presets';
 
 export const chartTypes = [
-  { key: 'bars', label: 'Bar Chart', shortcut: 'Alt+1' },
-  { key: 'candles', label: 'Candlesticks', shortcut: 'Alt+2' },
-  { key: 'line', label: 'Line Chart', shortcut: 'Alt+3' },
+  { key: 'bars', label: 'Bar Chart', shortcut: 'Alt+1', description: 'Each bar shows open, high, low and close.' },
+  { key: 'candles', label: 'Candlesticks', shortcut: 'Alt+2', description: 'Filled bodies show whether price rose or fell.' },
+  { key: 'line', label: 'Line Chart', shortcut: 'Alt+3', description: 'A single line through closing prices.' },
 ] as const;
 
 export type ChartType = (typeof chartTypes)[number]['key'];
@@ -21,15 +21,15 @@ export const colorSchemes = [
 export type ColorScheme = (typeof colorSchemes)[number]['key'];
 
 export const tools = [
-  { key: 'cursor', label: 'Cursor' },
-  { key: 'crosshair', label: 'Crosshair' },
-  { key: 'hline', label: 'Horizontal Line' },
-  { key: 'trend', label: 'Trendline' },
-  { key: 'vline', label: 'Vertical Line' },
-  { key: 'ray', label: 'Horizontal Ray' },
-  { key: 'rectangle', label: 'Rectangle' },
-  { key: 'fibonacci', label: 'Fibonacci Retracement' },
-  { key: 'riskOrder', label: 'Risk Order: drag the entry, then the stop loss and take profit' },
+  { key: 'cursor', label: 'Cursor', description: 'Select, move and edit chart objects.' },
+  { key: 'crosshair', label: 'Crosshair', description: 'Read exact prices and times under the pointer.' },
+  { key: 'hline', label: 'Horizontal Line', description: 'Click to mark a price level.' },
+  { key: 'trend', label: 'Trendline', description: 'Drag between two points.' },
+  { key: 'vline', label: 'Vertical Line', description: 'Click to mark a moment in time.' },
+  { key: 'ray', label: 'Horizontal Ray', description: 'A price level that extends to the right from where you click.' },
+  { key: 'rectangle', label: 'Rectangle', description: 'Drag to box a price and time range.' },
+  { key: 'fibonacci', label: 'Fibonacci Retracement', description: 'Drag from a swing low to a swing high, or the reverse.' },
+  { key: 'riskOrder', label: 'Risk Order', description: 'Drag the entry, then the stop loss and take profit; the volume follows your risk setting.' },
 ] as const;
 
 export type Tool = (typeof tools)[number]['key'];
