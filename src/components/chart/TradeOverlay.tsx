@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { plannerRiskModes, type RiskOrderOutcome, type RiskOrderRequest } from '../../../shared/automation';
 import { decidePlan, validateDrag, type PlanLines } from '../../../shared/order-plan';
 import { orderType, type Order, type Position } from '../../../shared/protocol';
-import { automation } from '../../lib/automation';
+import { placeRiskOrder } from '../../lib/automation';
 import { formatMoney, formatPrice, formatVolume } from '../../lib/format';
 import { riskPreferences, setRiskPreferences } from '../../lib/risk-preferences';
 import { closePosition, log, sendOrder, session } from '../../lib/session';
@@ -129,7 +129,7 @@ function PlannerPanel({ symbol, lines, digits, error, title, preview, isBusy, is
       <p className="planner-hint">{lines.target ? 'Drag any line to adjust.' : 'Click to place the take profit, or place the order without one.'}</p>
       <div className="planner-actions">
         <button type="button" onClick={onCancel}>Cancel</button>
-        <button type="button" className="is-primary" disabled={!!error || !preview || isBusy} onClick={onPlace}>{isBusy ? 'Sending…' : 'Place order'}</button>
+        <button type="button" className="is-primary" disabled={!!error || !preview || isBusy} onClick={onPlace}>{isBusy ? <><span className="spinner" aria-hidden /> Sending…</> : 'Place order'}</button>
       </div>
     </div>
   );
@@ -335,7 +335,7 @@ export function TradeOverlay({ controller, symbol, digits }: TradeOverlayProps) 
     if (!request) return;
     setIsBusy(true);
     try {
-      const outcome = await automation.request('manager.risk', request);
+      const outcome = await placeRiskOrder(`Risk ${orderType(request.type)?.label.toLowerCase() ?? request.type} ${preview?.lots ?? ''} ${symbol}`.replace(/\s+/g, ' '), request);
       const failed = outcome.results.find((result) => !result.isSuccess);
       log(`${request.type} ${outcome.lots} ${symbol} from chart, risk ${formatMoney(outcome.riskMoney)}: ${failed ? failed.comment : 'done'}`, 'Trades');
       if (!failed) { setPlan({}); setIsMarketForced(false); if (workspace.get().tool === 'riskOrder') workspace.set({ tool: 'cursor' }); }

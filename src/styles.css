@@ -817,6 +817,21 @@ button:active:not(:disabled) {
   color: var(--sell);
 }
 
+.row-close:disabled {
+  color: var(--accent);
+  cursor: progress;
+}
+
+tr.is-pending > td:not(:last-child) {
+  opacity: 0.5;
+}
+
+.one-click-side span .spinner {
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+}
+
 .history-filter {
   padding: 4px 8px;
 }
@@ -840,6 +855,28 @@ button:active:not(:disabled) {
 .status-ohlc {
   flex: 1;
   font-variant-numeric: tabular-nums;
+}
+
+.status-trade {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.status-trade.is-pending {
+  color: var(--accent);
+}
+
+.status-trade.is-done {
+  color: var(--profit);
+}
+
+.status-trade.is-failed {
+  color: var(--loss);
 }
 
 .status-link {
@@ -1046,6 +1083,20 @@ button:disabled {
   text-align: center;
   padding: 18px 8px 4px;
   font-size: 14px;
+}
+
+.order-sending {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.order-sending .spinner {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+  color: var(--accent);
 }
 
 .tick-chart {

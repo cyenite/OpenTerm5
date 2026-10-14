@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { RiskOrderRequest } from '../../../shared/automation';
-import type { OrderTypeKey, TradeResult } from '../../../shared/protocol';
+import { orderType, type OrderTypeKey, type TradeResult } from '../../../shared/protocol';
 import { distanceUnits, riskModes, type DistanceUnit, type RiskMode } from '../../../shared/risk';
-import { automation } from '../../lib/automation';
+import { placeRiskOrder } from '../../lib/automation';
 import { formatMoney, formatPrice } from '../../lib/format';
 import { session } from '../../lib/session';
 import { useStore } from '../../lib/store';
@@ -12,7 +12,7 @@ import { NumberField, Segmented, SelectField, Switch, TextField } from '../ui/Co
 interface RiskTicketProps {
   symbol: string;
   canTrade: boolean;
-  onResult: (title: string, result: TradeResult) => void;
+  onResult: (title: string, result: TradeResult | null) => void;
 }
 
 const entryKinds = [
@@ -82,9 +82,11 @@ export function RiskTicket({ symbol, canTrade, onResult }: RiskTicketProps) {
   const { preview, problem } = useRiskPreview(request, entry === 'market' ? `${tick?.bid}:${tick?.ask}` : tick?.bid === undefined);
 
   const place = async () => {
+    const label = `Risk ${orderType(type)?.label.toLowerCase() ?? type} ${preview?.lots ?? ''} ${symbol}`.replace(/\s+/g, ' ');
     setIsBusy(true);
+    onResult(label, null);
     try {
-      const outcome = await automation.request('manager.risk', request);
+      const outcome = await placeRiskOrder(label, request);
       const failed = outcome.results.find((result) => !result.isSuccess);
       onResult(
         `${type} ${outcome.lots} ${symbol} in ${outcome.results.length} order${outcome.results.length === 1 ? '' : 's'}, risk ${formatMoney(outcome.riskMoney)} ${currency}`,

@@ -257,9 +257,9 @@ export class TradeManager extends EventEmitter {
     };
     const filter = filters[request.kind];
     if (filter) {
-      for (const position of snapshot.positions.filter(filter)) await closing(position);
+      await Promise.all(snapshot.positions.filter(filter).map(closing));
     } else if (request.kind === 'deletePending') {
-      for (const order of snapshot.orders.filter((item) => !request.symbol || item.symbol === request.symbol)) await send(order.ticket, order.symbol, { action: 'remove', order: order.ticket });
+      await Promise.all(snapshot.orders.filter((item) => !request.symbol || item.symbol === request.symbol).map((order) => send(order.ticket, order.symbol, { action: 'remove', order: order.ticket })));
     } else if (request.kind === 'breakEvenAll') {
       for (const position of snapshot.positions) {
         const spec = await this.spec(link, accountId, position.symbol);

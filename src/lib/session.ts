@@ -12,6 +12,7 @@ import type {
   TradeRequest,
   TradeResult,
 } from '../../shared/protocol';
+import { orderType } from '../../shared/protocol';
 import { Store } from './store';
 import { checkPriceAlerts, priceAlerts } from './price-alerts';
 
@@ -27,7 +28,29 @@ const JOURNAL_LIMIT = 1000;
 let contextVersion = 0;
 let refreshWork: Promise<void> | undefined;
 
+let tradeId = 0;
+
 export type Direction = 'up' | 'down' | 'flat';
+
+export interface TradeTarget {
+  readonly order?: number;
+  readonly position?: number;
+}
+
+export interface PendingTrade extends TradeTarget {
+  readonly id: number;
+  readonly label: string;
+  readonly startedAt: number;
+}
+
+export interface FinishedTrade {
+  readonly id: number;
+  readonly label: string;
+  readonly comment: string;
+  readonly finishedAt: number;
+  readonly elapsedMs: number;
+  readonly isSuccess: boolean;
+}
 
 export interface SessionState {
   profileId: string | null;
@@ -38,6 +61,8 @@ export interface SessionState {
   orders: Order[];
   journal: JournalEntry[];
   positions: Position[];
+  pendingTrades: PendingTrade[];
+  lastTrade: FinishedTrade | null;
   ticks: Record<string, Tick>;
   symbols: Record<string, SymbolSpec>;
   directions: Record<string, Direction>;
@@ -53,6 +78,8 @@ export const session = new Store<SessionState>({
   orders: [],
   journal: [],
   positions: [],
+  pendingTrades: [],
+  lastTrade: null,
   ticks: {},
   symbols: {},
   directions: {},
@@ -64,8 +91,16 @@ export function log(message: string, source = 'Terminal'): void {
   session.set((state) => ({ journal: [...state.journal.slice(-JOURNAL_LIMIT + 1), entry] }));
 }
 
+const visibleSymbols = new WeakMap<Record<string, SymbolSpec>, SymbolSpec[]>();
+
+// Selectors run on every tick; the broker list holds thousands of symbols but rarely changes.
 export function watchlist(state: SessionState): SymbolSpec[] {
-  return Object.values(state.symbols).filter((symbol) => symbol.visible);
+  let visible = visibleSymbols.get(state.symbols);
+  if (!visible) {
+    visible = Object.values(state.symbols).filter((symbol) => symbol.visible);
+    visibleSymbols.set(state.symbols, visible);
+  }
+  return visible;
 }
 
 function subscribedSymbols(): string[] {
@@ -135,12 +170,45 @@ async function loadSession(): Promise<void> {
   }
 }
 
-export async function sendOrder(request: TradeRequest): Promise<TradeResult> {
+export function isTradePending(state: SessionState, target: TradeTarget): boolean {
+  return state.pendingTrades.some((trade) => (target.position !== undefined && trade.position === target.position) || (target.order !== undefined && trade.order === target.order));
+}
+
+export async function trackTrade<T>(label: string, target: TradeTarget, run: () => Promise<T>, isSuccess: (value: T) => boolean, comment: (value: T) => string): Promise<T> {
+  const trade: PendingTrade = { ...target, label, id: ++tradeId, startedAt: performance.now() };
+  session.set((state) => ({ pendingTrades: [...state.pendingTrades, trade] }));
+  const finish = (isDone: boolean, text: string) => session.set((state) => ({
+    pendingTrades: state.pendingTrades.filter((candidate) => candidate.id !== trade.id),
+    lastTrade: { label, id: trade.id, comment: text, isSuccess: isDone, finishedAt: Date.now(), elapsedMs: performance.now() - trade.startedAt },
+  }));
   try {
-    return await terminal.request('order.send', request);
+    const value = await run();
+    finish(isSuccess(value), comment(value));
+    return value;
   } catch (error) {
-    return { retcode: 0, comment: (error as Error).message, isSuccess: false };
+    finish(false, (error as Error).message);
+    throw error;
   }
+}
+
+export function describeTrade(request: TradeRequest): string {
+  const subject = [request.volume, request.symbol].filter((part) => part !== undefined && part !== '').join(' ');
+  if (request.action === 'remove') return `Delete order #${request.order}`;
+  if (request.action === 'modify') return `Modify order #${request.order}`;
+  if (request.action === 'sltp') return `Modify #${request.position} SL/TP`;
+  if (request.action === 'closeBy') return `Close #${request.position} by #${request.positionBy}`;
+  if (request.position) return `Close #${request.position} ${subject}`.trim();
+  return `${orderType(request.type ?? '')?.label ?? request.type ?? request.action} ${subject}`.trim();
+}
+
+export function sendOrder(request: TradeRequest, label = describeTrade(request)): Promise<TradeResult> {
+  return trackTrade(label, { position: request.position, order: request.order }, async () => {
+    try {
+      return await terminal.request('order.send', request);
+    } catch (error) {
+      return { retcode: 0, comment: (error as Error).message, isSuccess: false };
+    }
+  }, (result) => result.isSuccess, (result) => result.comment);
 }
 
 export function closePosition(position: Position, volume = position.volume): Promise<TradeResult> {

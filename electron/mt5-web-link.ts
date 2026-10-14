@@ -58,6 +58,7 @@ export class Mt5WebLink extends EventEmitter {
   private readonly summaries = new Map<string, SymbolSpec>();
   private readonly symbolIds = new Map<string, number>();
   private readonly pendingTrades = new Map<number, PendingTrade>();
+  private readonly tradeOutcomes = new Set<Promise<TradeResult>>();
   private readonly conversions = new Set<string>();
   private readonly pinned = new Set<string>();
   private readonly untrusted = new Set<string>();
@@ -133,11 +134,13 @@ export class Mt5WebLink extends EventEmitter {
         await this.loadDetails([this.enriched(params as TradeRequest).symbol ?? '']);
       }, true);
       void ready.catch(() => {});
+      // The lane is held only until the broker admits the request, as the official web client does;
+      // the final result arrives later by request id, so the next order need not wait for it.
       return this.trades.enqueue(async () => {
         await ready;
         guard();
-        return this.sendTrade(params as TradeRequest, started);
-      }) as Promise<TerminalMethods[M][1]>;
+        return this.submitTrade(params as TradeRequest, started);
+      }).then((submission) => submission.outcome) as Promise<TerminalMethods[M][1]>;
     }
     if (canRead) {
       let cached: unknown;
@@ -161,7 +164,7 @@ export class Mt5WebLink extends EventEmitter {
       }
       if (cached !== undefined) return Promise.resolve(cached) as Promise<TerminalMethods[M][1]>;
     }
-    const settled = method === 'account.login' ? this.trades.enqueue(async () => {}) : undefined;
+    const settled = method === 'account.login' ? this.trades.enqueue(async () => {}).then(() => Promise.allSettled([...this.tradeOutcomes])) : undefined;
     if (method === 'account.login') this.pendingLogins++;
     const run = this.queue.enqueue(async () => {
       if (settled) await settled;
@@ -614,39 +617,44 @@ export class Mt5WebLink extends EventEmitter {
     return encodeTradeRequest({ ...request, price }, { ...details.trade, requestId, symbol: details.spec.name, expirationMode: order?.expirationMode, isNegativePriceAllowed: details.allowsNegativePrices });
   }
 
-  private async sendTrade(request: TradeRequest, started = performance.now()): Promise<TradeResult> {
+  private async submitTrade(request: TradeRequest, started = performance.now()): Promise<{ readonly outcome: Promise<TradeResult> }> {
     request = this.enriched(request);
     await this.loadDetails([request.symbol ?? '']);
     const id = this.nextId++;
     if (this.nextId > 0xffffffff) this.nextId = 1;
     const payload = this.prepare(request, id);
     const submitted = performance.now();
-    let outcome: Promise<TradeResult>;
-    outcome = new Promise((resolve, reject) => {
+    const final = new Promise<TradeResult>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingTrades.delete(id);
         reject(new Error('Order result timed out. Its outcome is unknown; check broker positions and history before repeating it.'));
       }, 30_000);
       this.pendingTrades.set(id, { timer, reject, resolve });
     });
-    void outcome.catch(() => {});
+    void final.catch(() => {});
+    let admitted: number;
     try {
       const code = parseTradeAdmission(await this.authenticated().transport.request(12, payload));
+      admitted = performance.now();
       if (code !== 0) {
         const pending = this.pendingTrades.get(id);
         if (pending) { clearTimeout(pending.timer); this.pendingTrades.delete(id); pending.resolve({ retcode: code, isSuccess: false, comment: `Broker declined the request (${code})` }); }
       }
-      const result = await outcome;
-      this.journal(`Order timing: main-process queue/preparation ${(submitted - started).toFixed(1)} ms; broker confirmation ${(performance.now() - submitted).toFixed(1)} ms.`);
-      void this.request('trade.snapshot', {}).then((snapshot) => this.publish('trade', snapshot))
-        .catch(() => this.journal('Trade result received; broker snapshot refresh is pending.'));
-      return result;
     } catch (error) {
       const pending = this.pendingTrades.get(id);
       if (pending) { clearTimeout(pending.timer); this.pendingTrades.delete(id); pending.reject(error instanceof Error ? error : new Error('Order outcome is unknown')); }
       if (!(error instanceof WebProtocolError)) throw new Error('Order outcome is unknown. Reconcile broker positions and history before submitting it again.');
       throw error;
     }
+    const outcome = final.then((result) => {
+      this.journal(`Order timing: main-process queue/preparation ${(submitted - started).toFixed(1)} ms; broker admission ${(admitted - submitted).toFixed(1)} ms; final result ${(performance.now() - submitted).toFixed(1)} ms.`);
+      void this.request('trade.snapshot', {}).then((snapshot) => this.publish('trade', snapshot))
+        .catch(() => this.journal('Trade result received; broker snapshot refresh is pending.'));
+      return result;
+    });
+    this.tradeOutcomes.add(outcome);
+    void outcome.catch(() => {}).finally(() => this.tradeOutcomes.delete(outcome));
+    return { outcome };
   }
 
   private async route(method: TerminalMethod, values: unknown): Promise<unknown> {
@@ -702,7 +710,7 @@ export class Mt5WebLink extends EventEmitter {
         const result: CheckResult = { retcode: 0, isSuccess: true, hasMarginEstimate: false, comment: 'Order fields validated locally. Margin and execution conditions are checked by the broker on submission.', balance: account.balance, equity: account.equity, margin: Number.NaN, marginFree: Number.NaN, marginLevel: Number.NaN };
         return result;
       }
-      case 'order.send': return this.sendTrade(params as TradeRequest);
+      case 'order.send': return (await this.submitTrade(params as TradeRequest)).outcome;
       case 'symbols.quote': {
         if (!this.pinned.has(params.symbol)) {
           await this.loadDetails([params.symbol]);

@@ -205,13 +205,19 @@ test('connection loss rejects outstanding order and queued order, reconnects wit
   await link.request('ticks.subscribe', { symbols: ['EURUSD'] });
   await link.request('rates.subscribe', { symbol: 'EURUSD', timeframe: 'M1' });
   const client = clients.at(-1)!;
+  client.onSubmit = (request) => client.submissions.length === 1
+    ? Promise.resolve(new BinaryWriter(4).u32(0).finish())
+    : new Promise((_, reject) => client.once('fault', () => reject(new Error('Fixture socket closed'))));
   const outcome = link.request('order.send', marketRequest);
   const rejection = assert.rejects(outcome, /outcome is unknown/i);
-  await until(() => client.submissions.length === 1);
+  const sending = link.request('order.send', marketRequest);
+  const sendingRejection = assert.rejects(sending, /outcome is unknown/i);
+  await until(() => client.submissions.length === 2);
   const queued = link.request('order.send', marketRequest);
   const queuedRejection = assert.rejects(queued, /Connection changed/);
   client.emit('fault', new Error('Fixture disconnected'));
   await rejection;
+  await sendingRejection;
   await queuedRejection;
   await until(() => clients.length === 3 && link.state.state === 'open');
   const restored = clients[2];
@@ -220,7 +226,7 @@ test('connection loss rejects outstanding order and queued order, reconnects wit
   assert.equal((await link.request('account.info', {}))?.balance, 10002);
   assert.equal(restored.commands.includes(4), true);
   assert.equal(restored.submissions.length, 0);
-  assert.equal(client.submissions.length, 1);
+  assert.equal(client.submissions.length, 2);
   client.notify(client.submissions[0], 10009);
   assert.equal(restored.submissions.length, 0);
 });
@@ -516,7 +522,7 @@ test('cached trading prerequisites and orders bypass a held history request', { 
   await history;
 });
 
-test('a slow account refresh cannot block the next order and orders stay FIFO', { timeout: 1_000 }, async (t) => {
+test('the next order is sent once the previous one is admitted, without waiting for its final result', { timeout: 1_000 }, async (t) => {
   const { link, clients } = fixture();
   t.after(() => link.disconnect());
   await loggedIn(link);
@@ -530,17 +536,45 @@ test('a slow account refresh cannot block the next order and orders stay FIFO', 
     if (command === 3) { isRefreshing = true; await gate; }
     return original(command, payload);
   };
+  let isFirstSettled = false;
+  const first = link.request('order.send', marketRequest).finally(() => { isFirstSettled = true; });
+  const second = link.request('order.send', { ...marketRequest, type: 'sell' });
+  await until(() => client.submissions.length === 2);
+  assert.ok(client.submissions[0].readUInt32LE(0) < client.submissions[1].readUInt32LE(0));
+  client.notify(client.submissions[1], 10009);
+  assert.equal((await second).isSuccess, true);
+  assert.equal(isFirstSettled, false);
+  client.notify(client.submissions[0], 10009);
+  assert.equal((await first).isSuccess, true);
+  await until(() => isRefreshing);
+  const third = link.request('order.send', marketRequest);
+  await until(() => client.submissions.length === 3);
+  client.notify(client.submissions[2], 10009);
+  assert.equal((await third).isSuccess, true);
+  release();
+  await link.request('trade.snapshot', {});
+});
+
+test('orders are admitted one at a time in submission order', { timeout: 1_000 }, async (t) => {
+  const { link, clients } = fixture();
+  t.after(() => link.disconnect());
+  await loggedIn(link);
+  const client = clients.at(-1)!;
+  let admit!: () => void;
+  client.onSubmit = (request) => client.submissions.length === 1
+    ? new Promise((resolve) => { admit = () => resolve(new BinaryWriter(4).u32(0).finish()); })
+    : Promise.resolve(new BinaryWriter(4).u32(0).finish());
   const first = link.request('order.send', marketRequest);
   const second = link.request('order.send', { ...marketRequest, type: 'sell' });
   await until(() => client.submissions.length === 1);
+  await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(client.submissions.length, 1);
+  admit();
+  await until(() => client.submissions.length === 2);
   client.notify(client.submissions[0], 10009);
-  assert.equal((await first).isSuccess, true);
-  await until(() => isRefreshing && client.submissions.length === 2);
   client.notify(client.submissions[1], 10009);
+  assert.equal((await first).isSuccess, true);
   assert.equal((await second).isSuccess, true);
-  release();
-  await link.request('trade.snapshot', {});
 });
 
 test('login waits for existing orders and later orders cannot cross its barrier', { timeout: 1_000 }, async (t) => {

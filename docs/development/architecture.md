@@ -95,16 +95,24 @@ reuses an unchanged symbol set, clearing that cache on disconnect or reconnect.
 ### Trading
 
 1. A dialog or engine sends an `order.send` request.
-2. The link encodes it (command 12), registers the request ID and waits for the final result
-   (notification 19). Admission by the server is not treated as execution.
+2. The link encodes it (command 12), registers the request ID and waits for the server to admit it.
+   The next order is sent as soon as the previous one is admitted, as in the official web client;
+   only one command 12 is on the wire at a time because its reply carries no request ID. The caller
+   still receives the final result (notification 19), matched by request ID. Admission by the server
+   is not treated as execution.
 3. Trade transaction notifications (notification 10) update positions, orders and the balance, and a
    `trade` event refreshes the interface.
 
 The final result returns to the caller before a supplementary account refresh runs in the queue.
 Broker execution and network round trips still determine the minimum achievable latency.
 The Journal reports the time from the main process receiving an order to submission (queue and
-preparation), followed by the time spent awaiting broker confirmation. These timings exclude time
+preparation), the time until the broker admitted it, and the time until its final result. These timings exclude time
 spent in renderer or automation logic before the order reaches the link.
+
+The renderer tracks every order it sends (`trackTrade` in `src/lib/session.ts`, used by `sendOrder`
+and the risk and bulk helpers in `src/lib/automation.ts`). Dialogs show a sending state as soon as
+an order is submitted, the status bar shows the order in flight and then its result, and Toolbox
+rows for a position or order with a request in flight are disabled until it settles.
 
 A request whose outcome is unknown, for example after a disconnection, is reported as unknown and is
 never repeated. The engines follow the same rule: the copier looks for a matching position and the

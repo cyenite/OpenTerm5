@@ -1,5 +1,5 @@
-import type { AutomationApi, CopierLogEntry, CopierView, ManagerView, SignalRecord, WebhookView } from '../../shared/automation';
-import { log } from './session';
+import type { AutomationApi, BulkOutcome, BulkRequest, CopierLogEntry, CopierView, ManagerView, RiskOrderOutcome, RiskOrderRequest, SignalRecord, WebhookView } from '../../shared/automation';
+import { log, trackTrade } from './session';
 import { Store } from './store';
 import { loadRiskPreferences } from './risk-preferences';
 
@@ -22,6 +22,18 @@ export const automationStore = new Store<AutomationState>({
   manager: { rules: [], guards: [], guardStates: [] },
   webhooks: null,
 });
+
+export function placeRiskOrder(label: string, request: RiskOrderRequest): Promise<RiskOrderOutcome> {
+  return trackTrade(label, {}, () => automation.request('manager.risk', request),
+    (outcome) => outcome.results.length > 0 && outcome.results.every((result) => result.isSuccess),
+    (outcome) => outcome.results.find((result) => !result.isSuccess)?.comment ?? `${outcome.results.length} order${outcome.results.length === 1 ? '' : 's'} done`);
+}
+
+export function runBulkTrades(label: string, request: BulkRequest): Promise<BulkOutcome[]> {
+  return trackTrade(label, { position: request.ticket }, () => automation.request('manager.bulk', request),
+    (outcomes) => outcomes.every((outcome) => outcome.result.isSuccess),
+    (outcomes) => outcomes.find((outcome) => !outcome.result.isSuccess)?.result.comment ?? `${outcomes.length} order${outcomes.length === 1 ? '' : 's'} done`);
+}
 
 export async function refreshAutomation(): Promise<void> {
   try {

@@ -8,7 +8,7 @@ import { validateDrag } from '../../../shared/order-plan';
 import { useStore } from '../../lib/store';
 import { Dialog } from './Dialog';
 import { Segmented } from '../ui/Controls';
-import { automation } from '../../lib/automation';
+import { runBulkTrades } from '../../lib/automation';
 import { openDialog } from '../../lib/workspace';
 import { PriceField, ResultView } from './OrderDialog';
 
@@ -99,7 +99,7 @@ export function ModifyPositionDialog({ ticket }: ModifyPositionDialogProps) {
   const [tp, setTp] = useState(position?.tp ?? 0);
   const [mode, setMode] = useState<LevelMode>('price');
   const [volume, setVolume] = useState(position?.volume ?? 0);
-  const [result, setResult] = useState<{ title: string; value: TradeResult } | null>(null);
+  const [result, setResult] = useState<{ title: string; value: TradeResult | null } | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
   if (!position && !result) {
@@ -112,6 +112,7 @@ export function ModifyPositionDialog({ ticket }: ModifyPositionDialogProps) {
 
   const run = async (title: string, action: () => Promise<TradeResult>) => {
     setIsBusy(true);
+    setResult({ title, value: null });
     setResult({ title, value: await action() });
     setIsBusy(false);
   };
@@ -144,8 +145,9 @@ export function ModifyPositionDialog({ ticket }: ModifyPositionDialogProps) {
   const reverse = async () => {
     if (!window.confirm(`Close #${ticket} and open ${formatVolume(position.volume)} ${position.symbol} ${position.side === 'buy' ? 'sell' : 'buy'}?`)) return;
     setIsBusy(true);
+    setResult({ title: `Reverse #${ticket}`, value: null });
     try {
-      const outcomes = await automation.request('manager.bulk', { kind: 'reverse', ticket });
+      const outcomes = await runBulkTrades(`Reverse #${ticket}`, { kind: 'reverse', ticket });
       const failed = outcomes.find((outcome) => !outcome.result.isSuccess);
       setResult({ title: `Reverse #${ticket}`, value: failed?.result ?? outcomes.at(-1)?.result ?? { retcode: 0, isSuccess: false, comment: 'Nothing was sent' } });
     } catch (error) {
@@ -258,7 +260,7 @@ export function ModifyOrderDialog({ ticket }: ModifyOrderDialogProps) {
   const [price, setPrice] = useState(order?.priceOpen ?? 0);
   const [sl, setSl] = useState(order?.sl ?? 0);
   const [tp, setTp] = useState(order?.tp ?? 0);
-  const [result, setResult] = useState<{ title: string; value: TradeResult } | null>(null);
+  const [result, setResult] = useState<{ title: string; value: TradeResult | null } | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
   if (!order && !result) {
@@ -271,7 +273,8 @@ export function ModifyOrderDialog({ ticket }: ModifyOrderDialogProps) {
 
   const run = async (title: string, request: TradeRequest) => {
     setIsBusy(true);
-    setResult({ title, value: await sendOrder(request) });
+    setResult({ title, value: null });
+    setResult({ title, value: await sendOrder(request, title) });
     setIsBusy(false);
   };
 
