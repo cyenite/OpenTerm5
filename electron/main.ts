@@ -65,8 +65,10 @@ function createWindow(): void {
     height: 900,
     minWidth: 960,
     minHeight: 600,
-    title: 'OpenTerm',
+    title: 'OpenTerm5',
     show: false,
+    // macOS takes the icon from the app bundle; Linux and Windows need it on the window.
+    ...(process.platform === 'darwin' ? {} : { icon: path.join(app.getAppPath(), 'build', 'icon.png') }),
     // On macOS the window controls sit inside the menu bar, which doubles as the drag region.
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 12, y: 8 } } : {}),
     backgroundColor: '#1e1f22',

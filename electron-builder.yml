@@ -1,16 +1,20 @@
-appId: io.github.cyenite.openterm
-productName: OpenTerm
-copyright: Copyright © The OpenTerm contributors
+appId: io.github.cyenite.openterm5
+productName: OpenTerm5
+copyright: Copyright © The OpenTerm5 contributors
+icon: build/icon.png
 directories:
   output: release
+  buildResources: build
 files:
   - dist/**
   - dist-electron/**
+  - build/icon.png
   - package.json
 linux:
+  icon: build/icons
   target: [AppImage, deb]
   category: Office
-  maintainer: The OpenTerm contributors
+  maintainer: The OpenTerm5 contributors
 mac:
   target: [dmg]
   category: public.app-category.finance
