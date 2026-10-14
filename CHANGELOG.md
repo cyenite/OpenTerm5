@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-14
+
 ### Added
 
 - Orders show their progress immediately. Order and modify dialogs switch to a "Sending to the
@@ -28,7 +30,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   risk previews by up to several hundred milliseconds.
 - A second click on a Toolbox close or delete button no longer sends a duplicate request while the
   first is in flight.
-
 - Warm orders and cached trading prerequisites no longer wait for active chart/history reads or
   account refreshes. Orders remain serialized and login waits for existing orders to settle.
 - The Journal reports order queue/preparation and broker-confirmation timings separately.
@@ -94,6 +95,7 @@ First public release of OpenTerm5 (previously developed as Terminal5), under the
 - **Project files:** documentation under `docs/`, a contributing guide, code of conduct, security
   policy, issue and pull request templates, and CI on Linux, macOS and Windows.
 
-[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/cyenite/OpenTerm5/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/cyenite/OpenTerm5/compare/v0.1.1...v0.1.2
 [0.1.0]: https://github.com/cyenite/OpenTerm5/releases/tag/v0.1.0

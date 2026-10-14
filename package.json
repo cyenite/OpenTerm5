@@ -1,7 +1,7 @@
 {
   "name": "openterm5",
   "productName": "OpenTerm5",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Open-source, cross-platform desktop trading terminal for MetaTrader 5 accounts, with copy trading, risk-based orders and a webhook signal API.",
   "keywords": [
     "trading",
