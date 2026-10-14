@@ -1,6 +1,6 @@
 # Third-party notices
 
-OpenTerm is distributed under the MIT License (see [LICENSE](LICENSE)). It includes or depends on the
+OpenTerm5 is distributed under the MIT License (see [LICENSE](LICENSE)). It includes or depends on the
 following third-party software. The full dependency list, with each package's licence, is in
 `package-lock.json`; run `npx license-checker --production` for a report.
 
@@ -10,9 +10,9 @@ following third-party software. The full dependency list, with each package's li
 - Licence: Apache License 2.0
 - Copyright: TradingView, Inc.
 
-OpenTerm's price charts are drawn with TradingView Lightweight Charts™. As its licence requires,
+OpenTerm5's price charts are drawn with TradingView Lightweight Charts™. As its licence requires,
 TradingView is credited as the creator of the charting library, and the application links to
-<https://www.tradingview.com/> from **Help → About OpenTerm**.
+<https://www.tradingview.com/> from **Help → About OpenTerm5**.
 
 ## React and React DOM
 
@@ -38,5 +38,5 @@ Electron bundles Chromium and Node.js, whose licences ship with every packaged b
 ## Trademarks
 
 MetaTrader and MetaQuotes are trademarks of MetaQuotes Ltd. TradingView and Lightweight Charts are
-trademarks of TradingView, Inc. OpenTerm is an independent project and is not affiliated with,
+trademarks of TradingView, Inc. OpenTerm5 is an independent project and is not affiliated with,
 endorsed by or sponsored by either company. Names are used only to describe compatibility.

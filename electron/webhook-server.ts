@@ -149,7 +149,7 @@ export class WebhookServer extends EventEmitter {
     throw new HttpError(401, 'Authentication failed');
   }
 
-  // X-T5-* are the names used before the rename to OpenTerm; existing senders keep working.
+  // X-T5-* are the names used before the rename to OpenTerm5; existing senders keep working.
   private header(request: IncomingMessage, name: 'source' | 'timestamp' | 'signature'): string | undefined {
     const value = request.headers[`x-openterm-${name}`] ?? request.headers[`x-t5-${name}`];
     return typeof value === 'string' ? value : undefined;

@@ -3,7 +3,7 @@
 The signal API turns HTTP requests into trades. It is designed for TradingView alerts, trading bots
 and scripts. Configure it in the **Signals** workspace (Ctrl+3).
 
-> Signals execute only while OpenTerm is running and connected to the source's account. New sources
+> Signals execute only while OpenTerm5 is running and connected to the source's account. New sources
 > start in dry-run mode. Test every source on a demo account first.
 
 ## Concepts
@@ -50,7 +50,7 @@ X-OpenTerm-Timestamp: <unix time in seconds>
 X-OpenTerm-Signature: sha256=<hex HMAC-SHA256 of "<timestamp>.<raw body>" with the secret>
 ```
 
-The timestamp must be within 5 minutes of OpenTerm's clock, which prevents replays. The older
+The timestamp must be within 5 minutes of OpenTerm5's clock, which prevents replays. The older
 `X-T5-Source`, `X-T5-Timestamp` and `X-T5-Signature` headers are also accepted.
 
 Example with `curl` and `openssl`:
@@ -119,7 +119,7 @@ How the volume is chosen depends on the source's sizing policy. A source can use
 
 ### Scope
 
-Exits and modifications affect only the trades that **this source** opened. OpenTerm remembers each
+Exits and modifications affect only the trades that **this source** opened. OpenTerm5 remembers each
 source's order tickets locally, so a strategy's `close` never touches positions you opened by hand.
 Send `"scope": "symbol"` to act on every position in the symbol instead.
 

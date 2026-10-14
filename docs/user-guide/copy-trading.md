@@ -3,14 +3,14 @@
 The **Copy Trading** workspace (Ctrl+2) copies trades from a master account to any number of follower
 accounts. The accounts can be at the same broker or at different brokers.
 
-> The copier runs inside OpenTerm and copies only while OpenTerm is running and connected to every
+> The copier runs inside OpenTerm5 and copies only while OpenTerm5 is running and connected to every
 > account involved. It observes the master through its own session, so copies are not as fast as a
 > copier running on the broker's server.
 
 ## Before you start
 
 Every account needs its own broker session. Log in to each account once, from **File → Login to
-Trade Account**, and tick **Save password securely**. Then OpenTerm can reconnect to all of them when
+Trade Account**, and tick **Save password securely**. Then OpenTerm5 can reconnect to all of them when
 it starts. An account without a saved password can be unlocked from the copier's connection list after
 a restart.
 
@@ -72,7 +72,7 @@ Further options:
 
 ### Symbol mapping
 
-Brokers name symbols differently. OpenTerm matches broker suffixes automatically, for example `EURUSD`
+Brokers name symbols differently. OpenTerm5 matches broker suffixes automatically, for example `EURUSD`
 to `EURUSD.m`. Add explicit mappings for other differences, such as `DE40` to `GER40`.
 
 ### Equity protection

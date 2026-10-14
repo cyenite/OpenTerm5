@@ -13,7 +13,7 @@ body:
     id: proposal
     attributes:
       label: Proposed solution
-      description: How you would like OpenTerm to behave. Mention how MT5 or other platforms do it, if relevant.
+      description: How you would like OpenTerm5 to behave. Mention how MT5 or other platforms do it, if relevant.
     validations:
       required: true
   - type: textarea

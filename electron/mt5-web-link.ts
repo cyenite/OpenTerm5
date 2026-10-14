@@ -430,7 +430,7 @@ export class Mt5WebLink extends EventEmitter {
 
   private status(): TerminalStatus {
     return {
-      mode: 'mt5-web', name: 'OpenTerm', build: this.build,
+      mode: 'mt5-web', name: 'OpenTerm5', build: this.build,
       company: this.profile?.account.company, isConnected: this.isLoggedIn,
       isTradeAllowed: this.isLoggedIn && !!this.profile?.account.isTradeAllowed,
       connectionState: this.state.state === 'connecting' ? 'reconnecting' : this.isLoggedIn ? 'connected' : this.state.state === 'open' ? 'login-required' : 'disconnected',

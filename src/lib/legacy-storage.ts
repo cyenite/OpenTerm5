@@ -1,5 +1,5 @@
-// OpenTerm was called Terminal5 and stored renderer state under `terminal5.*` keys. This module is
-// imported first by main.tsx so the keys are renamed before any store reads its initial state.
+// OpenTerm5 was previously called Terminal5, which stored renderer state under `terminal5.*` keys.
+// This module is imported first by main.tsx so the keys are renamed before any store reads them.
 const legacyPrefix = 'terminal5.';
 
 try {

@@ -1,6 +1,6 @@
 {
-  "name": "openterm",
-  "productName": "OpenTerm",
+  "name": "openterm5",
+  "productName": "OpenTerm5",
   "version": "0.1.0",
   "description": "Open-source, cross-platform desktop trading terminal for MetaTrader 5 accounts, with copy trading, risk-based orders and a webhook signal API.",
   "keywords": [
@@ -20,7 +20,7 @@
     "type": "git",
     "url": "git+https://github.com/cyenite/OpenTerm5.git"
   },
-  "author": "The OpenTerm contributors",
+  "author": "The OpenTerm5 contributors",
   "license": "MIT",
   "private": true,
   "engines": {
@@ -39,7 +39,8 @@
     "dist:linux": "npm run build && electron-builder --linux",
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:win": "npm run build && electron-builder --win",
-    "check": "npm run typecheck && npm test && npm run build"
+    "check": "npm run typecheck && npm test && npm run build",
+    "icons": "electron scripts/render-icons.cjs"
   },
   "dependencies": {
     "lightweight-charts": "5.2.1",
@@ -48,18 +49,18 @@
     "ws": "8.22.0"
   },
   "devDependencies": {
-    "@types/node": "24.19.0",
+    "@types/node": "26.6.5",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "@types/ws": "8.18.1",
-    "@vitejs/plugin-react": "6.1.1",
+    "@types/ws": "8.18.2",
+    "@vitejs/plugin-react": "6.1.2",
     "concurrently": "10.0.6",
     "cross-env": "10.1.0",
-    "electron": "44.4.5",
+    "electron": "44.7.0",
     "electron-builder": "26.17.0",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
-    "vite": "8.3.1",
-    "wait-on": "9.4.0"
+    "vite": "8.3.4",
+    "wait-on": "9.5.1"
   }
 }

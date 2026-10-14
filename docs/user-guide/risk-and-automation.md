@@ -1,16 +1,16 @@
 # Risk and automation
 
-OpenTerm includes the tools traders usually add to MetaTrader 5 with Expert Advisors: order sizing
+OpenTerm5 includes the tools traders usually add to MetaTrader 5 with Expert Advisors: order sizing
 from risk, automatic trade management and account-wide limits. They live in the **Automation**
 workspace (Ctrl+4), the order dialog and the chart.
 
-> Automation runs inside OpenTerm. It acts only while OpenTerm is running and connected to the account.
+> Automation runs inside OpenTerm5. It acts only while OpenTerm5 is running and connected to the account.
 > Keep a broker-side stop loss on every position that you cannot watch.
 
 ## Risk-based orders
 
 Open the order dialog (F9) and switch to **Risk-based**. Instead of choosing a volume, you choose how
-much to risk and where the stop is; OpenTerm calculates the volume.
+much to risk and where the stop is; OpenTerm5 calculates the volume.
 
 | Setting | Options |
 |---|---|
@@ -39,7 +39,7 @@ The risk planner sizes an order from lines you draw on the chart.
 1. Choose the **R%** tool on the toolbar.
 2. Drag on the chart to place the **entry**. Then click or drag to place the **stop loss**, and
    optionally the **take profit**.
-3. OpenTerm decides the order type from the lines. With the stop below the entry it is a buy; above,
+3. OpenTerm5 decides the order type from the lines. With the stop below the entry it is a buy; above,
    a sell. An entry away from the current price becomes a limit or stop order. An entry at the current
    price becomes a market order.
 4. The panel on the left shows the risk mode, the volume, the money at risk and the reward multiple.
@@ -61,7 +61,7 @@ Right-click a position and choose **Manage…**, or use the shortcut in the posi
 | Time exit | Closes the position at a chosen time |
 
 Hidden levels are useful when you do not want stops to be visible on the broker's server. They work
-only while OpenTerm is running, so combine them with a wider broker-side stop.
+only while OpenTerm5 is running, so combine them with a wider broker-side stop.
 
 If an action fails in a way that leaves the outcome unknown, the rule is paused rather than repeated.
 The Automation workspace lists every managed position and its state.
@@ -100,5 +100,5 @@ Each order is sent separately, and the Journal reports each result.
 
 Floating profit is calculated from live quotes, converting the symbol's profit currency to the
 account currency. Every symbol's calculation is checked against the profit the broker reports. If
-they disagree, OpenTerm uses the broker's figures and notes the difference in the Journal. Margin
+they disagree, OpenTerm5 uses the broker's figures and notes the difference in the Journal. Margin
 figures are not yet calculated; see the [roadmap](../roadmap.md).

@@ -236,13 +236,13 @@ export function IndicatorDialog({ chartId, indicator }: IndicatorDialogProps) {
 export function AboutDialog() {
   const status = useStore(session, (state) => state.status);
   return (
-    <Dialog title="About OpenTerm" width={380}>
+    <Dialog title="About OpenTerm5" width={380}>
       <p>
-        <b>OpenTerm</b> is a cross-platform trading terminal modelled on the MetaTrader 5 desktop workflow.
+        <b>OpenTerm5</b> is a cross-platform trading terminal modelled on the MetaTrader 5 desktop workflow.
       </p>
       <p className="is-muted">
         {status?.isConnected ? `Connected to ${status.company ?? 'trade server'}, server build ${status.build}.` : 'Not connected.'}{' '}
-        MetaTrader is a trademark of MetaQuotes Ltd. OpenTerm is not affiliated with MetaQuotes.
+        MetaTrader is a trademark of MetaQuotes Ltd. OpenTerm5 is not affiliated with MetaQuotes.
       </p>
       <p className="is-muted">
         <b>Third-party licences</b><br />

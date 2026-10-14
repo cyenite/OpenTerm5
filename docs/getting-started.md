@@ -23,10 +23,10 @@ Download the installer for your platform from the
 
 | Platform | File | How to install |
 |---|---|---|
-| Windows | `OpenTerm Setup <version>.exe` | Run the installer |
-| macOS | `OpenTerm-<version>.dmg` | Open the disk image and drag OpenTerm to Applications |
+| Windows | `OpenTerm5 Setup <version>.exe` | Run the installer |
+| macOS | `OpenTerm-<version>.dmg` | Open the disk image and drag OpenTerm5 to Applications |
 | Linux | `OpenTerm-<version>.AppImage` | `chmod +x` the file and run it |
-| Debian, Ubuntu | `openterm_<version>_amd64.deb` | `sudo apt install ./openterm_<version>_amd64.deb` |
+| Debian, Ubuntu | `openterm5_<version>_amd64.deb` | `sudo apt install ./openterm5_<version>_amd64.deb` |
 
 Release builds are not yet code-signed. Windows SmartScreen and macOS Gatekeeper may warn on first
 launch:
@@ -62,7 +62,7 @@ are most reliably built on Windows.
 2. In **Server**, type part of your broker's name or trade server, for example `ftmo` or
    `MetaQuotes`, and choose your server from the list. Your broker shows the server name in its
    account email and client area.
-3. OpenTerm looks up the server's address. A green tick shows the broker and the address it will
+3. OpenTerm5 looks up the server's address. A green tick shows the broker and the address it will
    connect to.
 4. Enter your **login** and **password**. Fill in **One-time code** only if your account uses
    two-factor authentication.
@@ -70,7 +70,7 @@ are most reliably built on Windows.
    automatically next time.
 6. Choose **Login**.
 
-If OpenTerm cannot find your server, or asks you to approve an address, read
+If OpenTerm5 cannot find your server, or asks you to approve an address, read
 [Accounts and brokers](user-guide/accounts-and-brokers.md#how-openterm-finds-your-broker).
 
 To practise without risk, use a demo account. The `MetaQuotes-Demo` server is available to everyone.
@@ -118,15 +118,15 @@ The result appears in the dialog and in the Journal. The position appears in **T
 on the chart, where you can drag its stop loss and take profit. See [Trading](user-guide/trading.md)
 for pending orders, chart trading and risk-based sizing.
 
-## Where OpenTerm stores data
+## Where OpenTerm5 stores data
 
-OpenTerm keeps its settings in the standard application data directory:
+OpenTerm5 keeps its settings in the standard application data directory:
 
 | Platform | Location |
 |---|---|
-| Windows | `%APPDATA%\OpenTerm` |
-| macOS | `~/Library/Application Support/OpenTerm` |
-| Linux | `~/.config/OpenTerm` |
+| Windows | `%APPDATA%\OpenTerm5` |
+| macOS | `~/Library/Application Support/OpenTerm5` |
+| Linux | `~/.config/OpenTerm5` |
 
 Passwords are only written to disk when you choose **Save password securely**. They are then encrypted
 with your operating system's keychain. The data directory also holds connection settings, saved

@@ -1,34 +1,24 @@
 # Changelog
 
-All notable changes to OpenTerm are documented in this file.
+All notable changes to OpenTerm5 are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
-
-- The project is now called **OpenTerm** (previously Terminal5) and is released under the MIT
-  License.
-  - On first start, OpenTerm copies the previous profile, so connection settings, saved accounts,
-    chart layouts and automation settings carry over.
-  - Saved passwords are tied to the old application name in the operating system keychain, so enter
-    each password once more after upgrading.
-- Webhook HMAC headers are now `X-OpenTerm-Source`, `X-OpenTerm-Timestamp` and `X-OpenTerm-Signature`.
-  The previous `X-T5-*` names are still accepted.
-- Notification payloads sent to custom JSON endpoints report `"source": "openterm"`.
-- Updated `concurrently` to 10.0.6 to fix a critical advisory in `shell-quote` (development only).
-
-### Added
-
-- Open-source project files: licence, contributing guide, code of conduct, security policy, issue and
-  pull request templates, continuous integration on Linux, macOS and Windows, and a documentation
-  set under `docs/`.
-
 ## [0.1.0] - 2026-10-14
 
-First public version.
+First public release of OpenTerm5 (previously developed as Terminal5), under the MIT License.
+
+### Upgrading from a development build
+
+- On first start, OpenTerm5 copies the previous Terminal5 or OpenTerm profile, so connection settings,
+  saved accounts, chart layouts and automation settings carry over.
+- Saved passwords are tied to the old application name in the operating system keychain, so enter
+  each password once more.
+- Webhook HMAC headers are `X-OpenTerm-Source`, `X-OpenTerm-Timestamp` and `X-OpenTerm-Signature`. The
+  earlier `X-T5-*` names are still accepted.
 
 ### Added
 
@@ -56,6 +46,10 @@ First public version.
   hours and equity protection.
 - **Webhook signal API** for TradingView and bots: token or HMAC authentication, replay protection,
   rate limits, idempotency, dry run, and notifications to Discord, Slack, Telegram or JSON endpoints.
+- **Installers** for Windows (NSIS), macOS (DMG) and Linux (AppImage and .deb), with the OpenTerm5 icon.
+  Builds are not yet code-signed.
+- **Project files:** documentation under `docs/`, a contributing guide, code of conduct, security
+  policy, issue and pull request templates, and CI on Linux, macOS and Windows.
 
 [Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/cyenite/OpenTerm5/releases/tag/v0.1.0

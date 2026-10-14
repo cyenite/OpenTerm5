@@ -1,6 +1,6 @@
 # Architecture
 
-OpenTerm is an Electron application written in strict TypeScript. This page explains how its parts
+OpenTerm5 is an Electron application written in strict TypeScript. This page explains how its parts
 fit together, so you can find where a change belongs.
 
 ## Processes
