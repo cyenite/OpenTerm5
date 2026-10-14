@@ -28,6 +28,9 @@ export function brokerSession(): Session {
   if (brokers) return brokers;
   brokers = session.fromPartition('persist:brokers');
   brokers.setUserAgent(chromeUserAgent(brokers.getUserAgent(), app.getName()));
+  // Electron grants every permission by default; broker pages shown for a bot check need none.
+  brokers.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  brokers.setPermissionCheckHandler(() => false);
   return brokers;
 }
 
