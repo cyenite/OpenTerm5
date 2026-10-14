@@ -27,7 +27,7 @@ export function setTimeframe(timeframe: Timeframe): void {
 }
 
 export function zoom(factor: number): void {
-  window.dispatchEvent(new CustomEvent('terminal5:zoom', { detail: factor }));
+  window.dispatchEvent(new CustomEvent('openterm:zoom', { detail: factor }));
 }
 
 export function toggleDepth(symbol?: string): void {
@@ -93,6 +93,7 @@ export function handleShortcut(event: KeyboardEvent): boolean {
     if (isCtrl && key === 'l') return () => updateActiveChart((chart) => ({ isVolumeShown: !chart.isVolumeShown }));
     if (isCtrl && key === 'b') return () => { const chart = activeChart(workspace.get()); if (chart) openDialog({ kind: 'objects', chartId: chart.id }); };
     if (isCtrl && key === 'o') return () => openDialog({ kind: 'connection' });
+    if (isCtrl && key === 'u') return () => openDialog({ kind: 'symbols' });
     if (!isCtrl && !event.altKey && (key === '+' || key === '=')) return () => zoom(1.25);
     if (!isCtrl && !event.altKey && key === '-') return () => zoom(0.8);
     if (!isCtrl && !event.altKey && key === 'end') return () => zoom(0);
