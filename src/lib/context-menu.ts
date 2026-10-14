@@ -19,3 +19,7 @@ export function openContextMenu(event: ReactMouseEvent | MouseEvent, items: read
 export function closeContextMenu(): void {
   contextMenu.set({ menu: null });
 }
+
+export function openMenuAt(x: number, y: number, items: readonly MenuItem[]): void {
+  if (items.length) contextMenu.set({ menu: { x, y, items } });
+}

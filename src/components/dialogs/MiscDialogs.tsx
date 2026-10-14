@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ConnectionSettings, ResolvedServer, SymbolSpec } from '../../../shared/protocol';
 import { indicatorKind, type IndicatorKey } from '../../lib/indicators';
-import { log, refreshSession, session, setSymbolVisible, terminal } from '../../lib/session';
+import { refreshSession, session, terminal } from '../../lib/session';
+import { searchSymbols } from '../../lib/symbol-search';
+import { rowsOf, toggleWatched, useActiveWatchlist, watchedSpecs } from '../../lib/watchlists';
 import { useStore } from '../../lib/store';
 import { addIndicator, closeDialog, defaultParams } from '../../lib/workspace';
 import { Dialog } from './Dialog';
@@ -9,31 +11,31 @@ import { BrokerServerField } from './BrokerServerField';
 
 export function SymbolsDialog() {
   const symbols = useStore(session, (state) => state.symbols);
+  const list = useActiveWatchlist();
   const [query, setQuery] = useState('');
+  const watched = useMemo(() => new Set(watchedSpecs(list, symbols).map((spec) => spec.name)), [list, symbols]);
+  const missing = rowsOf(list, symbols).filter((row) => row.kind === 'symbol' && !row.symbol).length;
   const groups = useMemo(() => {
     const result = new Map<string, SymbolSpec[]>();
-    for (const spec of Object.values(symbols)) {
-      if (query && !`${spec.name} ${spec.description}`.toLowerCase().includes(query.toLowerCase())) {
-        continue;
-      }
+    const matches = query.trim() ? searchSymbols(symbols, query, { limit: 500 }) : Object.values(symbols);
+    for (const spec of matches) {
       const group = spec.path.split('\\').slice(0, -1).join(' \\ ') || 'Symbols';
       result.set(group, [...(result.get(group) ?? []), spec]);
     }
     return [...result.entries()].sort(([left], [right]) => left.localeCompare(right));
   }, [symbols, query]);
 
-  const toggle = (spec: SymbolSpec) => setSymbolVisible(spec.name, !spec.visible).catch((error: Error) => log(`cannot change ${spec.name}: ${error.message}`));
-
   return (
     <Dialog title="Symbols" width={560}>
-      <input className="search" placeholder="Find symbol" value={query} onChange={(event) => setQuery(event.target.value)} autoFocus />
+      <p className="is-muted">Ticked symbols are in the watchlist "{list.name}".{missing ? ` ${missing} of its symbols are not offered by this account.` : ''}</p>
+      <input className="search" placeholder="Find symbol: name, description or market" value={query} onChange={(event) => setQuery(event.target.value)} autoFocus />
       <div className="symbols-list">
         {groups.map(([group, specs]) => (
           <details key={group} open={query.length > 0 || groups.length < 4}>
             <summary>{group}</summary>
             {specs.map((spec) => (
               <label key={spec.name} className="symbol-option">
-                <input type="checkbox" checked={spec.visible} onChange={() => toggle(spec)} />
+                <input type="checkbox" checked={watched.has(spec.name)} onChange={() => toggleWatched(spec.name)} />
                 <b>{spec.name}</b>
                 <span className="is-muted">{spec.description}</span>
               </label>

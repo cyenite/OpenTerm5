@@ -13,6 +13,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   broker" view, the status bar shows each order in flight with a live timer and then its result,
   Toolbox rows show a spinner while their position or order is being closed, and One-Click and the
   chart risk planner show which order is pending.
+- Watchlists in Market Watch: create, rename, duplicate and delete named lists, switch between them,
+  group symbols under foldable sections, and drag rows to reorder them. Lists are kept across
+  restarts and accounts, and each account shows them under its own symbol names, so a list made on
+  a broker that writes `EURUSD.pro` shows `EURUSDm` on another and `GOLD` where a broker calls
+  `XAUUSD` that. Symbols an account does not offer stay in the list, marked unavailable. Saved
+  Market Watch sets from earlier versions become watchlists.
+- Symbol search when adding to Market Watch: results appear as you type, ranked by name, broker
+  decoration, other names for the instrument (gold, nas100) and description, with market filters,
+  arrow keys and Enter. Typing while Market Watch is focused starts a search.
+- Copy trading previews what a master symbol will copy as on the follower before you add a mapping.
 
 ### Changed
 
@@ -23,6 +33,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Typing a symbol into Market Watch could not add names with lowercase broker suffixes such as
+  `EURUSDm` or `EURUSD.m`.
+- A chart saved on another broker no longer stops every quote from updating. Its old symbol name
+  made the broker reject the whole quote subscription until the chart was re-pointed.
+- Copy trading: an explicit symbol mapping written plainly (`DE40 -> GER40`) now also applies when
+  the master's symbol is decorated (`DE40.m`), and its target follows the follower's decoration.
+  Copies with an unknown outcome can be matched again after a restart, and a `BRK.B` trade is no
+  longer copied as `BRK.A`.
 - Market Watch no longer re-filters every broker symbol and rebuilds its symbol suggestions on every
   quote. This took most of the interface's processing time and delayed clicks, order results and
   risk previews by up to several hundred milliseconds.

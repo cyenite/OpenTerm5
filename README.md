@@ -22,7 +22,7 @@ TradingView alerts and bots.
 
 **A complete trading terminal**
 
-- Market Watch with symbol sets, a Navigator, Data Window and Depth of Market. The Toolbox has Trade,
+- Market Watch with multiple watchlists, foldable sections and as-you-type symbol search that follows each broker's symbol names, a Navigator, Data Window and Depth of Market. The Toolbox has Trade,
   Exposure, History (with CSV export) and Journal tabs.
 - Charts with all 21 MT5 timeframes, 15 indicator families, line studies and Fibonacci tools, profiles
   and templates.

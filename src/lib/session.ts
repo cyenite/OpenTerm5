@@ -25,6 +25,7 @@ declare global {
 export const terminal = window.terminal;
 
 const JOURNAL_LIMIT = 1000;
+const SUBSCRIPTION_LIMIT = 256;
 let contextVersion = 0;
 let refreshWork: Promise<void> | undefined;
 
@@ -67,6 +68,7 @@ export interface SessionState {
   symbols: Record<string, SymbolSpec>;
   directions: Record<string, Direction>;
   extraSymbols: string[];
+  watchedSymbols: string[];
 }
 
 export const session = new Store<SessionState>({
@@ -84,6 +86,7 @@ export const session = new Store<SessionState>({
   symbols: {},
   directions: {},
   extraSymbols: [],
+  watchedSymbols: [],
 });
 
 export function log(message: string, source = 'Terminal'): void {
@@ -91,21 +94,11 @@ export function log(message: string, source = 'Terminal'): void {
   session.set((state) => ({ journal: [...state.journal.slice(-JOURNAL_LIMIT + 1), entry] }));
 }
 
-const visibleSymbols = new WeakMap<Record<string, SymbolSpec>, SymbolSpec[]>();
-
-// Selectors run on every tick; the broker list holds thousands of symbols but rarely changes.
-export function watchlist(state: SessionState): SymbolSpec[] {
-  let visible = visibleSymbols.get(state.symbols);
-  if (!visible) {
-    visible = Object.values(state.symbols).filter((symbol) => symbol.visible);
-    visibleSymbols.set(state.symbols, visible);
-  }
-  return visible;
-}
-
+// A name this account does not list (a chart saved on another broker) fails the whole request,
+// so only listed names are sent. Charts and alerts come first when the limit cuts the list.
 function subscribedSymbols(): string[] {
-  const state = session.get();
-  return [...new Set([...watchlist(state).map((symbol) => symbol.name), ...state.extraSymbols])];
+  const { symbols, extraSymbols, watchedSymbols } = session.get();
+  return [...new Set([...extraSymbols, ...watchedSymbols])].filter((name) => symbols[name]).slice(0, SUBSCRIPTION_LIMIT);
 }
 
 async function resubscribeTicks(): Promise<void> {
@@ -132,10 +125,13 @@ export async function requireSymbols(names: string[]): Promise<void> {
   }
 }
 
-export async function setSymbolVisible(name: string, isEnabled: boolean): Promise<void> {
-  await terminal.request('symbols.select', { symbol: name, isEnabled });
-  session.set((state) => ({ symbols: { ...state.symbols, [name]: { ...state.symbols[name], visible: isEnabled } } }));
-  await resubscribeTicks();
+export function setWatchedSymbols(names: string[]): void {
+  const current = session.get().watchedSymbols;
+  if (names.length === current.length && names.every((name, index) => name === current[index])) return;
+  session.set({ watchedSymbols: names });
+  if (session.get().link.state === 'open' && Object.keys(session.get().symbols).length) {
+    void resubscribeTicks().catch((error: Error) => log(`quote subscription failed: ${error.message}`, 'Network'));
+  }
 }
 
 export function refreshSession(): Promise<void> {

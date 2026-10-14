@@ -345,8 +345,10 @@ export class Mt5WebLink extends EventEmitter {
     if (missing.some((name) => !this.details.has(name))) throw new Error('Broker did not supply the requested symbol metadata');
   }
 
+  // One name the broker does not list (a chart or watchlist saved on another broker) would fail the
+  // symbol request for every other name, so unknown names are left out.
   private subscriptionNames(): string[] {
-    return [...new Set([...this.watched, ...this.visible, ...this.depthSymbols, ...[...this.charts.values()].map((chart) => chart.symbol), ...this.positions.map((position) => position.symbol), ...this.conversions, ...this.pinned])];
+    return [...new Set([...this.watched, ...this.visible, ...this.depthSymbols, ...[...this.charts.values()].map((chart) => chart.symbol), ...this.positions.map((position) => position.symbol), ...this.conversions, ...this.pinned])].filter((name) => this.symbolIds.has(name));
   }
 
   private async restoreSubscriptions(): Promise<void> {

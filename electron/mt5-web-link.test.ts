@@ -662,3 +662,14 @@ test('failed stream subscriptions can be retried without poisoning the cache', a
   assert.equal(attempts, 2);
   assert.deepEqual(client.subscriptions.at(-1), ['GBPJPY', 'EURUSD']);
 });
+
+test('a name the broker does not list does not fail the other quote subscriptions', async (t) => {
+  const { link, clients } = fixture();
+  t.after(() => link.disconnect());
+  await loggedIn(link);
+  const client = clients.at(-1)!;
+  const quotes = await link.request('ticks.subscribe', { symbols: ['EURUSD.m', 'EURUSD'] });
+  assert.equal(quotes.length, 2);
+  assert.ok(client.subscriptions.at(-1)!.includes('EURUSD'));
+  assert.ok(!client.subscriptions.at(-1)!.includes('EURUSD.m'));
+});

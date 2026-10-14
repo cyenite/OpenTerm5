@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CopierConfig, CopierStatus, FollowerConfig, TradingWindow } from '../../../shared/automation';
 import { copierRiskTypes, guardActions } from '../../../shared/automation';
+import { isListedSymbol, matchSymbol } from '../../../shared/symbol-match';
 import { accountLabel, automation, automationStore } from '../../lib/automation';
 import { formatTime } from '../../lib/format';
 import { session } from '../../lib/session';
@@ -64,7 +65,7 @@ function SymbolMapEditor({ follower, onChange }: SymbolMapEditorProps) {
   const entries = Object.entries(follower.symbolMap);
   return (
     <div className="stack">
-      <Switch label="Auto-map broker prefixes and suffixes" hint="EURUSD on the master finds EURUSD.m, EURUSDpro, mEURUSD or #EURUSD on the follower. Explicit mappings below win." isOn={follower.isSuffixAutoMapped} onChange={(isSuffixAutoMapped) => onChange({ ...follower, isSuffixAutoMapped })} />
+      <Switch label="Auto-map broker prefixes and suffixes" hint="EURUSD on the master finds EURUSD.m, EURUSDpro, mEURUSD or #EURUSD on the follower, and GOLD finds XAUUSD. Explicit mappings below win; one written plainly (DE40) covers every decoration of it on the master." isOn={follower.isSuffixAutoMapped} onChange={(isSuffixAutoMapped) => onChange({ ...follower, isSuffixAutoMapped })} />
       <div className="map-add">
         <input aria-label="Master symbol" placeholder="Master symbol (e.g. DE40)" value={from} onChange={(event) => setFrom(event.target.value.trim())} />
         <span aria-hidden>→</span>
@@ -73,6 +74,7 @@ function SymbolMapEditor({ follower, onChange }: SymbolMapEditorProps) {
         <button type="button" disabled={!from || !to} onClick={() => { onChange({ ...follower, symbolMap: { ...follower.symbolMap, [from]: to } }); setFrom(''); setTo(''); }}>Add mapping</button>
       </div>
       {to && symbols.length > 0 && !symbols.includes(to) && <p className="is-loss">The follower broker has no symbol named {to}.</p>}
+      {from && !to && symbols.length > 0 && <MappingPreview master={from} follower={follower} symbols={symbols} />}
       {error && <p className="is-muted">Follower symbols unavailable: {error}</p>}
       {entries.length ? (
         <table className="grid compact">
@@ -90,6 +92,19 @@ function SymbolMapEditor({ follower, onChange }: SymbolMapEditorProps) {
       ) : <p className="is-muted">No explicit mappings. Matching names copy automatically.</p>}
     </div>
   );
+}
+
+interface MappingPreviewProps {
+  master: string;
+  follower: FollowerConfig;
+  symbols: string[];
+}
+
+function MappingPreview({ master, follower, symbols }: MappingPreviewProps) {
+  const isMapped = Object.keys(follower.symbolMap).some((entry) => isListedSymbol(entry, master));
+  const automatic = symbols.includes(master) ? master : follower.isSuffixAutoMapped ? matchSymbol(master, symbols) : null;
+  if (isMapped) return <p className="is-muted">An existing mapping already covers {master}.</p>;
+  return <p className="is-muted">{automatic ? `Without a mapping, ${master} copies as ${automatic}.` : `Without a mapping, ${master} is not copied: the follower has no matching symbol.`}</p>;
 }
 
 interface HoursEditorProps {

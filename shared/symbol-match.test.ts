@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isListedSymbol, matchSymbol, symbolCore } from './symbol-match';
+import { instrumentKey, isListedSymbol, matchSymbol, symbolCore } from './symbol-match';
 
 test('broker decorations reduce to the instrument', () => {
   for (const name of ['EURUSD', 'EURUSD.m', 'EURUSDm', 'mEURUSD', '#EURUSD', 'EURUSD-STD', 'EURUSD_i', 'EURUSD+', 'EURUSDpro', 'FXEURUSD', 'EURUSDSB']) {
@@ -34,4 +34,24 @@ test('list entries admit their exact symbol or, written plainly, any decoration 
   assert.equal(isListedSymbol('EURUSD.m', 'EURUSD.pro'), false);
   assert.equal(isListedSymbol('BRK.A', 'BRK.B'), false);
   assert.equal(isListedSymbol('EURUSD', 'EURGBP'), false);
+});
+
+test('share classes are part of the instrument, not decoration', () => {
+  assert.equal(symbolCore('BRK.B'), 'BRK.B');
+  assert.equal(symbolCore('BRK-B'), 'BRK.B');
+  assert.equal(symbolCore('EURUSD.m'), 'EURUSD');
+  assert.equal(matchSymbol('BRK.B', ['BRK.A']), null);
+  assert.equal(matchSymbol('BRK.B', ['BRK-A', 'BRK-B']), 'BRK-B');
+  assert.equal(isListedSymbol('BRK.B', 'BRK-B'), true);
+});
+
+test('another name for the same instrument is used only when its own name is missing', () => {
+  assert.equal(instrumentKey('GOLD.m'), 'XAUUSD');
+  assert.equal(instrumentKey('USTECm'), 'NAS100');
+  assert.equal(matchSymbol('XAUUSD', ['GOLD', 'SILVER']), 'GOLD');
+  assert.equal(matchSymbol('GOLD', ['XAUUSD.m', 'XAGUSD.m']), 'XAUUSD.m');
+  assert.equal(matchSymbol('DE40', ['GER40.cash', 'UK100.cash']), 'GER40.cash');
+  assert.equal(matchSymbol('XAUUSD', ['GOLD', 'XAUUSD.pro']), 'XAUUSD.pro');
+  assert.equal(matchSymbol('GOLD.m', ['XAUUSD.pro', 'XAUUSD.m', 'EURUSD.m']), 'XAUUSD.m');
+  assert.equal(isListedSymbol('XAUUSD', 'GOLD'), false);
 });

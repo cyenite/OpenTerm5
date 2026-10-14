@@ -1,6 +1,7 @@
 import { matchSymbol } from '../../shared/symbol-match';
 import type { SessionState } from './session';
 import { session } from './session';
+import { currentWatchedSpecs } from './watchlists';
 import { activeChart, workspace, type WorkspaceState } from './workspace';
 
 let seenSymbols: SessionState['symbols'] | undefined;
@@ -32,8 +33,7 @@ function adaptCharts(): void {
 
 export function defaultSymbol(): string {
   const { symbols } = session.get();
-  const visible = Object.values(symbols).find((spec) => spec.visible)?.name;
-  return activeChart(workspace.get())?.symbol ?? visible ?? resolve('EURUSD', symbols);
+  return activeChart(workspace.get())?.symbol ?? currentWatchedSpecs()[0]?.name ?? resolve('EURUSD', symbols);
 }
 
 export function startBrokerSymbols(): void {

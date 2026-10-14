@@ -12,8 +12,8 @@ import {
   zoom,
 } from '../lib/commands';
 import { indicatorKinds } from '../lib/indicators';
-import { session, watchlist } from '../lib/session';
 import { useStore } from '../lib/store';
+import { useWatchedSpecs } from '../lib/watchlists';
 import { windowArrangements } from '../lib/chart-windows';
 import {
   activeChart,
@@ -49,7 +49,7 @@ const separator: MenuItem = { label: '', isSeparator: true };
 
 function useMenus(): { label: string; items: MenuItem[] }[] {
   const state = useStore(workspace, (current) => current);
-  const symbols = useStore(session, watchlist);
+  const symbols = useWatchedSpecs();
   const chart = activeChart(state);
   const hasChart = chart !== undefined;
 
