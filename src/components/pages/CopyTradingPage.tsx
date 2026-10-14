@@ -64,7 +64,7 @@ function SymbolMapEditor({ follower, onChange }: SymbolMapEditorProps) {
   const entries = Object.entries(follower.symbolMap);
   return (
     <div className="stack">
-      <Switch label="Auto-map broker suffixes" hint="EURUSD on the master finds EURUSD.m or EURUSDpro on the follower. Explicit mappings below win." isOn={follower.isSuffixAutoMapped} onChange={(isSuffixAutoMapped) => onChange({ ...follower, isSuffixAutoMapped })} />
+      <Switch label="Auto-map broker prefixes and suffixes" hint="EURUSD on the master finds EURUSD.m, EURUSDpro, mEURUSD or #EURUSD on the follower. Explicit mappings below win." isOn={follower.isSuffixAutoMapped} onChange={(isSuffixAutoMapped) => onChange({ ...follower, isSuffixAutoMapped })} />
       <div className="map-add">
         <input aria-label="Master symbol" placeholder="Master symbol (e.g. DE40)" value={from} onChange={(event) => setFrom(event.target.value.trim())} />
         <span aria-hidden>→</span>

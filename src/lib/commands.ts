@@ -1,5 +1,5 @@
 import type { Timeframe } from '../../shared/protocol';
-import { session } from './session';
+import { defaultSymbol } from './broker-symbols';
 import { activeChart, arrangeWindows, closeChart, openDialog, pages, updateActiveChart, workspace, type ChartType, type ToolboxTab, type WorkspaceState } from './workspace';
 
 type PanelFlag = 'isMarketWatchShown' | 'isNavigatorShown' | 'isToolboxShown' | 'isDataWindowShown' | 'isStatusBarShown' | 'isChartBarShown';
@@ -13,9 +13,7 @@ export function showToolbox(tab: ToolboxTab): void {
 }
 
 export function newOrder(symbol?: string): void {
-  const state = workspace.get();
-  const fallback = Object.values(session.get().symbols).find((spec) => spec.visible)?.name ?? 'EURUSD';
-  openDialog({ kind: 'order', symbol: symbol ?? activeChart(state)?.symbol ?? fallback });
+  openDialog({ kind: 'order', symbol: symbol ?? defaultSymbol() });
 }
 
 export function setChartType(type: ChartType): void {

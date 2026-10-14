@@ -7,6 +7,7 @@ import { closePosition, log, sendOrder, session, terminal } from '../lib/session
 import { useStore } from '../lib/store';
 import { openDialog, workspace, type ToolboxTab } from '../lib/workspace';
 import { openContextMenu } from '../lib/context-menu';
+import { defaultSymbol } from '../lib/broker-symbols';
 import type { BulkKind } from '../../shared/automation';
 import { automation } from '../lib/automation';
 
@@ -161,7 +162,7 @@ function TradeTab() {
   };
 
   const areaMenu = (event: React.MouseEvent) => openContextMenu(event, [
-    { label: 'New Order', shortcut: 'F9', action: () => openDialog({ kind: 'order', symbol: positions[0]?.symbol ?? 'EURUSD' }) },
+    { label: 'New Order', shortcut: 'F9', action: () => openDialog({ kind: 'order', symbol: positions[0]?.symbol ?? defaultSymbol() }) },
     { label: '', isSeparator: true },
     { label: 'Close All Positions', isDisabled: positions.length === 0, action: () => { if (window.confirm('Close every open position?')) void runBulk('closeAll'); } },
     { label: 'Close Profitable', isDisabled: positions.length === 0, action: () => void runBulk('closeProfitable') },

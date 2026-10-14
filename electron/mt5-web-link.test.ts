@@ -22,12 +22,12 @@ function accountPayload(balance = 10000): Buffer {
   return payload;
 }
 
-function symbolPayload(): Buffer {
+function symbolPayload(name = 'EURUSD'): Buffer {
   const payload = Buffer.alloc(4 + WEB_SYMBOL_DETAILS_BYTES);
   payload.writeUInt32LE(1);
   const record = payload.subarray(4);
   const conditions = record.subarray(1536, 2164);
-  record.write('EURUSD', 0, 'utf16le');
+  record.write(name, 0, 'utf16le');
   record.write('Euro vs US Dollar', 96, 'utf16le');
   record.write('EUR', 1276, 'utf16le');
   record.write('USD', 1308, 'utf16le');
@@ -63,6 +63,7 @@ class FakeClient extends Mt5WebClient {
   connectGate?: Promise<void>;
   onRates?: (request: Buffer) => Buffer;
   onSubmit?: (request: Buffer) => Promise<Buffer>;
+  detailsName = 'EURUSD';
   snapshotPayload: Buffer = Buffer.alloc(8);
   readonly loginCalls: bigint[] = [];
   readonly submissions: Buffer[] = [];
@@ -76,7 +77,7 @@ class FakeClient extends Mt5WebClient {
       if (command === 3) return accountPayload(this.balance);
       if (command === 4) return this.snapshotPayload;
       if (command === 5) return Buffer.alloc(8);
-      if (command === 18) return symbolPayload();
+      if (command === 18) return symbolPayload(this.detailsName);
       if (command === 22) return Buffer.alloc(0);
       if (command === 11 && this.onRates) return this.onRates(Buffer.from(payload!));
       if (command === 11) return new BinaryWriter(48).i32(1700000000).f64(1.1).f64(1.2).f64(1).f64(1.15).u64(123n).i32(5).finish();
@@ -381,4 +382,18 @@ test('a bot check stops reconnecting instead of retrying the challenged host', a
   await new Promise((resolve) => setTimeout(resolve, 40));
   assert.equal(clients.length, attempts);
   assert.equal(link.state.state, 'closed');
+});
+
+test('a broker with decorated symbol names still gets a default Market Watch', async (t) => {
+  const { link } = fixture((client) => {
+    client.detailsName = 'EURUSD.m';
+    client.marketSymbols = async () => [
+      { id: 17, flags: 0, digits: 5, calcMode: 0, name: 'EURUSD.m', path: 'Forex\\Majors', basis: '', description: 'Euro vs US Dollar' },
+      { id: 18, flags: 0, digits: 5, calcMode: 0, name: 'EURNOK.m', path: 'Forex\\Exotics', basis: '', description: 'Euro vs Norwegian Krone' },
+    ];
+  });
+  t.after(() => link.disconnect());
+  await loggedIn(link);
+  const visible = (await link.request('symbols.list', {})).filter((symbol) => symbol.visible).map((symbol) => symbol.name);
+  assert.deepEqual(visible, ['EURUSD.m']);
 });

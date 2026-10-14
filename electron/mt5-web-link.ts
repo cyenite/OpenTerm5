@@ -5,6 +5,7 @@ import { adjustDepthPrice, decodeDepth, WebDepthBook } from './mt5-web-depth';
 import { Mt5WebClient, type WebCredentials } from './mt5-web-client';
 import { WebProtocolError } from './mt5-web-transport';
 import { BotCheckError } from './bot-check';
+import { matchSymbol } from '../shared/symbol-match';
 import { buildSymbolSubscription, type WebTickUpdate } from './mt5-web-market';
 import { adjustQuote, parseAccountModel, parseSymbolDetails, type WebAccountModel, type WebSymbolDetails } from './mt5-web-models';
 import { aggregateRates, timeframePlan, timeframeStart } from './mt5-web-timeframes';
@@ -261,8 +262,10 @@ export class Mt5WebLink extends EventEmitter {
       });
     }
     if (!this.visible.size) {
+      const names = [...this.summaries.keys()];
       for (const name of ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCHF', 'USDCAD', 'XAUUSD']) {
-        if (this.summaries.has(name)) this.visible.add(name);
+        const match = matchSymbol(name, names);
+        if (match) this.visible.add(match);
       }
     }
     this.details.clear();
