@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { timeframes } from '../../shared/protocol';
 import {
   closeActiveChart,
   newOrder,
@@ -11,7 +10,9 @@ import {
   togglePanel,
   zoom,
 } from '../lib/commands';
-import { indicatorKinds } from '../lib/indicators';
+import { indicatorMenuItems, studyTitle } from '../lib/indicator-menu';
+import { listThemes } from '@meridian/charts/themes';
+import { setThemePreference, systemThemeId } from '../lib/theme';
 import { useStore } from '../lib/store';
 import { useWatchedSpecs } from '../lib/watchlists';
 import { windowArrangements } from '../lib/chart-windows';
@@ -25,15 +26,17 @@ import {
   restoreWindows,
   chartTypes,
   tools,
-  colorSchemes,
   openChart,
   openDialog,
   loadProfile,
   loadTemplate,
   removeProfile,
+  toggleAnalysisMode,
+  toggleAnalysisPositions,
   updateActiveChart,
   workspace,
 } from '../lib/workspace';
+import { chartTimeframes } from '../lib/mt5-timeframes';
 
 export interface MenuItem {
   label: string;
@@ -52,6 +55,9 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
   const symbols = useWatchedSpecs();
   const chart = activeChart(state);
   const hasChart = chart !== undefined;
+  const isAnalysis = state.isAnalysisMode;
+  // Analysis mode keeps the menus for charting and drops what places trades or opens terminal panels.
+  const unlessAnalysis = (items: MenuItem[]) => isAnalysis ? [] : items;
 
   return [
     {
@@ -76,15 +82,26 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
     {
       label: 'View',
       items: [
+        { label: 'Analysis Mode', shortcut: 'Ctrl+Shift+A', isChecked: isAnalysis, action: toggleAnalysisMode },
+        { label: 'Show Positions in Analysis', isChecked: state.isAnalysisPositionsShown, isDisabled: !isAnalysis, action: toggleAnalysisPositions },
+        separator,
         { label: 'Market Watch', shortcut: 'Ctrl+M', isChecked: state.isMarketWatchShown, action: () => togglePanel('isMarketWatchShown') },
         { label: 'Data Window', shortcut: 'Ctrl+D', isChecked: state.isDataWindowShown, action: () => togglePanel('isDataWindowShown') },
-        { label: 'Navigator', shortcut: 'Ctrl+N', isChecked: state.isNavigatorShown, action: () => togglePanel('isNavigatorShown') },
-        { label: 'Toolbox', shortcut: 'Ctrl+T', isChecked: state.isToolboxShown, action: () => togglePanel('isToolboxShown') },
-        { label: 'Depth Of Market', shortcut: 'Alt+B', isChecked: state.depthSymbol !== null, action: () => toggleDepth() },
+        ...unlessAnalysis([
+          { label: 'Navigator', shortcut: 'Ctrl+N', isChecked: state.isNavigatorShown, action: () => togglePanel('isNavigatorShown') },
+          { label: 'Toolbox', shortcut: 'Ctrl+T', isChecked: state.isToolboxShown, action: () => togglePanel('isToolboxShown') },
+          { label: 'Depth Of Market', shortcut: 'Alt+B', isChecked: state.depthSymbol !== null, action: () => toggleDepth() },
+        ]),
         separator,
         { label: 'Status Bar', isChecked: state.isStatusBarShown, action: () => togglePanel('isStatusBarShown') },
         { label: 'Chart Bar', isChecked: state.isChartBarShown, action: () => togglePanel('isChartBarShown') },
         { label: 'Full Screen', shortcut: 'F11', action: toggleFullScreen },
+        separator,
+        { label: 'Theme', items: [
+          { label: 'Match System', isChecked: state.theme === systemThemeId, action: () => setThemePreference(systemThemeId) },
+          separator,
+          ...listThemes().map((theme) => ({ label: theme.label, isChecked: state.theme === theme.id, action: () => setThemePreference(theme.id) })),
+        ] },
       ],
     },
     {
@@ -93,12 +110,12 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
         {
           label: 'Indicators',
           isDisabled: !hasChart,
-          items: indicatorKinds.map((kind) => ({ label: kind.label, action: () => chart && openDialog({ kind: 'indicator', chartId: chart.id, indicator: kind.key }) })),
+          items: indicatorMenuItems(chart?.id),
         },
         {
           label: 'Objects',
           isDisabled: !hasChart,
-          items: tools.filter((tool) => tool.key !== 'cursor' && tool.key !== 'crosshair').map((tool) => ({ label: tool.label, action: () => workspace.set({ tool: tool.key }) })),
+          items: tools.filter((tool) => tool.key !== 'cursor' && tool.key !== 'crosshair' && !(isAnalysis && tool.key === 'riskOrder')).map((tool) => ({ label: tool.label, action: () => workspace.set({ tool: tool.key }) })),
         },
       ],
     },
@@ -107,12 +124,12 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
       items: [
         ...chartTypes.map((type) => ({ label: type.label, shortcut: type.shortcut, isChecked: chart?.type === type.key, isDisabled: !hasChart, action: () => setChartType(type.key) })),
         separator,
-        { label: 'Timeframes', isDisabled: !hasChart, items: timeframes.map((timeframe) => ({ label: timeframe.label, isChecked: chart?.timeframe === timeframe.label, action: () => setTimeframe(timeframe.label) })) },
+        { label: 'Timeframes', isDisabled: !hasChart, items: chartTimeframes.map((timeframe) => ({ label: timeframe.label, isChecked: chart?.timeframe === timeframe.label, action: () => setTimeframe(timeframe.label) })) },
         {
           label: 'Indicators List',
           isDisabled: !chart?.indicators.length,
           items: (chart?.indicators ?? []).map((indicator) => ({
-            label: `Delete ${indicatorKinds.find((kind) => kind.key === indicator.kind)!.label}`,
+            label: `Delete ${studyTitle(indicator.kind)}`,
             action: () => updateActiveChart((current) => ({ indicators: current.indicators.filter((candidate) => candidate.id !== indicator.id) })),
           })),
         },
@@ -131,16 +148,14 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
         { label: 'Zoom In', shortcut: '+', isDisabled: !hasChart, action: () => zoom(1.25) },
         { label: 'Zoom Out', shortcut: '-', isDisabled: !hasChart, action: () => zoom(0.8) },
         { label: 'Scroll to End', shortcut: 'End', isDisabled: !hasChart, action: () => zoom(0) },
-        separator,
-        { label: 'Color Scheme', items: colorSchemes.map((scheme) => ({ label: scheme.label, isChecked: state.scheme === scheme.key, action: () => workspace.set({ scheme: scheme.key }) })) },
       ],
     },
     {
       label: 'Tools',
       items: [
-        { label: 'New Order', shortcut: 'F9', action: () => newOrder() },
+        ...unlessAnalysis([{ label: 'New Order', shortcut: 'F9', action: () => newOrder() }]),
         { label: 'Price Alerts...', action: () => openDialog({ kind: 'alerts' }) },
-        { label: 'One Click Trading', isChecked: state.isOneClickEnabled, action: toggleOneClick },
+        ...unlessAnalysis([{ label: 'One Click Trading', isChecked: state.isOneClickEnabled, action: toggleOneClick }]),
         separator,
         { label: 'Options', shortcut: 'Ctrl+O', action: () => openDialog({ kind: 'connection' }) },
       ],

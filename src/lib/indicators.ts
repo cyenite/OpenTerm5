@@ -28,25 +28,6 @@ export const indicatorKinds = [
 
 export type IndicatorKey = (typeof indicatorKinds)[number]['key'];
 
-export interface IndicatorConfig {
-  id: string;
-  kind: IndicatorKey;
-  params: Record<string, number | boolean>;
-}
-
-export function indicatorKind(key: IndicatorKey) {
-  return indicatorKinds.find((kind) => kind.key === key)!;
-}
-
-export function describeIndicator(indicator: IndicatorConfig): string {
-  const kind = indicatorKind(indicator.kind);
-  const values = Object.entries(indicator.params)
-    .filter(([, value]) => typeof value === 'number')
-    .map(([, value]) => value);
-  const prefix = indicator.kind === 'ma' && indicator.params.isExponential ? 'EMA' : kind.label;
-  return values.length ? `${prefix}(${values.join(',')})` : prefix;
-}
-
 export function sma(candles: Candle[], period: number): Point[] {
   if (!isPeriod(period)) return [];
   const result: Point[] = [];

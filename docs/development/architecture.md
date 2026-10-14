@@ -65,7 +65,12 @@ pure logic for risk sizing (`risk.ts`), currency valuation (`valuation.ts`) and 
 | `src/lib/workspace.ts` | Layout state: workspace, panels, charts, chart windows, dialogs (persisted) |
 | `src/lib/automation.ts` | Automation state mirrored from the main process |
 | `src/lib/store.ts` | A minimal observable store with a `useStore` hook |
-| `src/components/chart/` | Chart controller (Lightweight Charts), trade overlay and chart windows |
+| `packages/meridian-charts/` | Meridian, the chart engine: scales, canvas rendering, studies, drawing tools and their toolbar, themes (app CSS variables and chart colours) |
+| `src/lib/mt5-provider.ts`, `src/lib/mt5-studies.ts` | MT5 history and live bars for Meridian charts; MetaTrader's indicator formulas as Meridian studies |
+| `src/lib/tick-bars.ts`, `src/lib/mt5-timeframes.ts` | Seconds bars built from received quotes; the chart timeframes, seconds included |
+| `src/lib/theme.ts` | Applies the chosen Meridian theme to the application and the charts |
+| `src/lib/chart-model.ts` | Saved studies and drawings, and migration from versions before Meridian |
+| `src/components/chart/` | Chart windows and the trade overlay (order and position lines aligned to the Meridian price scale) |
 | `src/components/dialogs/` | Order, modify, login and other dialogs |
 | `src/components/pages/` | Copy Trading, Signals and Automation workspaces |
 

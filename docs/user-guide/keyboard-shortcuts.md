@@ -11,6 +11,7 @@ OpenTerm5 follows MetaTrader 5's shortcuts where they exist. On macOS, use **Cmd
 | F11 | Full screen |
 | Ctrl+1 to Ctrl+4 | Switch workspace: Trading, Copy Trading, Signals, Automation |
 | Ctrl+O | Options (connection) |
+| Ctrl+Shift+A | Switch between trading and analysis mode |
 | Escape | Close the open dialog or menu, cancel the risk planner, or return to the cursor tool |
 
 ## Panels
@@ -38,6 +39,21 @@ OpenTerm5 follows MetaTrader 5's shortcuts where they exist. On macOS, use **Cmd
 | End | Scroll to the latest bar |
 | Ctrl+F4 | Close the active chart |
 | Alt+R | Tile chart windows |
+
+These work while a chart has the keyboard focus (click it first):
+
+| Shortcut | Action |
+|---|---|
+| Ctrl+Z and Ctrl+Y | Undo and redo changes to drawings and indicators |
+| Ctrl+C and Ctrl+V | Copy and paste the selected drawing |
+| Delete | Remove the selected drawing |
+| Escape | Cancel the current tool or drawing |
+| Alt+T, Alt+H, Alt+J | Trend line, horizontal line, horizontal ray |
+| Alt+V, Alt+C, Alt+F | Vertical line, cross line, Fibonacci retracement |
+| Alt+R | Reset the chart view (instead of tiling windows) |
+| Alt+I | Invert the price scale |
+| Alt+L and Alt+P | Logarithmic and percent price scale |
+| Shift-click | Measure |
 
 ## Mouse
 

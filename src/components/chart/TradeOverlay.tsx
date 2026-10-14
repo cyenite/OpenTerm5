@@ -11,7 +11,7 @@ import { useStore } from '../../lib/store';
 import { useRiskPreview } from '../../lib/risk-preview';
 import { workspace } from '../../lib/workspace';
 import { Segmented, Switch } from '../ui/Controls';
-import type { ChartController } from './controller';
+import type { MeridianChart } from '@meridian/charts';
 
 type LineRole = 'entry' | 'position' | 'stop' | 'target' | 'pending';
 
@@ -136,16 +136,18 @@ function PlannerPanel({ symbol, lines, digits, error, title, preview, isBusy, is
 }
 
 interface TradeOverlayProps {
-  controller: ChartController | null;
+  chart: MeridianChart | null;
   symbol: string;
   digits: number;
 }
 
-export function TradeOverlay({ controller, symbol, digits }: TradeOverlayProps) {
+export function TradeOverlay({ chart: controller, symbol, digits }: TradeOverlayProps) {
   const tool = useStore(workspace, (state) => state.tool);
   const tick = useStore(session, (state) => state.ticks[symbol]);
   const spec = useStore(session, (state) => state.symbols[symbol]);
-  const canTrade = useStore(session, (state) => !!state.account && state.status?.capabilities?.trading === true && state.link.state === 'open');
+  // In analysis mode the overlay only shows positions and orders: no dragging, closing or planning.
+  const isReadOnly = useStore(workspace, (state) => state.isAnalysisMode);
+  const canTrade = useStore(session, (state) => !!state.account && state.status?.capabilities?.trading === true && state.link.state === 'open') && !isReadOnly;
   const positions = useStore(session, (state) => state.positions);
   const orders = useStore(session, (state) => state.orders);
   const preferences = useStore(riskPreferences, (state) => state);
@@ -157,10 +159,13 @@ export function TradeOverlay({ controller, symbol, digits }: TradeOverlayProps) 
   const [isBusy, setIsBusy] = useState(false);
   const [isPlacing, setIsPlacing] = useState(false);
   const [edit, setEdit] = useState<Edit | null>(null);
-  const [geometry, setGeometry] = useState<{ ys: Record<string, number | null>; width: number; height: number }>({ ys: {}, width: 0, height: 0 });
+  const [geometry, setGeometry] = useState<{ ys: Record<string, number | null>; left: number; width: number; height: number }>({ ys: {}, left: 0, width: 0, height: 0 });
   const drag = useRef<{ line: OverlayLine; pointerId: number } | null>(null);
   const linesRef = useRef<OverlayLine[]>([]);
-  const isPlanning = tool === 'riskOrder';
+  const isPlanning = tool === 'riskOrder' && !isReadOnly;
+  useEffect(() => {
+    if (isReadOnly) { setPlan({}); setIsMarketForced(false); setEdit(null); }
+  }, [isReadOnly]);
   const stage = plan.entry === undefined ? 'entry' : plan.stop === undefined ? 'stop' : plan.target === undefined ? 'target' : 'ready';
   const point = spec?.point ?? 10 ** -digits;
   const round = (price: number) => {
@@ -269,11 +274,11 @@ export function TradeOverlay({ controller, symbol, digits }: TradeOverlayProps) 
     let frame = 0;
     let last = '';
     const update = () => {
-      const box = controller.paneBox();
+      const box = controller.plotBox();
       const ys: Record<string, number | null> = {};
       for (const line of linesRef.current) ys[line.id] = controller.priceToY(line.price);
       const key = JSON.stringify([ys, box]);
-      if (key !== last) { last = key; setGeometry({ ys, width: box.width, height: box.height }); }
+      if (key !== last) { last = key; setGeometry({ ys, left: box.left, width: box.width, height: box.height }); }
       frame = requestAnimationFrame(update);
     };
     frame = requestAnimationFrame(update);
@@ -293,7 +298,6 @@ export function TradeOverlay({ controller, symbol, digits }: TradeOverlayProps) 
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     drag.current = { line, pointerId: event.pointerId };
     if (!line.onMove) setEdit({ id: line.id, price: line.price, apply: async () => undefined });
-    controller?.setDragging(true);
   };
 
   const moveDrag = (event: ReactPointerEvent) => {
@@ -309,7 +313,6 @@ export function TradeOverlay({ controller, symbol, digits }: TradeOverlayProps) 
     const active = drag.current;
     if (!active || active.pointerId !== event.pointerId) return;
     drag.current = null;
-    controller?.setDragging(false);
     const price = priceAt(event.clientY, event.currentTarget as HTMLElement);
     if (price === null) return;
     if (active.line.onDrop) active.line.onDrop(price);
@@ -349,7 +352,7 @@ export function TradeOverlay({ controller, symbol, digits }: TradeOverlayProps) 
   const panelError = !canTrade ? 'Log in to an account that allows trading.' : decision?.error ?? previewError ?? undefined;
 
   return (
-    <div className="trade-overlay" onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
+    <div className="trade-overlay" style={{ left: geometry.left, width: geometry.width }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
       {isPlanning && (stage !== 'ready' || isPlacing) && (
         <div className="overlay-capture" style={{ width: geometry.width, height: geometry.height }} onPointerDown={place}>
           <span className="overlay-prompt">{stage === 'entry' ? 'Drag to place the entry' : stage === 'stop' ? 'Click or drag to place the stop loss' : 'Click or drag to place the take profit'} · Esc cancels</span>

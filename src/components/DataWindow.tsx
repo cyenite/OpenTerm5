@@ -9,14 +9,14 @@ export function DataWindow() {
   const { bar, digits } = state;
   const rows: [string, string][] = bar
     ? [
-        ['Date', formatTime(bar.time * 1000, false).split(' ')[0]],
-        ['Time', formatTime(bar.time * 1000, false).split(' ')[1]],
+        ['Date', formatTime(bar.time * 1000, state.hasSeconds).split(' ')[0]],
+        ['Time', formatTime(bar.time * 1000, state.hasSeconds).split(' ')[1]],
         ['Open', formatPrice(bar.open, digits)],
         ['High', formatPrice(bar.high, digits)],
         ['Low', formatPrice(bar.low, digits)],
         ['Close', formatPrice(bar.close, digits)],
         ['Tick Volume', String(bar.volume)],
-        ...state.values.map((value): [string, string] => [value.label, value.value.toFixed(digits + 1)]),
+        ...state.values.map((value): [string, string] => [value.label, value.text]),
       ]
     : [];
 

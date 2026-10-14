@@ -1,7 +1,6 @@
-import { timeframes } from '../../shared/protocol';
 import type { MenuItem } from '../components/MenuBar';
 import { formatPrice } from './format';
-import { indicatorKinds } from './indicators';
+import { indicatorMenuItems, studyTitle } from './indicator-menu';
 import { session } from './session';
 import { setChartType, setTimeframe, toggleDepth, zoom } from './commands';
 import {
@@ -15,6 +14,7 @@ import {
   updateChart,
   workspace,
 } from './workspace';
+import { chartTimeframes } from './mt5-timeframes';
 
 const separator: MenuItem = { label: '', isSeparator: true };
 
@@ -45,19 +45,22 @@ export function chartMenu(chartId: string, price?: number): MenuItem[] {
   if (!chart) return [];
   const digits = session.get().symbols[chart.symbol]?.digits ?? 5;
   const others = state.charts.filter((candidate) => candidate.id !== chartId);
-  return [
+  const trading: MenuItem[] = state.isAnalysisMode ? [] : [
     { label: 'Trading', items: tradingItems(chart.symbol, price, digits) },
     { label: 'Depth of Market', shortcut: 'Alt+B', action: () => toggleDepth(chart.symbol) },
     separator,
-    { label: 'Timeframes', items: timeframes.map((timeframe) => ({ label: timeframe.label, isChecked: chart.timeframe === timeframe.label, action: () => setTimeframe(timeframe.label) })) },
+  ];
+  return [
+    ...trading,
+    { label: 'Timeframes', items: chartTimeframes.map((timeframe) => ({ label: timeframe.label, isChecked: chart.timeframe === timeframe.label, action: () => setTimeframe(timeframe.label) })) },
     ...chartTypes.map((type) => ({ label: type.label, shortcut: type.shortcut, isChecked: chart.type === type.key, action: () => setChartType(type.key) })),
     separator,
-    { label: 'Indicators', items: indicatorKinds.map((kind) => ({ label: kind.label, action: () => openDialog({ kind: 'indicator', chartId, indicator: kind.key }) })) },
+    { label: 'Indicators', items: indicatorMenuItems(chartId) },
     {
       label: 'Indicators List',
       isDisabled: !chart.indicators.length,
       items: chart.indicators.map((indicator) => ({
-        label: `Delete ${indicatorKinds.find((kind) => kind.key === indicator.kind)?.label ?? indicator.kind}`,
+        label: `Delete ${studyTitle(indicator.kind)}`,
         action: () => updateChart(chartId, (current) => ({ indicators: current.indicators.filter((candidate) => candidate.id !== indicator.id) })),
       })),
     },

@@ -66,7 +66,7 @@ export function StatusBar() {
       <TradeActivity />
       {bar && (
         <span className="status-cell status-ohlc">
-          {formatTime(bar.time * 1000, false)} O: {formatPrice(bar.open, digits)} H: {formatPrice(bar.high, digits)} L: {formatPrice(bar.low, digits)} C:{' '}
+          {formatTime(bar.time * 1000, hover.hasSeconds)} O: {formatPrice(bar.open, digits)} H: {formatPrice(bar.high, digits)} L: {formatPrice(bar.low, digits)} C:{' '}
           {formatPrice(bar.close, digits)} V: {bar.volume}
         </span>
       )}

@@ -11,11 +11,12 @@ import { PriceAlertsDialog } from './components/dialogs/PriceAlertsDialog';
 import { AccountsDialog } from './components/dialogs/AccountsDialog';
 import { WorkspacePresetDialog } from './components/dialogs/WorkspacePresetDialog';
 import { useEffect } from 'react';
+import { AnalysisBar } from './components/AnalysisBar';
 import { ChartWorkspace } from './components/ChartWorkspace';
 import { ContextMenuHost } from './components/ContextMenu';
 import { DataWindow } from './components/DataWindow';
 import { DepthOfMarket } from './components/DepthOfMarket';
-import { AboutDialog, ConnectionDialog, IndicatorDialog, LoginDialog, SymbolsDialog } from './components/dialogs/MiscDialogs';
+import { AboutDialog, ConnectionDialog, LoginDialog, SymbolsDialog } from './components/dialogs/MiscDialogs';
 import { ModifyOrderDialog, ModifyPositionDialog } from './components/dialogs/ModifyDialogs';
 import { OrderDialog } from './components/dialogs/OrderDialog';
 import { MarketWatch } from './components/MarketWatch';
@@ -48,8 +49,6 @@ function ActiveDialog({ dialog }: ActiveDialogProps) {
       return <ConnectionDialog />;
     case 'login':
       return <LoginDialog profileId={dialog.profileId} />;
-    case 'indicator':
-      return <IndicatorDialog chartId={dialog.chartId} indicator={dialog.indicator} />;
     case 'specification': return <SymbolSpecificationDialog symbol={dialog.symbol} />;
     case 'objects': return <DrawingObjectsDialog chartId={dialog.chartId} />;
     case 'accounts': return <AccountsDialog />;
@@ -63,7 +62,10 @@ function ActiveDialog({ dialog }: ActiveDialogProps) {
 
 export function App() {
   const state = useStore(workspace, (current) => current);
-  const isLeftShown = state.isMarketWatchShown || state.isNavigatorShown || state.isDataWindowShown;
+  const isAnalysis = state.isAnalysisMode;
+  const page = isAnalysis ? 'trading' : state.page;
+  const isLeftShown = !isAnalysis && (state.isMarketWatchShown || state.isNavigatorShown || state.isDataWindowShown);
+  const isAnalysisDockShown = isAnalysis && (state.isMarketWatchShown || state.isDataWindowShown);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -76,15 +78,16 @@ export function App() {
   }, []);
 
   return (
-    <div className="app">
+    <div className={`app${isAnalysis ? ' is-analysis' : ''}`}>
       <MenuBar />
-      <TopTabs />
+      {!isAnalysis && <TopTabs />}
       <PriceAlertNotice />
-      {state.page === 'copier' && <main className="workbench is-page"><CopyTradingPage /></main>}
-      {state.page === 'signals' && <main className="workbench is-page"><SignalsPage /></main>}
-      {state.page === 'automation' && <main className="workbench is-page"><AutomationPage /></main>}
-      {state.page === 'trading' && <Toolbar />}
-      <main className={`workbench${state.page !== 'trading' ? ' is-offstage' : ''}`} aria-hidden={state.page !== 'trading'}>
+      {page === 'copier' && <main className="workbench is-page"><CopyTradingPage /></main>}
+      {page === 'signals' && <main className="workbench is-page"><SignalsPage /></main>}
+      {page === 'automation' && <main className="workbench is-page"><AutomationPage /></main>}
+      {page === 'trading' && (isAnalysis ? <AnalysisBar /> : <Toolbar />)}
+      {/* Every slot below stays in place across modes, so the charts survive a mode switch. */}
+      <main className={`workbench${page !== 'trading' ? ' is-offstage' : ''}`} aria-hidden={page !== 'trading'}>
         {isLeftShown && (
           <aside className="dock-left">
             {state.isMarketWatchShown && <MarketWatch />}
@@ -94,11 +97,17 @@ export function App() {
         )}
         <div className="center">
           <ChartWorkspace />
-          {state.isToolboxShown && <Toolbox />}
+          {!isAnalysis && state.isToolboxShown && <Toolbox />}
         </div>
-        {state.depthSymbol && (
+        {!isAnalysis && state.depthSymbol && (
           <aside className="dock-right">
             <DepthOfMarket symbol={state.depthSymbol} />
+          </aside>
+        )}
+        {isAnalysisDockShown && (
+          <aside className="dock-right analysis-dock">
+            {state.isMarketWatchShown && <MarketWatch />}
+            {state.isDataWindowShown && <DataWindow />}
           </aside>
         )}
       </main>

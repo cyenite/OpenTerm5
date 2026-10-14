@@ -94,8 +94,8 @@ detail.
 ## How it works
 
 OpenTerm5 is an [Electron](https://www.electronjs.org/) application written in TypeScript. The
-interface is built with React and
-[TradingView Lightweight Charts™](https://www.tradingview.com/lightweight-charts/).
+interface is built with React. Charts are drawn by Meridian (`packages/meridian-charts`), OpenTerm5's
+own canvas chart engine and theme system.
 
 The main process contains an independent client for the protocol that MT5 web trading uses. It keeps
 one broker session per account. The trade management, copy trading and signal engines run alongside

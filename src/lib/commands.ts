@@ -1,6 +1,6 @@
-import type { Timeframe } from '../../shared/protocol';
+import type { ChartTimeframe } from './mt5-timeframes';
 import { defaultSymbol } from './broker-symbols';
-import { activeChart, arrangeWindows, closeChart, openDialog, pages, updateActiveChart, workspace, type ChartType, type ToolboxTab, type WorkspaceState } from './workspace';
+import { activeChart, arrangeWindows, closeChart, openChart, openDialog, pages, toggleAnalysisMode, updateActiveChart, workspace, type ChartType, type ToolboxTab, type WorkspaceState } from './workspace';
 
 type PanelFlag = 'isMarketWatchShown' | 'isNavigatorShown' | 'isToolboxShown' | 'isDataWindowShown' | 'isStatusBarShown' | 'isChartBarShown';
 
@@ -20,7 +20,7 @@ export function setChartType(type: ChartType): void {
   updateActiveChart({ type });
 }
 
-export function setTimeframe(timeframe: Timeframe): void {
+export function setTimeframe(timeframe: ChartTimeframe): void {
   updateActiveChart({ timeframe });
 }
 
@@ -29,6 +29,7 @@ export function zoom(factor: number): void {
 }
 
 export function toggleDepth(symbol?: string): void {
+  if (workspace.get().isAnalysisMode) return;
   workspace.set((state) => ({
     depthSymbol: state.depthSymbol && !symbol ? null : symbol ?? activeChart(state)?.symbol ?? null,
   }));
@@ -36,6 +37,7 @@ export function toggleDepth(symbol?: string): void {
 
 export function toggleOneClick(): void {
   const state = workspace.get();
+  if (state.isAnalysisMode) return;
   if (state.isOneClickEnabled) {
     workspace.set({ isOneClickEnabled: false });
     return;
@@ -50,6 +52,12 @@ export function toggleOneClick(): void {
     }
   }
   workspace.set({ isOneClickEnabled: true, hasAcceptedOneClick: true });
+}
+
+// Shows a symbol on the active chart, the way a watchlist click works in charting apps.
+export function showSymbol(symbol: string): void {
+  if (workspace.get().charts.length) updateActiveChart({ symbol });
+  else openChart(symbol);
 }
 
 export function toggleFullScreen(): void {
@@ -74,7 +82,11 @@ export function handleShortcut(event: KeyboardEvent): boolean {
   }
   const key = event.key.toLowerCase();
   const isCtrl = event.ctrlKey || event.metaKey;
+  const isAnalysis = workspace.get().isAnalysisMode;
   const action: (() => void) | undefined = (() => {
+    if (isCtrl && event.shiftKey && key === 'a') return toggleAnalysisMode;
+    // Analysis mode has no order ticket, depth, pages or terminal panels; their keys stay free.
+    if (isAnalysis && (event.key === 'F9' || event.altKey && key === 'b' || isCtrl && /^[1-4tn]$/.test(key))) return undefined;
     if (event.key === 'F9') return () => newOrder();
     if (event.key === 'F11') return toggleFullScreen;
     if (event.key === 'F4' && isCtrl) return closeActiveChart;
