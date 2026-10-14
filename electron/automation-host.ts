@@ -10,6 +10,7 @@ import type { AccountRegistry } from './account-registry';
 import type { PasswordCipher } from './account-registry';
 import { Copier, type CopierState } from './copier';
 import { JsonLog, JsonStore } from './json-store';
+import { parseOwnedTickets, SignalOwnership } from './signal-ownership';
 import { Notifier, validateTarget } from './notifier';
 import type { SessionPool } from './session-pool';
 import { SignalExecutor } from './signal-executor';
@@ -83,7 +84,7 @@ export class AutomationHost {
       canOpen: (accountId, symbol, lots) => this.manager.canOpen(accountId, symbol, lots),
     });
     this.signalLog = new JsonLog<SignalRecord>(file('signals.jsonl'));
-    const executor = new SignalExecutor(deps.pool, this.manager);
+    const executor = new SignalExecutor(deps.pool, this.manager, new SignalOwnership(new JsonStore(file('signal-tickets.json'), parseOwnedTickets, () => ({}))));
     this.webhooks = new WebhookServer({ execute: (source, signal) => executor.execute(source, signal), append: (record) => this.signalLog.append(record) });
     this.riskStore = new JsonStore<RiskPreferences>(file('risk-preferences.json'), parseRiskPreferences, () => parseRiskPreferences(undefined));
     this.secrets = new JsonStore<StoredSecrets>(file('webhooks.json'), (value) => value as StoredSecrets, () => ({ isEncrypted: false, settings: this.settings, notifications: [] }));

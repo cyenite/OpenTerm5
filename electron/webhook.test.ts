@@ -3,7 +3,8 @@ import { after, test } from 'node:test';
 import type { SignalRecord, WebhookSettings, WebhookSource } from '../shared/automation';
 import { FakeLink, memoryStore, position } from './automation-fixtures';
 import { SessionPool } from './session-pool';
-import { SignalExecutor, sourceTag } from './signal-executor';
+import { SignalExecutor } from './signal-executor';
+import { SignalOwnership, type OwnedTickets } from './signal-ownership';
 import { TradeManager, type ManagerState } from './trade-manager';
 import { WebhookServer, signBody } from './webhook-server';
 
@@ -26,7 +27,8 @@ async function setup(settings: Partial<WebhookSettings> = {}) {
   pool.afterUiChange(ACCOUNT, null);
   const manager = new TradeManager(pool, memoryStore<ManagerState>({ rules: [], guards: [], guardStates: [] }), () => {});
   await manager.init();
-  const executor = new SignalExecutor(pool, manager);
+  const ownership = new SignalOwnership(memoryStore<OwnedTickets>({}));
+  const executor = new SignalExecutor(pool, manager, ownership);
   const records: SignalRecord[] = [];
   const server = new WebhookServer({ execute: (item, signal) => executor.execute(item, signal), append: (record) => records.push(record) });
   servers.push(server);
@@ -34,17 +36,18 @@ async function setup(settings: Partial<WebhookSettings> = {}) {
   assert.equal(status.isRunning, true);
   const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
     fetch(`${status.url}${path}`, { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body), headers: { 'content-type': 'application/json', ...headers } });
-  return { link, server, records, status, post, manager };
+  return { link, server, records, status, post, manager, ownership };
 }
 
 test('a bearer-authenticated signal is sized by risk and executed', async () => {
-  const { link, post } = await setup();
+  const { link, post, ownership } = await setup();
   const response = await post('/v1/signals?wait=1', { action: 'buy', symbol: 'EURUSD', sl_pips: 50, id: 'x1' }, { authorization: 'Bearer correct horse battery staple' });
   assert.equal(response.status, 200);
   const record = await response.json() as SignalRecord;
   assert.equal(record.status, 'executed');
   assert.equal(link.sent[0].volume, 0.2);
-  assert.equal(link.sent[0].comment, sourceTag(source()));
+  assert.equal(link.sent[0].comment, '', 'entries carry no Terminal5 tag');
+  assert.equal(await ownership.owns('src-token-1', link.positions[0].ticket), true);
   assert.equal('secret' in record.payload, false);
 });
 
@@ -106,12 +109,14 @@ test('repeated authentication failures lock the caller out', async () => {
 });
 
 test('close only touches positions opened by the source unless scope is symbol', async () => {
-  const { post, link } = await setup();
-  link.positions = [position({ ticket: 1, comment: sourceTag(source()) }), position({ ticket: 2, comment: 'manual' })];
+  const { post, link, ownership } = await setup();
+  link.positions = [position({ ticket: 1 }), position({ ticket: 2, comment: 'manual' })];
+  await ownership.add('src-token-1', [1, 77]);
   const headers = { authorization: 'Bearer correct horse battery staple' };
   const first = await (await post('/v1/signals?wait=1', { action: 'close', symbol: 'EURUSD' }, headers)).json() as SignalRecord;
   assert.equal(first.status, 'executed');
   assert.deepEqual(link.positions.map((item) => item.ticket), [2]);
+  assert.equal(await ownership.owns('src-token-1', 77), false, 'tickets that no longer exist are forgotten');
   await post('/v1/signals?wait=1', { action: 'close', symbol: 'EURUSD', scope: 'symbol' }, headers);
   assert.equal(link.positions.length, 0);
 });

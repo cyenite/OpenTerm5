@@ -274,7 +274,7 @@ export class TradeManager extends EventEmitter {
       const blocked = this.canOpen(accountId, position.symbol, 0);
       if (blocked) throw new Error(blocked);
       const closed = await closing(position);
-      if (closed.isSuccess) await send(position.ticket, position.symbol, { action: 'deal', symbol: position.symbol, volume: position.volume, type: position.side === 'buy' ? 'sell' : 'buy', comment: 'T5 reverse' });
+      if (closed.isSuccess) await send(position.ticket, position.symbol, { action: 'deal', symbol: position.symbol, volume: position.volume, type: position.side === 'buy' ? 'sell' : 'buy', comment: position.comment });
     }
     const failed = outcomes.filter((outcome) => !outcome.result.isSuccess).length;
     this.journal(`${request.kind}: ${outcomes.length - failed} done, ${failed} failed`);
@@ -321,7 +321,7 @@ export class TradeManager extends EventEmitter {
         action: definition.isPending ? 'pending' : 'deal', type: request.type, symbol: request.symbol, volume: leg.lots,
         ...(definition.isPending ? { price: entry, ...(request.expiration ? { expiration: request.expiration } : {}) } : {}),
         ...(isStealth ? {} : { sl: stopLoss || undefined, tp: leg.takeProfit || undefined }),
-        comment: (request.comment ?? `T5 risk ${index + 1}/${plan.legs.length}`).slice(0, 31),
+        comment: (request.comment ?? '').slice(0, 31),
       };
       let result: TradeResult;
       try { result = await link.request('order.send', trade); }

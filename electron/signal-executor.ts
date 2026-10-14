@@ -3,6 +3,7 @@ import type { Order, Position, TradeRequest, TradeResult } from '../shared/proto
 import type { RiskMode } from '../shared/risk';
 import { distanceToPrice, floorToStep } from '../shared/risk';
 import type { SessionPool } from './session-pool';
+import type { SignalOwnership } from './signal-ownership';
 import type { TradeManager } from './trade-manager';
 import { mapSymbol, pendingTypes, signalActions, type Signal } from './webhook-signal';
 
@@ -15,10 +16,15 @@ export interface Execution {
 
 export class SignalRejected extends Error {}
 
-export const sourceTag = (source: Pick<WebhookSource, 'id'>) => `T5W ${source.id.slice(0, 6)}`;
-
 export class SignalExecutor {
-  constructor(private readonly pool: SessionPool, private readonly manager: TradeManager, private readonly now = () => Date.now()) {}
+  constructor(private readonly pool: SessionPool, private readonly manager: TradeManager, private readonly ownership: SignalOwnership, private readonly now = () => Date.now()) {}
+
+  private async inScope(source: WebhookSource, positions: readonly Position[], orders: readonly Order[]): Promise<(item: Position | Order) => boolean> {
+    await this.ownership.prune(source.id, new Set([...positions, ...orders].map((item) => item.ticket)));
+    const owned = new Set<number>();
+    for (const item of [...positions, ...orders]) if (await this.ownership.owns(source.id, item.ticket)) owned.add(item.ticket);
+    return (item) => owned.has(item.ticket);
+  }
 
   async execute(source: WebhookSource, signal: Signal): Promise<Execution> {
     if (source.allowedActions.length && !source.allowedActions.includes(signal.action)) throw new SignalRejected(`Action "${signal.action}" is not allowed for this source`);
@@ -29,8 +35,8 @@ export class SignalExecutor {
     const isOpening = signalActions.find((item) => item.key === signal.action)!.isOpening;
     if (isOpening) return this.open(source, signal, symbol);
     const snapshot = await link.request('trade.snapshot', {});
-    const tag = sourceTag(source);
-    const inScope = (item: Position | Order) => (signal.scope === 'symbol' || item.comment.startsWith(tag)) && (!symbol || item.symbol === symbol) && (!signal.ticket || item.ticket === signal.ticket);
+    const isOwned = await this.inScope(source, snapshot.positions, snapshot.orders);
+    const inScope = (item: Position | Order) => (signal.scope === 'symbol' || isOwned(item)) && (!symbol || item.symbol === symbol) && (!signal.ticket || item.ticket === signal.ticket);
     const positions = snapshot.positions.filter(inScope).filter((position) =>
       signal.action === 'close_buy' ? position.side === 'buy' : signal.action === 'close_sell' ? position.side === 'sell' : true);
     const orders = snapshot.orders.filter(inScope);
@@ -80,7 +86,8 @@ export class SignalExecutor {
     if (action === 'reverse') {
       const link = this.pool.require(source.accountId);
       const snapshot = await link.request('trade.snapshot', {});
-      const current = snapshot.positions.filter((position) => position.symbol === symbol && (signal.scope === 'symbol' || position.comment.startsWith(sourceTag(source))));
+      const isOwned = await this.inScope(source, snapshot.positions, snapshot.orders);
+      const current = snapshot.positions.filter((position) => position.symbol === symbol && (signal.scope === 'symbol' || isOwned(position)));
       if (!current.length) throw new SignalRejected(`No ${symbol} position in scope to reverse`);
       action = current[0].side === 'buy' ? 'sell' : 'buy';
       if (!source.isDryRun) {
@@ -106,18 +113,18 @@ export class SignalExecutor {
       mode = source.sizing.mode;
       value = source.sizing.value;
     }
-    const tag = sourceTag(source);
     const outcome = await this.manager.placeRisk({
       accountId: source.accountId, type, mode, value, symbol, price: signal.price,
       stopLoss: stop, takeProfitR: signal.targetR.length ? signal.targetR : undefined,
       takeProfits: signal.targets.length ? signal.targets.map((distance) => ({ distance, share: 100 / signal.targets.length })) : undefined,
-      comment: (signal.comment ? `${tag} ${signal.comment}` : tag).slice(0, 31),
+      comment: (signal.comment ?? '').slice(0, 31),
       maxLots: source.sizing.maxLots || undefined,
       expiration: signal.expirationMinutes ? Math.floor(this.now() / 1000) + Math.round(signal.expirationMinutes * 60) : undefined,
       management: { trailing: signal.trailing, breakEvenR: signal.breakEvenR },
       isDryRun: source.isDryRun,
     });
     results.push(...outcome.results);
+    if (!outcome.isDryRun) await this.ownership.add(source.id, outcome.results.filter((result) => result.isSuccess && result.order).map((result) => result.order!));
     const failed = outcome.results.filter((result) => !result.isSuccess).length;
     const summary = `${action} ${outcome.lots} ${symbol} at ${outcome.entry}${outcome.stopLoss ? ` sl ${outcome.stopLoss}` : ''}${outcome.takeProfits.some(Boolean) ? ` tp ${outcome.takeProfits.filter(Boolean).join('/')}` : ''}, risk ${Number.isFinite(outcome.riskMoney) ? outcome.riskMoney.toFixed(2) : 'unlimited'}`;
     if (outcome.isDryRun) return { status: 'dryRun', symbol, message: `Dry run: ${summary}`, results };

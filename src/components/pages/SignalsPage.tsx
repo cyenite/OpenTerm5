@@ -111,7 +111,7 @@ function SourceEditor({ source, baseUrl, onChange, onRemove }: SourceEditorProps
       )}
       {tab === 'connect' && (
         <div className="stack">
-          <p className="is-muted">Entries carry the comment "T5W {source.id.slice(0, 6)}". close, modify and cancel only touch those, unless a signal sends "scope": "symbol".</p>
+          <p className="is-muted">Entries carry only the comment the signal sends, like trades placed by hand. Terminal5 remembers which tickets this source opened; close, modify and cancel only touch those, unless a signal sends "scope": "symbol".</p>
           <CopyBlock label="TradingView webhook URL" text={hookUrl} />
           <CopyBlock label="TradingView alert message" text={tradingView} />
           <CopyBlock label={source.auth === 'token' ? 'curl with a bearer token' : 'Signed request (bash)'} text={curl} />
