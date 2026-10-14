@@ -4,6 +4,9 @@ import type { TerminalEvent, TerminalMethod, ConnectionSettings, JournalEntry } 
 import { loadSettings, saveSettings } from './settings';
 import { migrateLegacyProfile } from './legacy-migration';
 import { Mt5WebLink } from './mt5-web-link';
+import { Mt5WebClient } from './mt5-web-client';
+import { BotCheckError } from './bot-check';
+import { browserFetch, openBrowserSocket, verifyBrokerAccess } from './browser-network';
 import { loadAccounts, secretCipher } from './accounts';
 import { SessionPool } from './session-pool';
 import { AutomationHost } from './automation-host';
@@ -17,7 +20,8 @@ import type { TerminalMethods } from '../shared/protocol';
 migrateLegacyProfile();
 
 const devUrl = process.env.OPENTERM_DEV_URL;
-const direct = new Mt5WebLink();
+const createLink = () => new Mt5WebLink((endpoint) => new Mt5WebClient(endpoint, openBrowserSocket));
+const direct = createLink();
 let automation: AutomationHost | undefined;
 let isChanging = false;
 let activeAccount: string | null = null;
@@ -40,7 +44,7 @@ const pool = new SessionPool(direct, (accountId) => {
     const password = accounts.password(accountId);
     return password ? { login: profile.login, password, endpoint: profile.webEndpoint } : undefined;
   } catch { return undefined; }
-}, () => new Mt5WebLink());
+}, createLink);
 
 function leaveAccount(): void {
   const previous = activeAccount;
@@ -118,7 +122,7 @@ function installMenu(): void {
 }
 
 let brokerDirectory: BrokerDirectory | undefined;
-function brokers(): BrokerDirectory { return brokerDirectory ??= new BrokerDirectory(app.getPath('userData')); }
+function brokers(): BrokerDirectory { return brokerDirectory ??= new BrokerDirectory(app.getPath('userData'), browserFetch); }
 
 function accountProfiles() { return (accounts?.list() ?? []).map((profile) => ({ ...profile, isActive: profile.id === activeAccount })); }
 
@@ -139,6 +143,15 @@ async function settledConnection(): Promise<void> {
   if (!isChanging) return;
   await Promise.race([changeSettled, new Promise((resolve) => setTimeout(resolve, 30_000))]);
   if (isChanging) throw new Error('Account connection is still changing. Try again after login completes.');
+}
+
+// Only requests the user just made open the check window; reconnects and background sessions report it.
+async function clearingBotCheck<T>(work: () => Promise<T>): Promise<T> {
+  try { return await work(); }
+  catch (error) {
+    if (!(error instanceof BotCheckError) || !await verifyBrokerAccess(error.host, window)) throw error;
+    return work();
+  }
 }
 
 async function loginAccount(params: TerminalMethods['account.login'][0]) {
@@ -172,16 +185,16 @@ ipcMain.handle('terminal:request', async (_event, method: TerminalMethod, params
     if (method === 'brokers.search') return { result: await brokers().search((params as TerminalMethods['brokers.search'][0]).query, accountProfiles().map((profile) => profile.server)) };
     if (method === 'brokers.resolve') {
       const { server, webUrl } = params as TerminalMethods['brokers.resolve'][0];
-      return { result: webUrl ? await brokers().inspect(server, webUrl) : await brokers().resolve(server) };
+      return { result: await clearingBotCheck(() => webUrl ? brokers().inspect(server, webUrl) : brokers().resolve(server)) };
     }
-    if (method === 'account.login') return { result: await changeConnection(() => loginAccount(params as TerminalMethods['account.login'][0])) };
+    if (method === 'account.login') return { result: await changeConnection(() => clearingBotCheck(() => loginAccount(params as TerminalMethods['account.login'][0]))) };
     if (method === 'accounts.connect') return { result: await changeConnection(async () => {
       if (!accounts) throw new Error('Account storage is unavailable.');
       const values = params as TerminalMethods['accounts.connect'][0];
       const profile = accounts.get(values.id);
       const password = values.password ?? accounts.password(values.id);
       if (!password) throw new Error('Enter the password for this saved account.');
-      return loginAccount({ login: profile.login, password, webEndpoint: profile.webEndpoint, label: profile.label, otp: values.otp, isPasswordSaved: values.isPasswordSaved ?? profile.isPasswordSaved });
+      return clearingBotCheck(() => loginAccount({ login: profile.login, password, webEndpoint: profile.webEndpoint, label: profile.label, otp: values.otp, isPasswordSaved: values.isPasswordSaved ?? profile.isPasswordSaved }));
     }) };
     if (method === 'accounts.remove') return { result: await changeConnection(async () => {
       if (!accounts) throw new Error('Account storage is unavailable.');

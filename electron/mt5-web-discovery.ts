@@ -1,4 +1,5 @@
 import type { ServerLookupResult } from '../shared/protocol';
+import { BotCheckError, isBotCheck } from './bot-check';
 
 const maximumBytes = 1_048_576;
 
@@ -67,6 +68,7 @@ export async function fetchTerminalPage(webUrl: string, fetchPage: typeof fetch 
     signal: AbortSignal.timeout(timeout),
     headers: { Accept: 'text/html' },
   });
+  if (isBotCheck(response.status, response.headers)) throw new BotCheckError(url.hostname);
   if (!response.ok) throw new Error(`The web terminal returned HTTP ${response.status}.`);
   if (!response.body) throw new Error('The web terminal returned an empty page.');
   const reader = response.body.getReader();

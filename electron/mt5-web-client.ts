@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { createHash, randomBytes } from 'node:crypto';
 import { unzipSync } from 'node:zlib';
 import { BinaryReader, BinaryWriter } from './mt5-web-codec';
-import { Mt5WebTransport, WebCommand, type WebSession } from './mt5-web-transport';
+import { Mt5WebTransport, openNodeSocket, WebCommand, type SocketOpener, type WebSession } from './mt5-web-transport';
 import { buildSymbolSubscription, parseSymbols, parseTickUpdates, type WebSymbol } from './mt5-web-market';
 
 export interface WebCredentials {
@@ -65,9 +65,9 @@ export class Mt5WebClient extends EventEmitter {
   private readonly symbols = new Map<number, WebSymbol>();
   private readonly identity = createHash('sha1').update(`${process.platform};1;en;0x0;${randomBytes(16).toString('hex')}`).digest().subarray(0, 16);
 
-  constructor(readonly endpoint = 'wss://web.metatrader.app/terminal') {
+  constructor(readonly endpoint = 'wss://web.metatrader.app/terminal', private readonly openSocket: SocketOpener = openNodeSocket) {
     super();
-    this.transport = new Mt5WebTransport(endpoint);
+    this.transport = new Mt5WebTransport(endpoint, undefined, openSocket);
     this.transport.on('disconnected', (error) => {
       this.close();
       this.emit('fault', error);
@@ -89,7 +89,7 @@ export class Mt5WebClient extends EventEmitter {
   }
 
   async traderParameters(): Promise<TraderParameters> {
-    const configuration = new Mt5WebTransport(this.endpoint);
+    const configuration = new Mt5WebTransport(this.endpoint, undefined, this.openSocket);
     try {
       await configuration.connect();
       await configuration.request(WebCommand.configuration, Buffer.alloc(744));

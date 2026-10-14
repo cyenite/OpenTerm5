@@ -4,6 +4,7 @@ import type { Account, Bar, TerminalEvent, TerminalEvents, TerminalMethod, Termi
 import { adjustDepthPrice, decodeDepth, WebDepthBook } from './mt5-web-depth';
 import { Mt5WebClient, type WebCredentials } from './mt5-web-client';
 import { WebProtocolError } from './mt5-web-transport';
+import { BotCheckError } from './bot-check';
 import { buildSymbolSubscription, type WebTickUpdate } from './mt5-web-market';
 import { adjustQuote, parseAccountModel, parseSymbolDetails, type WebAccountModel, type WebSymbolDetails } from './mt5-web-models';
 import { aggregateRates, timeframePlan, timeframeStart } from './mt5-web-timeframes';
@@ -200,6 +201,13 @@ export class Mt5WebLink extends EventEmitter {
         this.client?.close();
         this.client = undefined;
         this.publishState({ state: 'closed', error: 'Login is required again; authentication was not retried' });
+      } else if (error instanceof BotCheckError) {
+        this.isStopped = true;
+        this.client?.removeAllListeners();
+        this.client?.close();
+        this.client = undefined;
+        this.isLoggedIn = false;
+        this.publishState({ state: 'closed', error: error.message });
       } else this.lost(error);
       throw error;
     }

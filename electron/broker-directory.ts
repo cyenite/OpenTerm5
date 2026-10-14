@@ -1,5 +1,6 @@
 import type { BrokerServer, ResolvedServer, ServerSource } from '../shared/protocol';
 import { JsonStore } from './json-store';
+import { BotCheckError } from './bot-check';
 import { fetchTerminalPage, findTerminalFrame, parseServerMetadata } from './mt5-web-discovery';
 
 const catalogueUrl = 'https://metatraderweb.app/trade/servers?version=5';
@@ -108,7 +109,9 @@ export class BrokerDirectory {
     if (cached) return this.result(name, cached.webUrl, cached.broker, cached.isListed, 'saved');
     const known = knownTerminals.filter((terminal) => terminal.prefixes.some((prefix) => name.startsWith(prefix))).map((terminal) => terminal.webUrl);
     const candidates = [...new Set([...known, ...candidateTerminals(name)])];
-    const found = await this.probe(name, candidates, new Set(known));
+    const blocked: string[] = [];
+    const found = await this.probe(name, candidates, new Set(known), blocked);
+    if (!found && blocked.length) throw new BotCheckError(blocked[0]);
     if (!found) throw new Error(`Could not find the address of ${name}. Ask your broker for its MT5 web trading address and enter it under Advanced.`);
     return this.result(name, found.webUrl, found.broker, found.isListed, known.includes(found.webUrl) ? 'known' : 'discovered');
   }
@@ -136,10 +139,13 @@ export class BrokerDirectory {
     return { server, broker, webUrl, webEndpoint: endpoint.href, isListed, source };
   }
 
-  private async probe(server: string, candidates: readonly string[], trusted: ReadonlySet<string>) {
+  private async probe(server: string, candidates: readonly string[], trusted: ReadonlySet<string>, blocked: string[]) {
     for (let index = 0; index < candidates.length; index += probeLimit) {
       const batch = candidates.slice(index, index + probeLimit);
-      const results = await Promise.all(batch.map((webUrl) => this.match(server, webUrl, trusted.has(webUrl)).catch(() => null)));
+      const results = await Promise.all(batch.map((webUrl) => this.match(server, webUrl, trusted.has(webUrl)).catch((error: unknown) => {
+        if (error instanceof BotCheckError) blocked.push(error.host);
+        return null;
+      })));
       const listed = results.find((result) => result?.isListed);
       if (listed) return listed;
       const trustedMatch = results.find((result) => result && trusted.has(result.webUrl));

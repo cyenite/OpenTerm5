@@ -8,11 +8,12 @@ import { registrableDomain } from './mt5-web-discovery';
 
 const page = (broker: string, servers: string[]) => `<script>window.__terminal_params = {"broker":{"name":"${broker}"},"servers":[${servers.map((server) => `{"server":"${server}","type":"real"}`).join(',')}]};</script>`;
 
-function fakeFetch(pages: Record<string, string>, calls: string[] = []): typeof fetch {
+function fakeFetch(pages: Record<string, string>, calls: string[] = [], challenged: readonly string[] = []): typeof fetch {
   return (async (input: string | URL) => {
     const url = String(input);
     calls.push(url);
     if (url.includes('/trade/servers')) return new Response(JSON.stringify({ mt5: ['Acme-Live', 'Acme-Demo', 'Other-Server'] }));
+    if (challenged.some((host) => url.includes(`//${host}/`))) return new Response('Just a moment...', { status: 403, headers: { 'cf-mitigated': 'challenge' } });
     const html = pages[url];
     if (html === undefined) throw new TypeError('fetch failed');
     return new Response(html, { headers: { 'Content-Type': 'text/html' } });
@@ -82,4 +83,9 @@ test('a manually entered address is checked but needs approval and is not rememb
   await assert.rejects(brokers.resolve('Acme-Live'), /Could not find/);
   await assert.rejects(brokers.inspect('Acme-Live', 'http://custom.example.org/terminal'), /HTTPS/);
   assert.deepEqual((await brokers.search('acme')).map((item) => item.server), ['Acme-Demo', 'Acme-Live']);
+});
+
+test('when only bot-checked hosts answer, the failure names the bot check', async () => {
+  const brokers = new BrokerDirectory(await mkdtemp(path.join(tmpdir(), 'brokers-')), fakeFetch({}, [], ['webtrader.acme.com']));
+  await assert.rejects(brokers.resolve('Acme-Demo'), /webtrader\.acme\.com is protected by a Cloudflare bot check/);
 });

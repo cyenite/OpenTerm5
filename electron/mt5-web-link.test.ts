@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { TradeRequest } from '../shared/protocol';
+import { BotCheckError } from './bot-check';
 import { Mt5WebClient, type WebCredentials } from './mt5-web-client';
 import { BinaryWriter } from './mt5-web-codec';
 import { Mt5WebLink } from './mt5-web-link';
@@ -361,4 +362,23 @@ test('close-by validates opposite same-symbol positions and uses source first-po
     assert.equal(client.submissions[0].readBigUInt64LE(72), 12000000n);
     assert.equal(client.submissions[0].readBigUInt64LE(236), 52n);
   } finally { link.disconnect(); }
+});
+
+test('a bot check stops reconnecting instead of retrying the challenged host', async (t) => {
+  let isChallenged = false;
+  const { link, clients } = fixture((client) => {
+    client.connect = async () => {
+      if (isChallenged) throw new BotCheckError('fixture.example');
+      return { version: 6258, endpoint: client.endpoint };
+    };
+  });
+  t.after(() => link.disconnect());
+  await loggedIn(link);
+  isChallenged = true;
+  clients.at(-1)!.emit('fault', new Error('dropped'));
+  await until(() => link.state.error?.includes('bot check') ?? false);
+  const attempts = clients.length;
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(clients.length, attempts);
+  assert.equal(link.state.state, 'closed');
 });

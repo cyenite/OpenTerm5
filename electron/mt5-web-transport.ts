@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { EventEmitter } from 'node:events';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { BotCheckError, isBotCheck } from './bot-check';
 import WebSocket from 'ws';
 import { decodeFrame, decodeResponse, encodeCommand, encodeFrame, MAX_FRAME_BYTES } from './mt5-web-codec';
 
@@ -30,6 +31,17 @@ export interface WebSession {
   readonly endpoint: string;
 }
 
+// The subset of a `ws` socket the transport drives, so a Chromium-backed socket can stand in for it.
+export interface TransportSocket extends EventEmitter {
+  readonly readyState: number;
+  send(data: Buffer, callback: (error?: Error) => void): void;
+  terminate(): void;
+}
+
+export type SocketOpener = (url: string, options: WebSocket.ClientOptions) => TransportSocket;
+
+export const openNodeSocket: SocketOpener = (url, options) => new WebSocket(url, options);
+
 export class WebProtocolError extends Error {
   constructor(readonly command: number, readonly status: number) {
     super(`MT5 web command ${command} returned status ${status}`);
@@ -49,13 +61,13 @@ export function decryptPayload(payload: Uint8Array, key: Uint8Array): Buffer {
 export class Mt5WebTransport extends EventEmitter {
   private key = Buffer.from(bootstrapKey);
   private isReady = false;
-  private socket?: WebSocket;
+  private socket?: TransportSocket;
   private readonly pending = new Map<number, PendingResponse>();
 
   constructor(
     readonly endpoint: string,
     readonly timeoutMs = 15_000,
-    private readonly openSocket = (url: string, options: WebSocket.ClientOptions) => new WebSocket(url, options),
+    private readonly openSocket: SocketOpener = openNodeSocket,
   ) {
     super();
     const url = new URL(endpoint);
@@ -77,7 +89,7 @@ export class Mt5WebTransport extends EventEmitter {
       handshakeTimeout: this.timeoutMs,
     });
     this.socket = socket;
-    socket.on('message', (raw, isBinary) => {
+    socket.on('message', (raw: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
       if (socket !== this.socket) return;
       try {
         if (!isBinary) throw new Error('MT5 web server sent an unexpected text frame');
@@ -97,8 +109,8 @@ export class Mt5WebTransport extends EventEmitter {
         this.close(error instanceof Error ? error : new Error('Invalid server frame'));
       }
     });
-    socket.on('error', (error) => { if (socket === this.socket) this.close(error); });
-    socket.on('close', (code) => { if (socket === this.socket) this.close(new Error(`MT5 web connection closed (${code})`)); });
+    socket.on('error', (error: Error) => { if (socket === this.socket) this.close(error); });
+    socket.on('close', (code: number) => { if (socket === this.socket) this.close(new Error(`MT5 web connection closed (${code})`)); });
     try {
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('MT5 WebSocket opening timed out')), this.timeoutMs);
@@ -108,6 +120,11 @@ export class Mt5WebTransport extends EventEmitter {
         socket.once('open', opened);
         socket.once('error', failed);
         socket.once('close', closed);
+        socket.once('unexpected-response', (request: { destroy(): void }, response: { statusCode?: number; headers: Record<string, string | string[] | undefined> }) => {
+          const status = response.statusCode ?? 0;
+          request.destroy();
+          failed(isBotCheck(status, response.headers) ? new BotCheckError(new URL(this.endpoint).hostname) : new Error(`The trade server refused the connection (HTTP ${status})`));
+        });
       });
       const hello = await this.request(WebCommand.handshake, Buffer.alloc(64));
       if (hello.length !== 98) throw new Error(`Unexpected MT5 handshake body length: ${hello.length}`);
