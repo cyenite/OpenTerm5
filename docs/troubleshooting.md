@@ -27,7 +27,7 @@ Do not disable the sandbox with `--no-sandbox` for everyday use.
 
 ### macOS says the app is damaged or from an unidentified developer
 
-Release builds are not yet signed. Right-click OpenTerm in Applications, choose **Open**, and confirm.
+Release builds are not yet signed. Right-click OpenTerm5 in Applications, choose **Open**, and confirm.
 
 ### Windows SmartScreen blocks the installer
 
@@ -44,7 +44,7 @@ broker's MT5 web trading address under **Advanced**. See
 
 ### "Could not find the address of …"
 
-OpenTerm could not find a web trading address for the server. Ask your broker for its MT5 web terminal
+OpenTerm5 could not find a web trading address for the server. Ask your broker for its MT5 web terminal
 address (often labelled "WebTrader") and enter it under **Advanced**. Please also send us a
 [broker compatibility report](https://github.com/cyenite/OpenTerm5/issues/new?template=broker_report.yml)
 so other users get it automatically.
@@ -55,20 +55,20 @@ so other users get it automatically.
 - Accounts with two-factor authentication need a fresh one-time code.
 - After many attempts in a short time, brokers can refuse logins for a few minutes. Wait, then try once.
 
-### Logging in elsewhere disconnects OpenTerm
+### Logging in elsewhere disconnects OpenTerm5
 
 A broker allows one web session per login. Logging in to the same account from another web terminal,
-or from a second copy of OpenTerm, can end the existing session. Use one session per account.
+or from a second copy of OpenTerm5, can end the existing session. Use one session per account.
 
 ### "Save password securely" is greyed out
 
 No secure keychain is available. On Linux, install and unlock GNOME Keyring or KWallet, then restart
-OpenTerm. OpenTerm never falls back to storing passwords in plain text.
+OpenTerm5. OpenTerm5 never falls back to storing passwords in plain text.
 
-### Saved passwords stopped working after upgrading from Terminal5
+### Saved passwords stopped working after upgrading
 
 Saved passwords are encrypted with a key tied to the application's name in your keychain. After the
-rename to OpenTerm, enter each password once more and tick **Save password securely**.
+rename from Terminal5 or OpenTerm to OpenTerm5, enter each password once more and tick **Save password securely**.
 
 ## Trading
 
@@ -87,19 +87,19 @@ The Journal shows the broker's return code and message. Common causes:
 
 ### "Outcome unknown" after a disconnection
 
-The connection dropped before the broker confirmed the order. OpenTerm never sends the order again on
+The connection dropped before the broker confirmed the order. OpenTerm5 never sends the order again on
 its own. Check **Toolbox → Trade** and **History** after reconnecting to see whether it was filled.
 
 ### Margin and free margin show no value
 
-Margin is not yet calculated by OpenTerm, so these values are shown as unavailable rather than as a
+Margin is not yet calculated by OpenTerm5, so these values are shown as unavailable rather than as a
 wrong figure. Balance, equity and profit are live. See the [roadmap](roadmap.md).
 
 ### Automation, copying or signals did nothing
 
-These engines run inside OpenTerm. Check that:
+These engines run inside OpenTerm5. Check that:
 
-- OpenTerm is running and connected to every account involved, with saved passwords;
+- OpenTerm5 is running and connected to every account involved, with saved passwords;
 - the copier, follower or signal source is **Enabled** and not in dry-run mode;
 - no equity guard has tripped (Automation workspace);
 - the signal server is enabled and not paused (Signals workspace).

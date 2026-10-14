@@ -1,6 +1,6 @@
 # Keyboard shortcuts
 
-OpenTerm follows MetaTrader 5's shortcuts where they exist. On macOS, use **Cmd** where this page says
+OpenTerm5 follows MetaTrader 5's shortcuts where they exist. On macOS, use **Cmd** where this page says
 **Ctrl**. Shortcuts are ignored while you type in a text field.
 
 ## General

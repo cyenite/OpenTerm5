@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    Layers, each aligned to the one below:
+    1. Tile: 824 x 824, centred on the 1024 canvas (macOS icon grid).
+    2. O: centred on the tile (512, 512); outer radius 244.
+    3. T: its bounding box (bar top to stem foot) centred on the O.
+    4. 5: centred on the O's 45° diagonal just outside the ring, with a tile-coloured cut-out.
+  -->
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+    <clipPath id="tile-shape">
+      <rect x="100" y="100" width="824" height="824" rx="185"/>
+    </clipPath>
+    <path id="five" d="M 672 268 H 410 L 382 505 A 168 168 0 1 1 352 688"/>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#151a26" filter="url(#shadow)"/>
+  <g clip-path="url(#tile-shape)">
+    <circle cx="512" cy="512" r="200" fill="none" stroke="#ff8a00" stroke-width="88"/>
+    <g fill="none" stroke="#f5f5f7" stroke-width="64" stroke-linecap="round">
+      <path d="M 422 420 H 602"/>
+      <path d="M 512 420 V 604"/>
+    </g>
+    <g transform="translate(558 125) scale(0.33)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <use href="#five" stroke="#151a26" stroke-width="280"/>
+      <use href="#five" stroke="#f5f5f7" stroke-width="104"/>
+    </g>
+  </g>
+</svg>

@@ -1,5 +1,5 @@
 name: Bug report
-description: Something in OpenTerm does not work as expected.
+description: Something in OpenTerm5 does not work as expected.
 labels: [bug, triage]
 body:
   - type: markdown
@@ -34,8 +34,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: OpenTerm version
-      description: Help → About OpenTerm, or the commit hash if you build from source.
+      label: OpenTerm5 version
+      description: Help → About OpenTerm5, or the commit hash if you build from source.
     validations:
       required: true
   - type: dropdown

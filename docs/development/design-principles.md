@@ -1,6 +1,6 @@
 # Design principles
 
-These principles guide OpenTerm's product and interface decisions. Use them to resolve questions that
+These principles guide OpenTerm5's product and interface decisions. Use them to resolve questions that
 the code and the issue tracker do not answer.
 
 ## Who it is for
@@ -14,7 +14,7 @@ that MT5 lacks: risk-based sizing, trade management, copying between accounts an
 - Keep MT5's layout and vocabulary: the menu bar, Market Watch, Navigator, charts and Toolbox, the
   order and modify dialogs, context menus and keyboard shortcuts. A trader who knows MT5 should feel
   at home immediately.
-- Modernise the surfaces, not the workflow. OpenTerm borrows the clarity of the macOS design language
+- Modernise the surfaces, not the workflow. OpenTerm5 borrows the clarity of the macOS design language
   (system fonts, softer separators, rounded controls, light and dark themes) while keeping MT5's
   density and keeping buy and sell in their conventional colours.
 
@@ -37,8 +37,8 @@ that MT5 lacks: risk-based sizing, trade management, copying between accounts an
 
 ## Clear about what runs where
 
-- Automation runs inside OpenTerm. Make it visible what is running, for which account, and what it
-  needs (OpenTerm open and connected).
+- Automation runs inside OpenTerm5. Make it visible what is running, for which account, and what it
+  needs (OpenTerm5 open and connected).
 - Keep the active account, its connection and whether it is a demo or real account visible at all
   times.
 

@@ -46,7 +46,7 @@ test('a bearer-authenticated signal is sized by risk and executed', async () => 
   const record = await response.json() as SignalRecord;
   assert.equal(record.status, 'executed');
   assert.equal(link.sent[0].volume, 0.2);
-  assert.equal(link.sent[0].comment, '', 'entries carry no OpenTerm tag');
+  assert.equal(link.sent[0].comment, '', 'entries carry no OpenTerm5 tag');
   assert.equal(await ownership.owns('src-token-1', link.positions[0].ticket), true);
   assert.equal('secret' in record.payload, false);
 });

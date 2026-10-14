@@ -75,7 +75,7 @@ Charts can be shown as tabs or as floating windows, as in MetaTrader 5.
 | Minimise | The **−** button. Minimised windows line up along the bottom; click one to restore it |
 | Arrange | **Window → Cascade, Tile Windows (Alt+R), Tile Horizontally, Tile Vertically, Arrange Icons** |
 
-Window positions are saved with your profile and restored when OpenTerm starts.
+Window positions are saved with your profile and restored when OpenTerm5 starts.
 
 ## Placing orders
 
@@ -103,7 +103,7 @@ See [Risk and automation](risk-and-automation.md#risk-based-orders).
 ### Order results
 
 Every request is reported in the dialog and in the Journal with the broker's return code. If the
-connection drops before the broker confirms an order, OpenTerm reports the outcome as unknown. It
+connection drops before the broker confirms an order, OpenTerm5 reports the outcome as unknown. It
 never re-sends the order automatically, so check **Toolbox → Trade** before trying again.
 
 ## Managing open positions
@@ -148,7 +148,7 @@ Open positions and orders are drawn on the chart:
   wrong side of the price is explained and cannot be applied.
 - **Add a missing stop or target:** a position without a stop loss or take profit shows **SL** or
   **TP** tabs on its entry line. Drag a tab up or down to place the level, then choose **Apply**.
-- **Close from the chart:** click the **×** on the entry line. OpenTerm asks for confirmation unless
+- **Close from the chart:** click the **×** on the entry line. OpenTerm5 asks for confirmation unless
   one-click trading is on.
 
 ### One-click trading
@@ -165,7 +165,7 @@ price; it never sends an order directly.
 ## Price alerts
 
 **Tools → Price Alerts…** sets alerts on the bid or ask price. An alert fires once, in the Journal and
-as a notice in the window, while OpenTerm is running and connected to that account.
+as a notice in the window, while OpenTerm5 is running and connected to that account.
 
 ## History
 

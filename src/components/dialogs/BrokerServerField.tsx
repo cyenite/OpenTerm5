@@ -145,7 +145,7 @@ export function BrokerServerField({ initialServer, initialEndpoint, isDisabled, 
       {detection.state === 'found' && !isTrusted(detection.resolved) && (
         <div className="server-approval">
           <div><b>{hostOf(detection.resolved.webEndpoint)}</b> says it is <b>{detection.resolved.broker}</b>, {detection.resolved.server}.</div>
-          <div className="is-muted">{serverSources.find((source) => source.key === detection.resolved.source)?.label}. OpenTerm cannot confirm this host belongs to your broker; your password will be sent to it.</div>
+          <div className="is-muted">{serverSources.find((source) => source.key === detection.resolved.source)?.label}. OpenTerm5 cannot confirm this host belongs to your broker; your password will be sent to it.</div>
           <label className="check"><input type="checkbox" checked={isApproved} disabled={isDisabled} onChange={(event) => setIsApproved(event.target.checked)} />This address belongs to my broker</label>
         </div>
       )}

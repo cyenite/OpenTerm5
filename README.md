@@ -1,18 +1,20 @@
-# OpenTerm
+<p align="center"><img src="build/icons/256x256.png" width="128" height="128" alt="OpenTerm5 icon"></p>
+
+# OpenTerm5
 
 **An open-source desktop trading terminal for MetaTrader 5 accounts, on Linux, macOS and Windows.**
 
 [![CI](https://github.com/cyenite/OpenTerm5/actions/workflows/ci.yml/badge.svg)](https://github.com/cyenite/OpenTerm5/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-OpenTerm gives you the familiar MetaTrader 5 desktop workflow without Wine, a virtual machine or a
+OpenTerm5 gives you the familiar MetaTrader 5 desktop workflow without Wine, a virtual machine or a
 Windows-only terminal. It connects directly to your broker's MT5 trading servers. On top of that
 workflow it adds tools that traders usually buy as Expert Advisors or third-party services: risk-based
 order sizing, trade management, copy trading between accounts, and an HTTP signal API for
 TradingView alerts and bots.
 
 > **Risk warning.** Trading foreign exchange, CFDs and other leveraged products carries a high level of
-> risk and may not be suitable for all investors. OpenTerm is provided "as is", without warranty of any
+> risk and may not be suitable for all investors. OpenTerm5 is provided "as is", without warranty of any
 > kind. Test every feature on a demo account before using it with real money. You are responsible for
 > every order placed from your accounts.
 
@@ -32,7 +34,7 @@ TradingView alerts and bots.
 
 - Drag stop loss, take profit and pending order lines. Every line shows its value in money.
 - Drag ghost **TP** and **SL** handles off a position's entry line to add the levels it is missing.
-- Draw a trade with the risk planner: drag the entry and stop, and OpenTerm sizes the order to your
+- Draw a trade with the risk planner: drag the entry and stop, and OpenTerm5 sizes the order to your
   chosen risk.
 
 **Risk and automation**
@@ -55,13 +57,13 @@ TradingView alerts and bots.
 
 **Broker login by server name**
 
-- Search for your broker's trade server (for example `FTMO-Server`). OpenTerm finds its address, and an
+- Search for your broker's trade server (for example `FTMO-Server`). OpenTerm5 finds its address, and an
   unverified address must be approved before your password is sent.
 
 ## Getting started
 
 Pre-built installers will be published on the [releases page](https://github.com/cyenite/OpenTerm5/releases).
-To run OpenTerm from source, install [Node.js 22.12 or later](https://nodejs.org/), then:
+To run OpenTerm5 from source, install [Node.js 22.12 or later](https://nodejs.org/), then:
 
 ```bash
 git clone https://github.com/cyenite/OpenTerm5.git
@@ -86,23 +88,23 @@ detail.
 | [Signal API](docs/user-guide/signal-api.md) | Webhook reference for TradingView and bots |
 | [Keyboard shortcuts](docs/user-guide/keyboard-shortcuts.md) | Shortcut reference |
 | [Troubleshooting](docs/troubleshooting.md) | Common problems and their fixes |
-| [Architecture](docs/development/architecture.md) | How OpenTerm is built |
+| [Architecture](docs/development/architecture.md) | How OpenTerm5 is built |
 | [Roadmap](docs/roadmap.md) | Known gaps and planned work |
 
 ## How it works
 
-OpenTerm is an [Electron](https://www.electronjs.org/) application written in TypeScript. The
+OpenTerm5 is an [Electron](https://www.electronjs.org/) application written in TypeScript. The
 interface is built with React and
 [TradingView Lightweight Charts™](https://www.tradingview.com/lightweight-charts/).
 
 The main process contains an independent client for the protocol that MT5 web trading uses. It keeps
 one broker session per account. The trade management, copy trading and signal engines run alongside
-it, so they keep working while you use the interface. They need OpenTerm to be running and connected.
+it, so they keep working while you use the interface. They need OpenTerm5 to be running and connected.
 See [Architecture](docs/development/architecture.md).
 
 ## Project status
 
-OpenTerm is young software. Its behaviour has been verified against the MetaQuotes demo server, and
+OpenTerm5 is young software. Its behaviour has been verified against the MetaQuotes demo server, and
 brokers including FTMO and Pepperstone have been confirmed reachable. Margin figures, some MT5 features
 and broader broker coverage are still in progress. The [roadmap](docs/roadmap.md) lists what is
 missing. Reports from other brokers are very welcome.
@@ -116,8 +118,8 @@ code. Read the [contributing guide](CONTRIBUTING.md) to get started, and follow 
 
 ## Licence
 
-OpenTerm is released under the [MIT License](LICENSE). Third-party components and their licences are
+OpenTerm5 is released under the [MIT License](LICENSE). Third-party components and their licences are
 listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-MetaTrader and MetaQuotes are trademarks of MetaQuotes Ltd. OpenTerm is an independent project and is
+MetaTrader and MetaQuotes are trademarks of MetaQuotes Ltd. OpenTerm5 is an independent project and is
 not affiliated with, endorsed by or sponsored by MetaQuotes Ltd. or any broker.
