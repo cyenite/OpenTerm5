@@ -143,3 +143,17 @@ test('dry run sources plan but never send', async () => {
   assert.match(record.message, /0.2 EURUSD/);
   assert.equal(link.sent.length, 0);
 });
+
+test('allowed symbols are checked against the broker symbol and never widen across instruments', async () => {
+  const { server, post, link } = await setup();
+  link.specs = { 'BRK.A': { ...link.specs.EURUSD, name: 'BRK.A' }, 'BRK.B': { ...link.specs.EURUSD, name: 'BRK.B' }, 'EURUSD.m': { ...link.specs.EURUSD, name: 'EURUSD.m' } };
+  await server.apply({ host: '127.0.0.1', port: 0, sources: [source({ allowedSymbols: ['BRK.A', 'EURUSD'] })], isEnabled: true, isPaused: false });
+  const headers = { authorization: 'Bearer correct horse battery staple' };
+  const widened = await (await post('/v1/signals?wait=1', { action: 'buy', symbol: 'BRK.B', sl_pips: 10 }, headers)).json() as SignalRecord;
+  assert.equal(widened.status, 'rejected');
+  assert.match(widened.message, /BRK\.B is not in this source's allowed symbols/);
+  assert.equal(link.sent.length, 0);
+  const decorated = await (await post('/v1/signals?wait=1', { action: 'buy', symbol: 'EURUSD', sl_pips: 10 }, headers)).json() as SignalRecord;
+  assert.equal(decorated.status, 'executed', decorated.message);
+  assert.equal(link.sent[0]?.symbol, 'EURUSD.m');
+});

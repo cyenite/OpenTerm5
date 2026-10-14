@@ -2,7 +2,7 @@ import type { FollowerConfig, TradingWindow } from '../shared/automation';
 import type { Position, SymbolSpec } from '../shared/protocol';
 import { floorToStep, stepDecimals } from '../shared/risk';
 import { pipFactor } from '../shared/valuation';
-import { isSameInstrument, matchSymbol } from '../shared/symbol-match';
+import { isListedSymbol, matchSymbol } from '../shared/symbol-match';
 
 export interface SizingContext {
   masterLots: number;
@@ -87,7 +87,7 @@ export function passesFilters(follower: FollowerConfig, trade: Pick<Position, 's
     if (commentFilter.mode === 'copy' ? !isListed : isListed) return 'comment is filtered';
   }
   if (symbolFilter.mode !== 'off' && symbolFilter.values.length) {
-    const isListed = symbolFilter.values.some((value) => isSameInstrument(value, trade.symbol));
+    const isListed = symbolFilter.values.some((value) => isListedSymbol(value, trade.symbol));
     if (symbolFilter.mode === 'copy' ? !isListed : isListed) return `${trade.symbol} is filtered`;
   }
   return null;

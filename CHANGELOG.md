@@ -17,6 +17,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   on incoming ticks, and confirmed orders return without waiting for an account refresh.
 - Broker relay pages remain available for 30 idle seconds, avoiding renderer recreation during
   login and reconnects. Hidden relays no longer prevent normal main-window close or macOS activation.
+- Signal allowlists and copier symbol filters keep decorated symbols distinct, so an entry such as
+  `BRK.A` cannot admit `BRK.B`. Signal allowlists check the broker symbol actually selected for trading.
+- Copier reconciliation after an unknown outcome requires the exact mapped follower symbol before
+  adopting a position. Getting-started instructions now use the published installer filenames.
 
 ## [0.1.0] - 2026-10-14
 

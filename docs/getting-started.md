@@ -23,9 +23,9 @@ Download the installer for your platform from the
 
 | Platform | File | How to install |
 |---|---|---|
-| Windows | `OpenTerm5 Setup <version>.exe` | Run the installer |
-| macOS | `OpenTerm-<version>.dmg` | Open the disk image and drag OpenTerm5 to Applications |
-| Linux | `OpenTerm-<version>.AppImage` | `chmod +x` the file and run it |
+| Windows | `OpenTerm5.Setup.<version>.exe` | Run the installer |
+| macOS (Apple Silicon) | `OpenTerm5-<version>-arm64.dmg` | Open the disk image and drag OpenTerm5 to Applications. On an Intel Mac, build from source for now |
+| Linux | `OpenTerm5-<version>.AppImage` | `chmod +x` the file and run it |
 | Debian, Ubuntu | `openterm5_<version>_amd64.deb` | `sudo apt install ./openterm5_<version>_amd64.deb` |
 
 Release builds are not yet code-signed. Windows SmartScreen and macOS Gatekeeper may warn on first
