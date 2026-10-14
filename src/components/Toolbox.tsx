@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { orderType, type Account, type History, type Order, type Position } from '../../shared/protocol';
 import { showToolbox, togglePanel } from '../lib/commands';
 import { downloadHistory } from '../lib/history-export';
@@ -6,7 +6,7 @@ import { formatMoney, formatPrice, formatTime, formatVolume } from '../lib/forma
 import { closePosition, log, sendOrder, session, terminal } from '../lib/session';
 import { useStore } from '../lib/store';
 import { openDialog, workspace, type ToolboxTab } from '../lib/workspace';
-import { ContextMenu, type ContextMenuState } from './ContextMenu';
+import { openContextMenu } from '../lib/context-menu';
 import type { BulkKind } from '../../shared/automation';
 import { automation } from '../lib/automation';
 
@@ -134,46 +134,44 @@ function TradeTab() {
   const positions = useStore(session, (state) => state.positions);
   const orders = useStore(session, (state) => state.orders);
   const account = useStore(session, (state) => state.account);
-  const [menu, setMenu] = useState<ContextMenuState | null>(null);
-  const closeMenu = useCallback(() => setMenu(null), []);
   const total = positions.reduce((sum, position) => sum + position.profit + position.swap, 0);
 
   const positionMenu = (event: React.MouseEvent, position: Position) => {
-    event.preventDefault();
-    setMenu({
-      x: event.clientX,
-      y: event.clientY,
-      items: [
-        { label: 'New Order', shortcut: 'F9', action: () => openDialog({ kind: 'order', symbol: position.symbol }) },
-        { label: 'Close Position', action: () => void closePosition(position) },
-        { label: 'Close By...', isDisabled: !account?.isHedging || account?.isFifo !== false || !positions.some((other) => other.symbol === position.symbol && other.side !== position.side), action: () => openDialog({ kind: 'closeBy', ticket: position.ticket }) },
-        { label: 'Modify or Delete', action: () => openDialog({ kind: 'modifyPosition', ticket: position.ticket }) },
-        { label: 'Manage (trailing, break-even, partials)...', action: () => openDialog({ kind: 'manage', ticket: position.ticket }) },
-        { label: 'Reverse Position', action: () => { if (window.confirm(`Close #${position.ticket} and open ${position.volume} ${position.symbol} the other way?`)) void runBulk('reverse', position.ticket); } },
-        { label: '', isSeparator: true },
-        { label: 'Close All Positions', isDisabled: positions.length === 0, action: () => { if (window.confirm('Close every open position?')) void runBulk('closeAll'); } },
-        { label: 'Close Profitable', isDisabled: positions.length === 0, action: () => void runBulk('closeProfitable') },
-        { label: 'Close Losing', isDisabled: positions.length === 0, action: () => { if (window.confirm('Close every losing position?')) void runBulk('closeLosing'); } },
-        { label: `Close All ${position.symbol}`, action: () => void runBulk('closeSymbol', undefined, position.symbol) },
-        { label: 'Move All Stops to Break-even', isDisabled: positions.length === 0, action: () => void runBulk('breakEvenAll') },
-      ],
-    });
+    openContextMenu(event, [
+      { label: 'New Order', shortcut: 'F9', action: () => openDialog({ kind: 'order', symbol: position.symbol }) },
+      { label: 'Close Position', action: () => void closePosition(position) },
+      { label: 'Close By...', isDisabled: !account?.isHedging || account?.isFifo !== false || !positions.some((other) => other.symbol === position.symbol && other.side !== position.side), action: () => openDialog({ kind: 'closeBy', ticket: position.ticket }) },
+      { label: 'Modify or Delete', action: () => openDialog({ kind: 'modifyPosition', ticket: position.ticket }) },
+      { label: 'Manage (trailing, break-even, partials)...', action: () => openDialog({ kind: 'manage', ticket: position.ticket }) },
+      { label: 'Reverse Position', action: () => { if (window.confirm(`Close #${position.ticket} and open ${position.volume} ${position.symbol} the other way?`)) void runBulk('reverse', position.ticket); } },
+      { label: '', isSeparator: true },
+      { label: 'Close All Positions', isDisabled: positions.length === 0, action: () => { if (window.confirm('Close every open position?')) void runBulk('closeAll'); } },
+      { label: 'Close Profitable', isDisabled: positions.length === 0, action: () => void runBulk('closeProfitable') },
+      { label: 'Close Losing', isDisabled: positions.length === 0, action: () => { if (window.confirm('Close every losing position?')) void runBulk('closeLosing'); } },
+      { label: `Close All ${position.symbol}`, action: () => void runBulk('closeSymbol', undefined, position.symbol) },
+      { label: 'Move All Stops to Break-even', isDisabled: positions.length === 0, action: () => void runBulk('breakEvenAll') },
+    ]);
   };
 
   const orderMenu = (event: React.MouseEvent, order: Order) => {
-    event.preventDefault();
-    setMenu({
-      x: event.clientX,
-      y: event.clientY,
-      items: [
-        { label: 'Modify Order', action: () => openDialog({ kind: 'modifyOrder', ticket: order.ticket }) },
-        { label: 'Delete Order', action: () => void sendOrder({ action: 'remove', order: order.ticket }) },
-      ],
-    });
+    openContextMenu(event, [
+      { label: 'Modify Order', action: () => openDialog({ kind: 'modifyOrder', ticket: order.ticket }) },
+      { label: 'Delete Order', action: () => void sendOrder({ action: 'remove', order: order.ticket }) },
+    ]);
   };
 
+  const areaMenu = (event: React.MouseEvent) => openContextMenu(event, [
+    { label: 'New Order', shortcut: 'F9', action: () => openDialog({ kind: 'order', symbol: positions[0]?.symbol ?? 'EURUSD' }) },
+    { label: '', isSeparator: true },
+    { label: 'Close All Positions', isDisabled: positions.length === 0, action: () => { if (window.confirm('Close every open position?')) void runBulk('closeAll'); } },
+    { label: 'Close Profitable', isDisabled: positions.length === 0, action: () => void runBulk('closeProfitable') },
+    { label: 'Close Losing', isDisabled: positions.length === 0, action: () => { if (window.confirm('Close every losing position?')) void runBulk('closeLosing'); } },
+    { label: 'Delete All Pending Orders', isDisabled: orders.length === 0, action: () => { if (window.confirm('Delete every pending order?')) void runBulk('deletePending'); } },
+    { label: 'Move All Stops to Break-even', isDisabled: positions.length === 0, action: () => void runBulk('breakEvenAll') },
+  ]);
+
   return (
-    <div className="scroll">
+    <div className="scroll" onContextMenu={areaMenu}>
       <table className="grid trades">
         <thead>
           <tr>
@@ -208,7 +206,6 @@ function TradeTab() {
           ))}
         </tbody>
       </table>
-      {menu && <ContextMenu menu={menu} onClose={closeMenu} />}
     </div>
   );
 }
@@ -279,8 +276,14 @@ function HistoryTab() {
   const profit = deals.filter((deal) => deal.type === 'buy' || deal.type === 'sell').reduce((sum, deal) => sum + deal.profit + deal.swap + deal.commission + deal.fee, 0);
   const deposit = deals.filter((deal) => deal.type === 'balance').reduce((sum, deal) => sum + deal.profit, 0);
 
+  const menu = (event: React.MouseEvent) => openContextMenu(event, [
+    ...historyPeriods.map((candidate) => ({ label: candidate.label, isChecked: period === candidate.key, action: () => setPeriod(candidate.key) })),
+    { label: '', isSeparator: true },
+    { label: 'Export CSV', isDisabled: !history, action: () => history && downloadHistory(history) },
+  ]);
+
   return (
-    <div className="scroll">
+    <div className="scroll" onContextMenu={menu}>
       <div className="history-filter">
         <label>
           Period{' '}
@@ -341,8 +344,12 @@ function HistoryTab() {
 
 function JournalTab() {
   const journal = useStore(session, (state) => state.journal);
+  const menu = (event: React.MouseEvent) => openContextMenu(event, [
+    { label: 'Copy All', isDisabled: !journal.length, action: () => void navigator.clipboard.writeText([...journal].reverse().map((entry) => `${formatTime(entry.time)}\t${entry.source}\t${entry.message}`).join('\n')) },
+    { label: 'Clear', isDisabled: !journal.length, action: () => session.set({ journal: [] }) },
+  ]);
   return (
-    <div className="scroll">
+    <div className="scroll" onContextMenu={menu}>
       <table className="grid journal">
         <thead>
           <tr>

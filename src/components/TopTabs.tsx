@@ -1,7 +1,9 @@
 import { automationStore } from '../lib/automation';
+import { connectProfile } from '../lib/accounts';
+import { openContextMenu } from '../lib/context-menu';
 import { session } from '../lib/session';
 import { useStore } from '../lib/store';
-import { pages, workspace, type Page } from '../lib/workspace';
+import { openDialog, pages, workspace, type Page } from '../lib/workspace';
 
 function useBadges(): Partial<Record<Page, number>> {
   const copier = useStore(automationStore, (state) => {
@@ -21,6 +23,15 @@ function useBadges(): Partial<Record<Page, number>> {
 export function TopTabs() {
   const page = useStore(workspace, (state) => state.page);
   const account = useStore(session, (state) => state.account);
+  const profiles = useStore(session, (state) => state.accounts);
+  const profileId = useStore(session, (state) => state.profileId);
+  const profile = profiles.find((item) => item.id === profileId);
+  const switcher = (event: React.MouseEvent) => openContextMenu(event, [
+    ...profiles.map((item) => ({ label: `${item.label || item.login} · ${item.server}`, isChecked: item.id === profileId, action: () => { if (item.id !== profileId) void connectProfile(item); } })),
+    { label: '', isSeparator: true },
+    { label: 'Login to Trade Account...', action: () => openDialog({ kind: 'login' }) },
+    { label: 'Manage Accounts...', action: () => openDialog({ kind: 'accounts' }) },
+  ]);
   const signalsRunning = useStore(automationStore, (state) => !!state.webhooks?.status.isRunning && !state.webhooks.settings.isPaused);
   const activeCopiers = useStore(automationStore, (state) => state.copier.configs.filter((config) => config.status === 'enabled').length);
   const badges = useBadges();
@@ -37,7 +48,15 @@ export function TopTabs() {
       <div className="top-status">
         {activeCopiers > 0 && <span className="status-dot is-good" title="Copiers running">{activeCopiers} copier{activeCopiers === 1 ? '' : 's'}</span>}
         {signalsRunning && <span className="status-dot is-good" title="Signal API listening">Signals on</span>}
-        {account && <span className="account-chip">{account.login} · {account.server} · <b className={account.tradeMode === 'real' ? 'is-loss' : ''}>{account.tradeMode}</b></span>}
+        {account
+          ? (
+            <button type="button" className="account-chip" title={`${account.login} · ${account.server} · ${account.company}`} onClick={switcher} onContextMenu={switcher}>
+              <span className="account-chip-name">{profile?.label || account.login}</span>
+              <b className={`account-chip-mode is-${account.tradeMode}`}>{account.tradeMode}</b>
+              <span aria-hidden="true">▾</span>
+            </button>
+          )
+          : <button type="button" className="account-chip" onClick={() => openDialog({ kind: 'login' })}>Log in</button>}
       </div>
     </nav>
   );

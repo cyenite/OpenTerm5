@@ -37,7 +37,7 @@ export async function applyWatchlist(
   select: (name: string, isVisible: boolean) => Promise<void>,
   currentScope: () => string,
 ): Promise<void> {
-  if (preset.scope !== scope || currentScope() !== scope) throw new Error('This set belongs to a different account or web endpoint.');
+  if (preset.scope !== scope || currentScope() !== scope) throw new Error('This set belongs to a different account or server.');
   const available = new Set(symbols.map((symbol) => symbol.name));
   const missing = preset.symbols.filter((name) => !available.has(name));
   if (missing.length) throw new Error(`Symbols unavailable on this account: ${missing.join(', ')}`);

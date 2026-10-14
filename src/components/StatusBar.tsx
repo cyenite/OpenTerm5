@@ -24,7 +24,6 @@ export function StatusBar() {
 
   return (
     <footer className="status-bar">
-      <span className="status-cell" title="Independent connection to the MT5 web service.">MT5 WEB</span>
       {isTerminalConnected && <span className="status-cell" title={status?.isTradeAllowed && status.capabilities?.trading ? 'This account can submit orders.' : 'Orders are unavailable for this connection or account.'}>{status?.isTradeAllowed && status.capabilities?.trading ? 'Trading enabled' : 'Read only'}</span>}
       <span className="status-cell">{account ? `${account.login} ${account.server}` : 'Default'}</span>
       {bar && (

@@ -203,7 +203,6 @@ function CopierEditor({ draft, isSaved, onChange, onSaved, onDeleted }: CopierEd
   const accounts = useStore(session, (state) => state.accounts);
   const view = useStore(automationStore, (state) => state.copier);
   const [selected, setSelected] = useState<string | null>(draft.followers[0]?.id ?? null);
-  const [addAccount, setAddAccount] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const stored = view.configs.find((config) => config.id === draft.id);
@@ -250,11 +249,10 @@ function CopierEditor({ draft, isSaved, onChange, onSaved, onDeleted }: CopierEd
         detail="Accounts that receive copies. Each has its own risk, filters and protection."
         actions={(
           <div className="inline-form">
-            <select aria-label="Account to add" value={addAccount} onChange={(event) => setAddAccount(event.target.value)}>
-              <option value="">Add follower…</option>
-              {candidates.map((profile) => <option key={profile.id} value={profile.id}>{profile.label}</option>)}
+            <select aria-label="Add follower account" value="" disabled={!candidates.length} onChange={(event) => { if (!event.target.value) return; const item = newFollower(event.target.value); onChange({ ...draft, followers: [...draft.followers, item] }); setSelected(item.id); }}>
+              <option value="">{candidates.length ? '+ Add follower…' : 'No other saved accounts'}</option>
+              {candidates.map((profile) => <option key={profile.id} value={profile.id}>{profile.label} · {profile.server}</option>)}
             </select>
-            <button type="button" disabled={!addAccount} onClick={() => { const item = newFollower(addAccount); onChange({ ...draft, followers: [...draft.followers, item] }); setSelected(item.id); setAddAccount(''); }}>Add</button>
           </div>
         )}
       >

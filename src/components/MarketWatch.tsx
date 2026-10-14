@@ -1,4 +1,4 @@
-import { Component, useCallback, useState } from 'react';
+import { Component, useState } from 'react';
 import type { SymbolSpec } from '../../shared/protocol';
 import { newOrder, toggleDepth, togglePanel } from '../lib/commands';
 import { formatClock, formatPrice } from '../lib/format';
@@ -6,7 +6,7 @@ import { session, setSymbolVisible, log, watchlist } from '../lib/session';
 import { useStore } from '../lib/store';
 import { openChart, openDialog } from '../lib/workspace';
 import { applyWatchlist, restoreWatchlists, saveWatchlist, watchlistScope, watchlistStorageKey, type WatchlistPreset } from '../lib/watchlist-presets';
-import { ContextMenu, type ContextMenuState } from './ContextMenu';
+import { openContextMenu } from '../lib/context-menu';
 import { Panel } from './Panel';
 
 const tabs = ['Symbols', 'Details'] as const;
@@ -87,8 +87,6 @@ export function MarketWatch() {
   const [tab, setTab] = useState<(typeof tabs)[number]>('Symbols');
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [menu, setMenu] = useState<ContextMenuState | null>(null);
-  const closeMenu = useCallback(() => setMenu(null), []);
   const time = useStore(session, (state) => Math.max(0, ...Object.values(state.ticks).map((tick) => tick.time)));
 
   const hide = (name: string) => setSymbolVisible(name, false).catch((error: Error) => log(`cannot hide ${name}: ${error.message}`));
@@ -107,28 +105,27 @@ export function MarketWatch() {
   };
 
   const openMenu = (event: React.MouseEvent, name: string) => {
-    event.preventDefault();
     setSelected(name);
-    setMenu({
-      x: event.clientX,
-      y: event.clientY,
-      items: [
-        { label: 'New Order', shortcut: 'F9', action: () => newOrder(name) },
-        { label: 'Chart Window', action: () => openChart(name) },
-        { label: 'Depth of Market', shortcut: 'Alt+B', action: () => toggleDepth(name) },
-        { label: 'Specification...', action: () => openDialog({ kind: 'specification', symbol: name }) },
-        { label: '', isSeparator: true },
-        { label: 'Hide', action: () => hide(name) },
-        { label: 'Symbols...', shortcut: 'Ctrl+U', action: () => openDialog({ kind: 'symbols' }) },
-      ],
-    });
+    openContextMenu(event, [
+      { label: 'New Order', shortcut: 'F9', action: () => newOrder(name) },
+      { label: 'Chart Window', action: () => openChart(name) },
+      { label: 'Depth of Market', shortcut: 'Alt+B', action: () => toggleDepth(name) },
+      { label: 'Specification...', action: () => openDialog({ kind: 'specification', symbol: name }) },
+      { label: '', isSeparator: true },
+      { label: 'Hide', action: () => hide(name) },
+      { label: 'Symbols...', shortcut: 'Ctrl+U', action: () => openDialog({ kind: 'symbols' }) },
+    ]);
   };
 
   return (
     <Panel title={`Market Watch: ${time ? formatClock(time) : '--:--:--'}`} onClose={() => togglePanel('isMarketWatchShown')}>
       <MarketWatchSets />
       {tab === 'Symbols' ? (
-        <div className="scroll">
+        <div className="scroll" onContextMenu={(event) => openContextMenu(event, [
+          { label: 'New Order', shortcut: 'F9', action: () => newOrder(selected ?? symbols[0]?.name) },
+          { label: 'Symbols...', shortcut: 'Ctrl+U', action: () => openDialog({ kind: 'symbols' }) },
+          { label: 'Hide All Unused', isDisabled: !symbols.length, action: () => { for (const spec of symbols) if (!session.get().positions.some((position) => position.symbol === spec.name)) void hide(spec.name); } },
+        ])}>
           <table className="grid quotes">
             <thead>
               <tr>
@@ -179,7 +176,6 @@ export function MarketWatch() {
           </button>
         ))}
       </div>
-      {menu && <ContextMenu menu={menu} onClose={closeMenu} />}
     </Panel>
   );
 }
@@ -254,12 +250,14 @@ class MarketWatchSets extends Component<Record<string, never>, WatchSetsState> {
     const available = presets.filter((preset) => preset.scope === scope);
     const hasSet = available.some((preset) => preset.name === name);
     return (
-      <div className="panel-footer">
-        <label>Set <input aria-label="Market Watch set name" value={name} list="terminal5-watch-sets" placeholder="Name" disabled={isBusy} style={{ width: 80 }} onChange={(event) => this.setState({ name: event.target.value })} /></label>
-        <datalist id="terminal5-watch-sets">{available.map((preset) => <option key={preset.name} value={preset.name} />)}</datalist>
-        <button disabled={!scope || isBusy} onClick={this.save}>Save</button>
-        <button disabled={!hasSet || isBusy} onClick={this.apply}>{isBusy ? 'Applying…' : 'Apply'}</button>
-        <button disabled={!hasSet || isBusy} onClick={this.remove}>Delete</button>
+      <div className="watch-sets">
+        <div className="watch-sets-row">
+          <input aria-label="Market Watch set name" value={name} list="terminal5-watch-sets" placeholder="Symbol set" disabled={isBusy} onChange={(event) => this.setState({ name: event.target.value, error: '' })} />
+          <datalist id="terminal5-watch-sets">{available.map((preset) => <option key={preset.name} value={preset.name} />)}</datalist>
+          <button disabled={!scope || !name.trim() || isBusy} title="Save the visible symbols under this name" onClick={this.save}>Save</button>
+          <button disabled={!hasSet || isBusy} title="Show this set's symbols" onClick={this.apply}>{isBusy ? '…' : 'Load'}</button>
+          <button disabled={!hasSet || isBusy} title="Delete this set" aria-label="Delete set" onClick={this.remove}>×</button>
+        </div>
         {error && <p role="alert" className="is-loss">{error}</p>}
       </div>
     );

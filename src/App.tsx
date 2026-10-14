@@ -9,10 +9,10 @@ import { DrawingObjectsDialog } from './components/dialogs/DrawingObjectsDialog'
 import { SymbolSpecificationDialog } from './components/dialogs/SymbolSpecificationDialog';
 import { PriceAlertsDialog } from './components/dialogs/PriceAlertsDialog';
 import { AccountsDialog } from './components/dialogs/AccountsDialog';
-import { ServerLookupDialog } from './components/dialogs/ServerLookupDialog';
 import { WorkspacePresetDialog } from './components/dialogs/WorkspacePresetDialog';
 import { useEffect } from 'react';
 import { ChartWorkspace } from './components/ChartWorkspace';
+import { ContextMenuHost } from './components/ContextMenu';
 import { DataWindow } from './components/DataWindow';
 import { DepthOfMarket } from './components/DepthOfMarket';
 import { AboutDialog, ConnectionDialog, IndicatorDialog, LoginDialog, SymbolsDialog } from './components/dialogs/MiscDialogs';
@@ -53,7 +53,6 @@ function ActiveDialog({ dialog }: ActiveDialogProps) {
     case 'specification': return <SymbolSpecificationDialog symbol={dialog.symbol} />;
     case 'objects': return <DrawingObjectsDialog chartId={dialog.chartId} />;
     case 'accounts': return <AccountsDialog />;
-    case 'servers': return <ServerLookupDialog />;
     case 'profile': return <WorkspacePresetDialog />;
     case 'template': return <WorkspacePresetDialog chartId={dialog.chartId} />;
     case 'alerts': return <PriceAlertsDialog />;
@@ -105,6 +104,7 @@ export function App() {
       </main>
       {state.isStatusBarShown && <StatusBar />}
       {state.dialog && <ActiveDialog dialog={state.dialog} />}
+      <ContextMenuHost />
     </div>
   );
 }

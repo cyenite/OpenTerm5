@@ -126,8 +126,7 @@ async function loadSession(): Promise<void> {
     const alertSymbols = priceAlerts.get().alerts.filter((alert) => alert.isEnabled && alert.triggeredAt === null && alert.profileId === session.get().profileId).map((alert) => alert.symbol).filter((symbol) => !!session.get().symbols[symbol]);
     if (alertSymbols.length) session.set((state) => ({ extraSymbols: [...new Set([...state.extraSymbols, ...alertSymbols])] }));
     await resubscribeTicks();
-    const where = `${status.name} build ${status.build}`;
-    log(`connected to ${where}`, 'Network');
+    log(`connected to ${trade.account?.server ?? status.company ?? 'trade server'} (server build ${status.build})`, 'Network');
     if (trade.account) {
       log(`'${trade.account.login}': ${trade.account.server}, ${trade.account.tradeMode} account, 1:${trade.account.leverage}`, 'Network');
     }
@@ -173,7 +172,7 @@ export function startSession(): void {
       void refreshSession();
     }
     if (link.state !== 'open' && wasOpen) {
-      log(`connection to MT5 web service lost${link.error ? `: ${link.error}` : ''}`, 'Network');
+      log(`connection to trade server lost${link.error ? `: ${link.error}` : ''}`, 'Network');
     }
   });
   terminal.on('tick', (tick) => {
