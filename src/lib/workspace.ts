@@ -113,7 +113,7 @@ export interface WorkspaceState {
   hasAcceptedOneClick: boolean;
 }
 
-const STORAGE_KEY = 'terminal5.workspace.v1';
+const STORAGE_KEY = 'openterm.workspace.v1';
 
 export const newId = () => Math.random().toString(36).slice(2, 10);
 

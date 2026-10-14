@@ -22,7 +22,7 @@ export function downloadHistory(history: History): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `terminal5-history-${new Date().toISOString().slice(0, 10)}.csv`;
+  anchor.download = `openterm-history-${new Date().toISOString().slice(0, 10)}.csv`;
   anchor.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

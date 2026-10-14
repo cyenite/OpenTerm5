@@ -151,8 +151,8 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
         }
       }
     };
-    window.addEventListener('terminal5:zoom', zoom);
-    return () => window.removeEventListener('terminal5:zoom', zoom);
+    window.addEventListener('openterm:zoom', zoom);
+    return () => window.removeEventListener('openterm:zoom', zoom);
   }, []);
 
   useEffect(() => {
@@ -168,8 +168,8 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       });
     };
-    window.addEventListener('terminal5:chart-image', save);
-    return () => window.removeEventListener('terminal5:chart-image', save);
+    window.addEventListener('openterm:chart-image', save);
+    return () => window.removeEventListener('openterm:chart-image', save);
   }, []);
 
   const legend = [`${chart.symbol},${chart.timeframe}`, spec?.description, ...chart.indicators.map(describeIndicator)].filter(Boolean).join('  ');

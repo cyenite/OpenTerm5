@@ -3,7 +3,7 @@ import { log } from './session';
 import { Store } from './store';
 import { evaluateAlert, restoreAlerts, type PriceAlert } from './price-alerts-model';
 
-const key = 'terminal5.price-alerts.v1';
+const key = 'openterm.price-alerts.v1';
 let saved: PriceAlert[] = [];
 try { saved = restoreAlerts(JSON.parse(localStorage.getItem(key) ?? '[]')); } catch { saved = []; }
 export const priceAlerts = new Store<{ alerts: PriceAlert[] }>({ alerts: saved });

@@ -3,7 +3,7 @@ import { defineConfig, type Plugin } from 'vite';
 
 // The React refresh preamble is an inline script, which the production CSP forbids.
 const devCsp = (): Plugin => ({
-  name: 'terminal5-dev-csp',
+  name: 'openterm-dev-csp',
   apply: 'serve',
   transformIndexHtml: (html) => html.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'"),
 });

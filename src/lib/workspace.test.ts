@@ -17,7 +17,7 @@ test('profile switches retain current edits and persist them without transient U
   assert.equal(workspace.get().charts[0].timeframe, 'M5');
   loadProfile('New York');
   assert.equal(workspace.get().charts[0].timeframe, 'H4');
-  const persisted = JSON.parse(writes.get('terminal5.workspace.v1')!);
+  const persisted = JSON.parse(writes.get('openterm.workspace.v1')!);
   assert.equal(persisted.profiles.find((profile: { name: string }) => profile.name === 'New York').charts[0].timeframe, 'H4');
   assert.equal('dialog' in persisted, false);
   assert.throws(() => removeProfile('New York'));
@@ -26,6 +26,6 @@ test('profile switches retain current edits and persist them without transient U
   assert.equal(workspace.get().profiles.some((profile) => profile.name === 'London'), false);
   closeChart(workspace.get().charts[0].id);
   assert.equal(workspace.get().charts.length, 0);
-  assert.equal(JSON.parse(writes.get('terminal5.workspace.v1')!).charts.length, 0);
+  assert.equal(JSON.parse(writes.get('openterm.workspace.v1')!).charts.length, 0);
   delete (globalThis as { localStorage?: unknown }).localStorage;
 });

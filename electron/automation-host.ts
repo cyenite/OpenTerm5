@@ -244,7 +244,7 @@ export class AutomationHost {
         const target = params as NotificationTarget;
         const problem = validateTarget(target);
         if (problem) throw new Error(problem);
-        return this.notifier.send(target, 'signal', 'Terminal5 test', 'Notifications from Terminal5 will arrive here.');
+        return this.notifier.send(target, 'signal', 'OpenTerm test', 'Notifications from OpenTerm will arrive here.');
       }
     }
   }

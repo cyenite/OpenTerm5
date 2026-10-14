@@ -23,7 +23,7 @@ export function notificationRequest(target: NotificationTarget, event: Notificat
     case 'discord': return { url: target.url, body: { content: text.slice(0, 1900), allowed_mentions: { parse: [] } } };
     case 'slack': return { url: target.url, body: { text } };
     case 'telegram': return { url: `https://api.telegram.org/bot${target.url}/sendMessage`, body: { chat_id: target.chatId, text, disable_web_page_preview: true } };
-    case 'json': return { url: target.url, body: { event, title, message, time: new Date(time).toISOString(), source: 'terminal5' } };
+    case 'json': return { url: target.url, body: { event, title, message, time: new Date(time).toISOString(), source: 'openterm' } };
   }
 }
 

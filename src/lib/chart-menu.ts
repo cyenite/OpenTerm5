@@ -68,7 +68,7 @@ export function chartMenu(chartId: string, price?: number): MenuItem[] {
     { label: 'Volumes', shortcut: 'Ctrl+L', isChecked: chart.isVolumeShown, action: () => updateChart(chartId, (current) => ({ isVolumeShown: !current.isVolumeShown })) },
     { label: 'Zoom In', shortcut: '+', action: () => zoom(1.25) },
     { label: 'Zoom Out', shortcut: '-', action: () => zoom(0.8) },
-    { label: 'Save As Picture...', action: () => window.dispatchEvent(new Event('terminal5:chart-image')) },
+    { label: 'Save As Picture...', action: () => window.dispatchEvent(new Event('openterm:chart-image')) },
     separator,
     state.layout === 'tabs'
       ? { label: 'Floating Windows', action: restoreWindows }

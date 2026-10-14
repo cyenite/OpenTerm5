@@ -122,7 +122,7 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
           { label: 'Remove Template', items: state.templates.map((template) => ({ label: template.name, action: () => workspace.set({ templates: state.templates.filter((candidate) => candidate.name !== template.name) }) })) },
         ] },
         { label: 'Objects List...', shortcut: 'Ctrl+B', isDisabled: !hasChart, action: () => chart && openDialog({ kind: 'objects', chartId: chart.id }) },
-        { label: 'Save Chart Image...', isDisabled: !hasChart, action: () => window.dispatchEvent(new Event('terminal5:chart-image')) },
+        { label: 'Save Chart Image...', isDisabled: !hasChart, action: () => window.dispatchEvent(new Event('openterm:chart-image')) },
         { label: 'Delete All Objects', isDisabled: !chart?.drawings.length, action: () => updateActiveChart({ drawings: [] }) },
         separator,
         { label: 'Grid', shortcut: 'Ctrl+G', isChecked: chart?.isGridShown, isDisabled: !hasChart, action: () => updateActiveChart((current) => ({ isGridShown: !current.isGridShown })) },
@@ -162,7 +162,7 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
         })),
       ],
     },
-    { label: 'Help', items: [{ label: 'About Terminal5', action: () => openDialog({ kind: 'about' }) }] },
+    { label: 'Help', items: [{ label: 'About OpenTerm', action: () => openDialog({ kind: 'about' }) }] },
   ];
 }
 

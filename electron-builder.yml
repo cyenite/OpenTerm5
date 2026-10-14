@@ -1,5 +1,6 @@
-appId: dev.terminal5.app
-productName: Terminal5
+appId: io.github.cyenite.openterm
+productName: OpenTerm
+copyright: Copyright © The OpenTerm contributors
 directories:
   output: release
 files:
@@ -9,6 +10,7 @@ files:
 linux:
   target: [AppImage, deb]
   category: Office
+  maintainer: The OpenTerm contributors
 mac:
   target: [dmg]
   category: public.app-category.finance

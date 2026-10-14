@@ -1,15 +1,35 @@
 {
-  "name": "terminal5",
-  "productName": "Terminal5",
+  "name": "openterm",
+  "productName": "OpenTerm",
   "version": "0.1.0",
-  "description": "Cross-platform trading terminal with a direct MT5 web-protocol connection",
-  "author": "Aaron Rono",
-  "license": "UNLICENSED",
+  "description": "Open-source, cross-platform desktop trading terminal for MetaTrader 5 accounts, with copy trading, risk-based orders and a webhook signal API.",
+  "keywords": [
+    "trading",
+    "metatrader",
+    "mt5",
+    "forex",
+    "electron",
+    "copy-trading",
+    "desktop"
+  ],
+  "homepage": "https://github.com/cyenite/OpenTerm5#readme",
+  "bugs": {
+    "url": "https://github.com/cyenite/OpenTerm5/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cyenite/OpenTerm5.git"
+  },
+  "author": "The OpenTerm contributors",
+  "license": "MIT",
   "private": true,
+  "engines": {
+    "node": ">=22.12"
+  },
   "main": "dist-electron/electron/main.js",
   "scripts": {
     "dev": "concurrently -k -n vite,electron \"vite\" \"npm:dev:electron\"",
-    "dev:electron": "tsc -p tsconfig.electron.json && wait-on tcp:5199 && cross-env TERMINAL5_DEV_URL=http://localhost:5199 electron .",
+    "dev:electron": "tsc -p tsconfig.electron.json && wait-on tcp:5199 && cross-env OPENTERM_DEV_URL=http://localhost:5199 electron .",
     "build": "tsc -p tsconfig.json --noEmit && vite build && tsc -p tsconfig.electron.build.json",
     "start": "electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
@@ -18,7 +38,8 @@
     "dist": "npm run build && electron-builder",
     "dist:linux": "npm run build && electron-builder --linux",
     "dist:mac": "npm run build && electron-builder --mac",
-    "dist:win": "npm run build && electron-builder --win"
+    "dist:win": "npm run build && electron-builder --win",
+    "check": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "lightweight-charts": "5.2.1",
@@ -32,7 +53,7 @@
     "@types/react-dom": "19.3.0",
     "@types/ws": "8.18.1",
     "@vitejs/plugin-react": "6.1.1",
-    "concurrently": "10.0.5",
+    "concurrently": "10.0.6",
     "cross-env": "10.1.0",
     "electron": "44.4.5",
     "electron-builder": "26.17.0",

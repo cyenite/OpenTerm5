@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, Menu, shell, type MenuItemConstructorOptio
 import path from 'node:path';
 import type { TerminalEvent, TerminalMethod, ConnectionSettings, JournalEntry } from '../shared/protocol';
 import { loadSettings, saveSettings } from './settings';
+import { migrateLegacyProfile } from './legacy-migration';
 import { Mt5WebLink } from './mt5-web-link';
 import { loadAccounts, secretCipher } from './accounts';
 import { SessionPool } from './session-pool';
@@ -13,7 +14,9 @@ import { BrokerDirectory } from './broker-directory';
 import type { AccountRegistry } from './account-registry';
 import type { TerminalMethods } from '../shared/protocol';
 
-const devUrl = process.env.TERMINAL5_DEV_URL;
+migrateLegacyProfile();
+
+const devUrl = process.env.OPENTERM_DEV_URL;
 const direct = new Mt5WebLink();
 let automation: AutomationHost | undefined;
 let isChanging = false;
@@ -62,7 +65,7 @@ function createWindow(): void {
     height: 900,
     minWidth: 960,
     minHeight: 600,
-    title: 'Terminal5',
+    title: 'OpenTerm',
     show: false,
     // On macOS the window controls sit inside the menu bar, which doubles as the drag region.
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 12, y: 8 } } : {}),

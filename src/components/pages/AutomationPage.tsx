@@ -118,7 +118,7 @@ export function AutomationPage() {
           {accounts.map((profile) => <option key={profile.id} value={profile.id}>{profile.label}{profile.id === activeId ? ' (active)' : ''}</option>)}
         </select>
       </div>
-      <p className="banner is-warn">Trade management, guards and hidden stops run inside Terminal5. They act only while the app is open and connected, so keep a broker-side stop on every position you cannot watch.</p>
+      <p className="banner is-warn">Trade management, guards and hidden stops run inside OpenTerm. They act only while the app is open and connected, so keep a broker-side stop on every position you cannot watch.</p>
       <GuardEditor key={accountId} accountId={accountId} />
       <BulkActions accountId={accountId} />
       <Section title="Managed positions" detail="Break-even, trailing stops, partial take-profits, hidden stops and time exits. Add them from a position's context menu (Manage…) or from the risk ticket.">

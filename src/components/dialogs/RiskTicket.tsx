@@ -22,7 +22,7 @@ const entryKinds = [
 
 type EntryKind = (typeof entryKinds)[number]['key'];
 
-const STORAGE_KEY = 'terminal5.riskTicket.v1';
+const STORAGE_KEY = 'openterm.riskTicket.v1';
 
 interface Preferences {
   mode: RiskMode;
@@ -128,7 +128,7 @@ export function RiskTicket({ symbol, canTrade, onResult }: RiskTicketProps) {
           <Switch label="Break-even after first target" hint="Later legs move to entry when the first target fills." isOn={preferences.isBreakEvenAfterFirst} onChange={(isBreakEvenAfterFirst) => set({ isBreakEvenAfterFirst })} />
           <NumberField label="Break-even at" value={preferences.breakEvenR} step={0.25} suffix="R" hint="0 is off." onChange={(breakEvenR) => set({ breakEvenR })} />
           <NumberField label="Trailing stop" value={preferences.trailing} step={10} suffix="pts" hint="Starts once in profit by the same distance. 0 is off." onChange={(trailing) => set({ trailing })} />
-          <Switch label="Hidden stops" hint="Stop and targets stay in Terminal5 and close at market; the broker sees none. Only while the app runs." isOn={preferences.isStealth} onChange={(isStealth) => set({ isStealth })} />
+          <Switch label="Hidden stops" hint="Stop and targets stay in OpenTerm and close at market; the broker sees none. Only while the app runs." isOn={preferences.isStealth} onChange={(isStealth) => set({ isStealth })} />
         </div>
       </details>
       <div className={`risk-preview${problem ? ' is-bad' : ''}`} aria-live="polite">

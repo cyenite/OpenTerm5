@@ -15,9 +15,9 @@ export function ChartWorkspace() {
   return (
     <div
       className="chart-workspace"
-      onDragOver={(event) => event.dataTransfer.types.includes('text/x-terminal5-symbol') && event.preventDefault()}
+      onDragOver={(event) => event.dataTransfer.types.includes('text/x-openterm-symbol') && event.preventDefault()}
       onDrop={(event) => {
-        const symbol = event.dataTransfer.getData('text/x-terminal5-symbol');
+        const symbol = event.dataTransfer.getData('text/x-openterm-symbol');
         if (symbol) {
           openChart(symbol);
         }

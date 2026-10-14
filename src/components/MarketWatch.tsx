@@ -29,7 +29,7 @@ function QuoteRow({ spec, isSelected, onSelect, onMenu }: QuoteRowProps) {
       onDoubleClick={() => newOrder(spec.name)}
       onContextMenu={onMenu}
       draggable
-      onDragStart={(event) => event.dataTransfer.setData('text/x-terminal5-symbol', spec.name)}
+      onDragStart={(event) => event.dataTransfer.setData('text/x-openterm-symbol', spec.name)}
     >
       <td className="quote-symbol">
         <span className="quote-arrow">{direction === 'up' ? '▲' : direction === 'down' ? '▼' : '◆'}</span>
@@ -144,12 +144,12 @@ export function MarketWatch() {
                 <td colSpan={5}>
                   <input
                     value={query}
-                    list="terminal5-symbols"
+                    list="openterm-symbols"
                     placeholder="+ click to add"
                     onChange={(event) => setQuery(event.target.value)}
                     onKeyDown={(event) => event.key === 'Enter' && addSymbol()}
                   />
-                  <datalist id="terminal5-symbols">
+                  <datalist id="openterm-symbols">
                     {Object.values(all)
                       .filter((spec) => !spec.visible)
                       .map((spec) => (
@@ -252,8 +252,8 @@ class MarketWatchSets extends Component<Record<string, never>, WatchSetsState> {
     return (
       <div className="watch-sets">
         <div className="watch-sets-row">
-          <input aria-label="Market Watch set name" value={name} list="terminal5-watch-sets" placeholder="Symbol set" disabled={isBusy} onChange={(event) => this.setState({ name: event.target.value, error: '' })} />
-          <datalist id="terminal5-watch-sets">{available.map((preset) => <option key={preset.name} value={preset.name} />)}</datalist>
+          <input aria-label="Market Watch set name" value={name} list="openterm-watch-sets" placeholder="Symbol set" disabled={isBusy} onChange={(event) => this.setState({ name: event.target.value, error: '' })} />
+          <datalist id="openterm-watch-sets">{available.map((preset) => <option key={preset.name} value={preset.name} />)}</datalist>
           <button disabled={!scope || !name.trim() || isBusy} title="Save the visible symbols under this name" onClick={this.save}>Save</button>
           <button disabled={!hasSet || isBusy} title="Show this set's symbols" onClick={this.apply}>{isBusy ? '…' : 'Load'}</button>
           <button disabled={!hasSet || isBusy} title="Delete this set" aria-label="Delete set" onClick={this.remove}>×</button>

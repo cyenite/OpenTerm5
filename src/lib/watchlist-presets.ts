@@ -6,7 +6,7 @@ export interface WatchlistPreset {
   readonly symbols: readonly string[];
 }
 
-export const watchlistStorageKey = 'terminal5.watchlists.v1';
+export const watchlistStorageKey = 'openterm.watchlists.v1';
 
 export function watchlistScope(endpoint: string, profile: string): string {
   return JSON.stringify([endpoint, profile]);

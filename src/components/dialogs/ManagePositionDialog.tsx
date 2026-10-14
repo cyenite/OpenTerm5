@@ -94,7 +94,7 @@ export function ManagePositionDialog({ ticket }: ManagePositionDialogProps) {
           </div>
         </div>
         <div className="form-grid">
-          <NumberField label="Hidden stop loss" value={virtualStop} step={spec.point} hint="Closed at market by Terminal5; the broker never sees it." onChange={setVirtualStop} />
+          <NumberField label="Hidden stop loss" value={virtualStop} step={spec.point} hint="Closed at market by OpenTerm; the broker never sees it." onChange={setVirtualStop} />
           <NumberField label="Hidden take profit" value={virtualTarget} step={spec.point} onChange={setVirtualTarget} />
           <label className="form-field">
             <span>Close at</span>
@@ -102,7 +102,7 @@ export function ManagePositionDialog({ ticket }: ManagePositionDialogProps) {
             <small>Local time. Leave empty for none.</small>
           </label>
         </div>
-        {(virtualStop > 0 || virtualTarget > 0) && <p className="banner is-warn">Hidden levels only work while Terminal5 is running and connected.</p>}
+        {(virtualStop > 0 || virtualTarget > 0) && <p className="banner is-warn">Hidden levels only work while OpenTerm is running and connected.</p>}
         {error && <p className="banner is-bad">{error}</p>}
         <div className="dialog-actions">
           {existing && <button type="button" onClick={() => automation.request('manager.removeRule', { accountId, ticket }).then(closeDialog)}>Stop managing</button>}
