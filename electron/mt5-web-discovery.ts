@@ -1,6 +1,5 @@
 import type { ServerLookupResult } from '../shared/protocol';
 
-const publicTerminal = 'https://web.metatrader.app/terminal';
 const maximumBytes = 1_048_576;
 
 export function validateTerminalUrl(value: string): URL {
@@ -61,14 +60,11 @@ export function parseServerMetadata(html: string, webUrl: string): ServerLookupR
   });
 }
 
-export async function discoverServers(
-  params: { query?: string; webUrl?: string },
-  fetchPage: typeof fetch = fetch,
-): Promise<ServerLookupResult[]> {
-  const url = validateTerminalUrl(params.webUrl?.trim() || publicTerminal);
+export async function fetchTerminalPage(webUrl: string, fetchPage: typeof fetch = fetch, timeout = 10_000): Promise<string> {
+  const url = validateTerminalUrl(webUrl);
   const response = await fetchPage(url.href, {
     redirect: 'error',
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(timeout),
     headers: { Accept: 'text/html' },
   });
   if (!response.ok) throw new Error(`The web terminal returned HTTP ${response.status}.`);
@@ -89,8 +85,27 @@ export async function discoverServers(
   } finally {
     await reader.cancel();
   }
-  const query = params.query?.trim().toLowerCase() ?? '';
-  return parseServerMetadata(html, url.href).filter((entry) =>
-    !query || `${entry.broker} ${entry.server} ${entry.type}`.toLowerCase().includes(query),
-  );
+  return html;
+}
+
+const secondLevels = new Set(['co', 'com', 'net', 'org', 'gov', 'ac', 'edu', 'ltd', 'plc']);
+
+// Approximates the public suffix list for the cases brokers use: example.com, example.co.uk, example.com.cy.
+export function registrableDomain(hostname: string): string {
+  const labels = hostname.toLowerCase().split('.');
+  const hasSecondLevel = labels.length > 2 && labels.at(-1)!.length === 2 && secondLevels.has(labels.at(-2)!);
+  return labels.slice(hasSecondLevel ? -3 : -2).join('.');
+}
+
+// Some brokers wrap the terminal in a branded page (mt5.ftmo.com frames mt5webterminal.ftmo.com/terminal).
+export function findTerminalFrame(html: string, pageUrl: string): string | null {
+  const page = validateTerminalUrl(pageUrl);
+  const domain = registrableDomain(page.hostname);
+  for (const match of html.matchAll(/<iframe[^>]+src="(https:\/\/[^"]+)"/gi)) {
+    try {
+      const frame = validateTerminalUrl(match[1]);
+      if ((frame.hostname === domain || frame.hostname.endsWith(`.${domain}`)) && frame.pathname.replace(/\/$/, '').endsWith('/terminal')) return frame.href;
+    } catch { /* not a terminal frame */ }
+  }
+  return null;
 }

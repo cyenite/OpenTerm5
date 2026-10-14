@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, shell, type MenuItemConstructorOptions } from 'electron';
 import path from 'node:path';
 import type { TerminalEvent, TerminalMethod, ConnectionSettings, JournalEntry } from '../shared/protocol';
 import { loadSettings, saveSettings } from './settings';
@@ -9,7 +9,7 @@ import { AutomationHost } from './automation-host';
 import type { AutomationEvent, AutomationMethod } from '../shared/automation';
 import { orderType } from '../shared/protocol';
 import { parseSettings } from './connection-settings';
-import { discoverServers } from './mt5-web-discovery';
+import { BrokerDirectory } from './broker-directory';
 import type { AccountRegistry } from './account-registry';
 import type { TerminalMethods } from '../shared/protocol';
 
@@ -53,7 +53,7 @@ function journal(message: string, source = 'Terminal'): void {
 async function applySettings(): Promise<void> {
   direct.disconnect();
   try { await direct.connect(settings.webEndpoint); }
-  catch (error) { journal((error as Error).message, 'MT5 Web'); }
+  catch (error) { journal((error as Error).message, 'Network'); }
 }
 
 function createWindow(): void {
@@ -75,6 +75,14 @@ function createWindow(): void {
     },
   });
   window.once('ready-to-show', () => window?.show());
+  // The renderer draws its own trading menus; text fields and selected text get the native edit menu.
+  window.webContents.on('context-menu', (_event, params) => {
+    if (!params.isEditable && !params.selectionText.trim()) return;
+    const template: MenuItemConstructorOptions[] = params.isEditable
+      ? [{ role: 'undo', enabled: params.editFlags.canUndo }, { role: 'redo', enabled: params.editFlags.canRedo }, { type: 'separator' }, { role: 'cut', enabled: params.editFlags.canCut }, { role: 'copy', enabled: params.editFlags.canCopy }, { role: 'paste', enabled: params.editFlags.canPaste }, { type: 'separator' }, { role: 'selectAll' }]
+      : [{ role: 'copy' }];
+    Menu.buildFromTemplate(template).popup({ window });
+  });
   window.on('closed', () => (window = undefined));
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://')) {
@@ -104,13 +112,28 @@ function installMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]));
 }
 
+let brokerDirectory: BrokerDirectory | undefined;
+function brokers(): BrokerDirectory { return brokerDirectory ??= new BrokerDirectory(app.getPath('userData')); }
+
 function accountProfiles() { return (accounts?.list() ?? []).map((profile) => ({ ...profile, isActive: profile.id === activeAccount })); }
+
+let changeSettled: Promise<void> = Promise.resolve();
 
 async function changeConnection<T>(work: () => Promise<T>): Promise<T> {
   if (isChanging) throw new Error('Wait for the current account or connection change to finish.');
   isChanging = true;
-  try { return await work(); }
+  const run = work();
+  changeSettled = run.then(() => undefined, () => undefined);
+  try { return await run; }
   finally { isChanging = false; }
+}
+
+// Reads issued while an account is switching wait for the switch instead of failing, so the
+// renderer's startup requests (symbols, charts) succeed once automatic login completes.
+async function settledConnection(): Promise<void> {
+  if (!isChanging) return;
+  await Promise.race([changeSettled, new Promise((resolve) => setTimeout(resolve, 30_000))]);
+  if (isChanging) throw new Error('Account connection is still changing. Try again after login completes.');
 }
 
 async function loginAccount(params: TerminalMethods['account.login'][0]) {
@@ -125,6 +148,7 @@ async function loginAccount(params: TerminalMethods['account.login'][0]) {
   await direct.connect(settings.webEndpoint);
   const account = await direct.request('account.login', { login: params.login, password: params.password, ...(params.otp ? { otp: params.otp } : {}) });
   pool.afterUiChange(`${settings.webEndpoint}|${account.login}`, null);
+  void brokers().remember(account.server, settings.webEndpoint, account.company).catch(() => undefined);
   if (accounts) {
     try {
       const profile = await accounts.remember(account, settings.webEndpoint, params.password, params.label, params.isPasswordSaved);
@@ -140,7 +164,11 @@ ipcMain.handle('terminal:request', async (_event, method: TerminalMethod, params
   try {
     if (method === 'accounts.list') return { result: accountProfiles() };
     if (method === 'accounts.storage') return { result: { canSavePasswords: !!accounts?.canSavePasswords() } };
-    if (method === 'servers.lookup') return { result: await discoverServers(params as TerminalMethods['servers.lookup'][0]) };
+    if (method === 'brokers.search') return { result: await brokers().search((params as TerminalMethods['brokers.search'][0]).query, accountProfiles().map((profile) => profile.server)) };
+    if (method === 'brokers.resolve') {
+      const { server, webUrl } = params as TerminalMethods['brokers.resolve'][0];
+      return { result: webUrl ? await brokers().inspect(server, webUrl) : await brokers().resolve(server) };
+    }
     if (method === 'account.login') return { result: await changeConnection(() => loginAccount(params as TerminalMethods['account.login'][0])) };
     if (method === 'accounts.connect') return { result: await changeConnection(async () => {
       if (!accounts) throw new Error('Account storage is unavailable.');
@@ -162,7 +190,8 @@ ipcMain.handle('terminal:request', async (_event, method: TerminalMethod, params
       send('accounts', accountProfiles());
       return true;
     }) };
-    if (isChanging) throw new Error('Account connection is changing. Try again after login completes.');
+    if (method === 'order.send' && isChanging) throw new Error('Account connection is changing. Send the order again after login completes.');
+    await settledConnection();
     if (method === 'order.send') {
       const request = params as TerminalMethods['order.send'][0];
       const isOpening = request.action === 'pending' || request.action === 'deal' && !request.position && !!orderType(request.type ?? '');
@@ -219,7 +248,7 @@ if (!app.requestSingleInstanceLock()) {
         if (password) await changeConnection(() => loginAccount({ login: recent.login, password, webEndpoint: recent.webEndpoint, label: recent.label, isPasswordSaved: true }));
         send('status', await direct.request('terminal.status', {}));
         send('trade', await direct.request('trade.snapshot', {}));
-      } catch { journal('Saved account needs a fresh password or one-time code. Log in manually.', 'Accounts'); }
+      } catch (error) { journal(`Automatic login failed: ${(error as Error).message}. Log in manually.`, 'Accounts'); }
     }
     automation = new AutomationHost({ pool, userData: app.getPath('userData'), cipher: secretCipher, accounts: () => accounts, send: sendAutomation, journal });
     await automation.init();

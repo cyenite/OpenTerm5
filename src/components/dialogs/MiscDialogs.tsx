@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { ConnectionSettings, SymbolSpec } from '../../../shared/protocol';
+import type { ConnectionSettings, ResolvedServer, SymbolSpec } from '../../../shared/protocol';
 import { indicatorKind, type IndicatorKey } from '../../lib/indicators';
 import { log, refreshSession, session, setSymbolVisible, terminal } from '../../lib/session';
 import { useStore } from '../../lib/store';
-import { addIndicator, closeDialog, defaultParams, openDialog } from '../../lib/workspace';
+import { addIndicator, closeDialog, defaultParams } from '../../lib/workspace';
 import { Dialog } from './Dialog';
+import { BrokerServerField } from './BrokerServerField';
 
 export function SymbolsDialog() {
   const symbols = useStore(session, (state) => state.symbols);
@@ -82,10 +83,10 @@ export function ConnectionDialog() {
     <Dialog title="Options: Connection" width={560}>
       <div className="order-form">
         <label className="field">
-          <span>Web endpoint</span>
+          <span>Server address</span>
           <input value={settings.webEndpoint} disabled={isSaving} onChange={(event) => patch({ webEndpoint: event.target.value })} placeholder="wss://web.metatrader.app/terminal" />
         </label>
-        <p className="is-muted">Terminal5 connects directly to the MT5 web service. The endpoint selects the broker; the public MetaQuotes endpoint supports demo accounts. Apply, then use File → Login to Trade Account.</p>
+        <p className="is-muted">Advanced. The login dialog fills this in from the trade server you pick, so you rarely need to change it.</p>
         {error && <p role="alert" className="is-loss">{error}</p>}
         <p className="order-check">
           Status: {link.state}
@@ -107,7 +108,7 @@ export function LoginDialog({ profileId }: { profileId?: string }) {
   const [otp, setOtp] = useState('');
   const [login, setLogin] = useState(profile ? String(profile.login) : '');
   const [label, setLabel] = useState(profile?.label ?? '');
-  const [endpoint, setEndpoint] = useState(profile?.webEndpoint ?? '');
+  const [server, setServer] = useState<ResolvedServer | null>(null);
   const [canSavePassword, setCanSavePassword] = useState(false);
   const [isPasswordSaved, setIsPasswordSaved] = useState(profile?.isPasswordSaved ?? false);
   const [password, setPassword] = useState('');
@@ -115,15 +116,15 @@ export function LoginDialog({ profileId }: { profileId?: string }) {
   const [isBusy, setIsBusy] = useState(false);
   useEffect(() => {
     let isCancelled = false;
-    void terminal.settings().then((settings) => { if (!isCancelled) setEndpoint(profile?.webEndpoint ?? settings.webEndpoint); });
     void terminal.request('accounts.storage', {}).then((storage) => { if (!isCancelled) setCanSavePassword(storage.canSavePasswords); });
     return () => { isCancelled = true; };
-  }, [profile?.webEndpoint]);
+  }, []);
   const submit = async () => {
+    if (!server) { setError('Choose a server first.'); return; }
     setIsBusy(true);
     setError(null);
     try {
-      const next = await terminal.request('account.login', { login: Number(login), password, label, webEndpoint: endpoint, isPasswordSaved, ...(otp ? { otp } : {}) });
+      const next = await terminal.request('account.login', { login: Number(login), password, label, webEndpoint: server.webEndpoint, isPasswordSaved, ...(otp ? { otp } : {}) });
       session.set({ account: next });
       await refreshSession();
       closeDialog();
@@ -137,7 +138,7 @@ export function LoginDialog({ profileId }: { profileId?: string }) {
   };
 
   return (
-    <Dialog title="Login to Trade Account" width={400}>
+    <Dialog title="Login to Trade Account" width={460}>
       <form
         className="order-form"
         onSubmit={(event) => {
@@ -145,9 +146,7 @@ export function LoginDialog({ profileId }: { profileId?: string }) {
           void submit();
         }}
       >
-        <label className="field"><span>Account label</span><input value={label} disabled={isBusy} onChange={(event) => setLabel(event.target.value)} placeholder="For example, Personal demo" maxLength={128} /></label>
-        <label className="field"><span>Web endpoint</span><input value={endpoint} disabled={isBusy} onChange={(event) => setEndpoint(event.target.value)} required /></label>
-        <button type="button" disabled={isBusy} onClick={() => openDialog({ kind: 'servers' })}>Find broker / server</button>
+        <BrokerServerField initialServer={profile?.server ?? ''} initialEndpoint={profile?.webEndpoint ?? ''} isDisabled={isBusy} onResolved={setServer} />
         <label className="field">
           <span>Login</span>
           <input inputMode="numeric" disabled={isBusy} value={login} onChange={(event) => setLogin(event.target.value.replace(/\D/g, ''))} required />
@@ -160,14 +159,14 @@ export function LoginDialog({ profileId }: { profileId?: string }) {
           <span>One-time code</span>
           <input disabled={isBusy} value={otp} onChange={(event) => setOtp(event.target.value)} autoComplete="one-time-code" placeholder="Only if your account requires it" />
         </label>
-        <p className="is-muted">The web endpoint in Tools → Options selects your broker. Your password is kept in memory for automatic reconnection and is never saved to disk. Accounts requiring a new one-time code must log in again after a disconnect.</p>
+        <label className="field"><span>Label</span><input value={label} disabled={isBusy} onChange={(event) => setLabel(event.target.value)} placeholder="Optional, e.g. Personal demo" maxLength={128} /></label>
         <label className="check"><input type="checkbox" checked={isPasswordSaved} disabled={isBusy || !canSavePassword} onChange={(event) => setIsPasswordSaved(event.target.checked)} />Save password securely on this computer</label>
         {!canSavePassword && <p className="is-muted">Secure OS password storage is unavailable. Passwords stay in memory until you quit.</p>}
         {error && <p role="alert" className="is-loss">{error}</p>}
         <div className="dialog-actions">
           <button type="button" onClick={closeDialog}>Cancel</button>
-          <button className="is-primary" type="submit" disabled={isBusy}>
-            Login
+          <button className="is-primary" type="submit" disabled={isBusy || !server}>
+            {isBusy ? 'Connecting…' : 'Login'}
           </button>
         </div>
       </form>
@@ -242,10 +241,13 @@ export function AboutDialog() {
         <b>Terminal5</b> is a cross-platform trading terminal modelled on the MetaTrader 5 desktop workflow.
       </p>
       <p className="is-muted">
-        Connected to: {status ? 'independent MT5 web client' : 'nothing'}.
+        {status?.isConnected ? `Connected to ${status.company ?? 'trade server'}, server build ${status.build}.` : 'Not connected.'}{' '}
         MetaTrader is a trademark of MetaQuotes Ltd. Terminal5 is not affiliated with MetaQuotes.
       </p>
-      <p className="is-muted">Charts by TradingView Lightweight Charts™ (Apache-2.0), https://www.tradingview.com/</p>
+      <p className="is-muted">
+        <b>Third-party licences</b><br />
+        Lightweight Charts™, Copyright TradingView, Inc., Apache License 2.0, <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">tradingview.com</a>
+      </p>
       <div className="dialog-actions">
         <button className="is-primary" onClick={closeDialog}>OK</button>
       </div>

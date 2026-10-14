@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { discoverServers, parseServerMetadata, validateTerminalUrl } from './mt5-web-discovery';
+import { fetchTerminalPage, parseServerMetadata, validateTerminalUrl } from './mt5-web-discovery';
 
 const html = '<script>window.__terminal_params = {"broker":{"name":"Example } Broker"},"servers":[{"server":"Example-Demo","type":"demo"},{"server":"Example-Live","type":"real"}]};</script>';
 
@@ -26,20 +26,16 @@ test('lookup rejects credential URLs, insecure URLs and local hostnames', () => 
   }
 });
 
-test('lookup filters broker metadata and uses a bounded read-only request', async () => {
+test('terminal pages are fetched with a bounded read-only request', async () => {
   let target = '';
-  const result = await discoverServers({ query: 'demo' }, (async (url: string | URL | Request, options?: RequestInit) => {
+  const page = await fetchTerminalPage('https://web.metatrader.app/terminal', (async (url: string | URL | Request, options?: RequestInit) => {
     target = String(url);
     assert.equal(options?.redirect, 'error');
     assert.equal(options?.headers && (options.headers as Record<string, string>).Accept, 'text/html');
     return new Response(html);
   }) as typeof fetch);
   assert.equal(target, 'https://web.metatrader.app/terminal');
-  assert.equal(result.length, 1);
-  assert.equal(result[0].server, 'Example-Demo');
-});
-
-test('lookup exposes HTTP and oversized response failures', async () => {
-  await assert.rejects(discoverServers({}, (async () => new Response('', { status: 503 })) as typeof fetch), /HTTP 503/);
-  await assert.rejects(discoverServers({}, (async () => new Response('x'.repeat(1_048_577))) as typeof fetch), /exceeds/);
+  assert.equal(parseServerMetadata(page, target)[0].server, 'Example-Demo');
+  await assert.rejects(fetchTerminalPage(target, (async () => new Response('', { status: 503 })) as typeof fetch), /HTTP 503/);
+  await assert.rejects(fetchTerminalPage(target, (async () => new Response('x'.repeat(1_048_577))) as typeof fetch), /exceeds/);
 });

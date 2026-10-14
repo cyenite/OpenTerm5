@@ -257,7 +257,8 @@ export interface TerminalMethods {
   'accounts.list': [Record<string, never>, AccountProfile[]];
   'accounts.connect': [{ id: string; password?: string; otp?: string; isPasswordSaved?: boolean }, Account];
   'accounts.remove': [{ id: string }, boolean];
-  'servers.lookup': [{ query?: string; webUrl?: string }, ServerLookupResult[]];
+  'brokers.search': [{ query: string }, BrokerServer[]];
+  'brokers.resolve': [{ server: string; webUrl?: string }, ResolvedServer];
   'terminal.status': [Record<string, never>, TerminalStatus];
   'account.info': [Record<string, never>, Account | null];
   'account.login': [{ login: number; password: string; otp?: string; webEndpoint?: string; label?: string; isPasswordSaved?: boolean }, Account];
@@ -328,6 +329,30 @@ export interface ServerLookupResult {
   readonly webUrl: string;
   readonly webEndpoint: string;
   readonly isWebAvailable: boolean;
+}
+
+export interface BrokerServer {
+  readonly type: string;
+  readonly broker: string;
+  readonly server: string;
+}
+
+export const serverSources = [
+  { key: 'known', label: 'Verified broker terminal', isTrusted: true },
+  { key: 'saved', label: 'Used for a previous successful login', isTrusted: true },
+  { key: 'discovered', label: 'Found by searching broker hosts', isTrusted: false },
+  { key: 'manual', label: 'Entered by you', isTrusted: false },
+] as const;
+
+export type ServerSource = (typeof serverSources)[number]['key'];
+
+export interface ResolvedServer {
+  readonly broker: string;
+  readonly server: string;
+  readonly webUrl: string;
+  readonly webEndpoint: string;
+  readonly isListed: boolean;
+  readonly source: ServerSource;
 }
 
 export interface TerminalApi {
