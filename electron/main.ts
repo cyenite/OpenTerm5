@@ -74,8 +74,8 @@ function createWindow(): void {
     show: false,
     // macOS takes the icon from the app bundle; Linux and Windows need it on the window.
     ...(process.platform === 'darwin' ? {} : { icon: path.join(app.getAppPath(), 'build', 'icon.png') }),
-    // On macOS the window controls sit inside the menu bar, which doubles as the drag region.
-    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 12, y: 8 } } : {}),
+    // On macOS the window controls sit inside the 36px app bar, centred on it, and the bar doubles as the drag region.
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 11 } } : {}),
     backgroundColor: '#1e1f22',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -85,6 +85,13 @@ function createWindow(): void {
     },
   });
   window.once('ready-to-show', () => window?.show());
+  // macOS hides the window controls in full screen, so the app bar stops leaving room for them.
+  const sendFullScreen = () => send('fullScreen', !!window?.isFullScreen());
+  window.on('enter-full-screen', sendFullScreen);
+  window.on('leave-full-screen', sendFullScreen);
+  window.on('enter-html-full-screen', sendFullScreen);
+  window.on('leave-html-full-screen', sendFullScreen);
+  window.webContents.on('did-finish-load', sendFullScreen);
   // The renderer draws its own trading menus; text fields and selected text get the native edit menu.
   window.webContents.on('context-menu', (_event, params) => {
     if (!params.isEditable && !params.selectionText.trim()) return;

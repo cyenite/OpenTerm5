@@ -2110,10 +2110,6 @@ pre {
   color: var(--warn);
 }
 
-.platform-darwin .menu-bar {
-  padding-left: 78px;
-}
-
 .form-field.is-span-2 {
   grid-column: span 2;
 }
@@ -3134,6 +3130,15 @@ button.is-link {
   -webkit-app-region: no-drag;
 }
 
+/* The macOS window controls float over the start of the bar, except in full screen where they hide. */
+.platform-darwin .app-bar {
+  padding-left: 84px;
+}
+
+.platform-darwin.is-full-screen .app-bar {
+  padding-left: 4px;
+}
+
 .app-bar .menu-bar {
   flex: none;
   padding: 0;
@@ -3241,7 +3246,43 @@ button.is-link {
 }
 
 .app-bar .account-chip {
+  flex: 0 1 auto;
+  min-width: 72px;
+  min-height: 0;
+}
+
+.app-bar .account-chip-name {
+  white-space: nowrap;
+}
+
+.app-bar .account-chip-mode,
+.app-bar .account-chip .icon {
   flex: none;
+}
+
+/* Narrow windows: the mode switch keeps its icons and the menus and tabs tighten, so nothing clips. */
+@media (max-width: 1240px) {
+  .mode-switch-label {
+    display: none;
+  }
+
+  .mode-switch button {
+    padding: 0 8px;
+  }
+}
+
+@media (max-width: 1080px) {
+  .app-bar .menu-title {
+    padding: 4px 6px;
+  }
+
+  .app-bar-tabs button {
+    padding: 0 8px;
+  }
+
+  .app-bar-activity {
+    display: none;
+  }
 }
 
 /* Chart bar: the same row in trade and analysis mode. */
