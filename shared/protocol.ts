@@ -304,6 +304,7 @@ export interface TerminalEvents {
   trade: TradeSnapshot;
   journal: JournalEntry;
   link: LinkState;
+  fullScreen: boolean;
 }
 
 export type TerminalEvent = keyof TerminalEvents;
