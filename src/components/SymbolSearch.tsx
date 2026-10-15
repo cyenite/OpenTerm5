@@ -10,6 +10,8 @@ interface SymbolSearchProps {
   symbols: Record<string, SymbolSpec>;
   watched: ReadonlySet<string>;
   onPick: (name: string) => void;
+  label?: string;
+  placeholder?: string;
 }
 
 interface SymbolSearchState {
@@ -90,7 +92,7 @@ export class SymbolSearch extends PureComponent<SymbolSearchProps, SymbolSearchS
   };
 
   render() {
-    const { symbols, watched } = this.props;
+    const { symbols, watched, label = 'Add symbol', placeholder = '+ click to add' } = this.props;
     const { query, active, category, place } = this.state;
     const results = this.results();
     const categories = symbolCategories(symbols).slice(0, CATEGORY_LIMIT);
@@ -102,11 +104,11 @@ export class SymbolSearch extends PureComponent<SymbolSearchProps, SymbolSearchS
           ref={this.input}
           value={query}
           role="combobox"
-          aria-label="Add symbol"
+          aria-label={label}
           aria-expanded={isOpen}
           aria-controls="openterm-symbol-search"
           aria-activedescendant={isOpen && results[active] ? `openterm-symbol-hit-${active}` : undefined}
-          placeholder="+ click to add"
+          placeholder={placeholder}
           spellCheck={false}
           autoComplete="off"
           onChange={(event) => this.change(event.target.value)}

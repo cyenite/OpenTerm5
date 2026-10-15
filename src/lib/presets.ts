@@ -1,18 +1,19 @@
-import { isDrawing } from './drawing-geometry';
-import { timeframes } from '../../shared/protocol';
-import { indicatorKinds } from './indicators';
+import { restoreSettings } from '@meridian/charts/settings';
+import { migrateDrawings, migrateIndicators } from './chart-model';
 import { arrangeFrames, isFrame } from './chart-windows';
-import type { ChartConfig, ChartLayout, ColorScheme, WorkspaceState } from './workspace';
+import { isChartTimeframe } from './mt5-timeframes';
+import type { ChartConfig, ChartLayout, WorkspaceState } from './workspace';
+
+// Presets saved before Meridian also carry an MT5 colour scheme. The theme is now an
+// application setting, so restoring ignores it.
 
 export interface ChartTemplate {
   name: string;
-  scheme: ColorScheme;
   settings: Omit<ChartConfig, 'id' | 'symbol' | 'timeframe' | 'frame' | 'isMinimized'>;
 }
 
 export interface ChartProfile {
   name: string;
-  scheme: ColorScheme;
   layout: WorkspaceState['layout'];
   charts: ChartConfig[];
   activeChartId: string;
@@ -34,12 +35,12 @@ export function presetName(raw: string): string {
 }
 
 export function captureProfile(state: WorkspaceState, name: string): ChartProfile {
-  return structuredClone({ name: presetName(name), scheme: state.scheme, layout: state.layout, charts: state.charts, activeChartId: state.activeChartId });
+  return structuredClone({ name: presetName(name), layout: state.layout, charts: state.charts, activeChartId: state.activeChartId });
 }
 
-export function captureTemplate(chart: ChartConfig, scheme: ColorScheme, name: string): ChartTemplate {
+export function captureTemplate(chart: ChartConfig, name: string): ChartTemplate {
   const { id, symbol, timeframe, frame, isMinimized, ...settings } = chart;
-  return structuredClone({ name: presetName(name), scheme, settings });
+  return structuredClone({ name: presetName(name), settings });
 }
 
 export function applyTemplate(chart: ChartConfig, template: ChartTemplate, newId: () => string): ChartConfig {
@@ -60,27 +61,43 @@ function isName(value: unknown): value is string {
   return typeof value === 'string' && value === value.trim() && !!value && value.length <= 64 && !/[\u0000-\u001f]/.test(value);
 }
 
-function isScheme(value: unknown): value is ColorScheme {
-  return value === 'greenOnBlack' || value === 'colorOnWhite' || value === 'blackOnWhite';
+const chartTypeKeys = ['bars', 'candles', 'hollow', 'line', 'area', 'baseline', 'heikinashi'];
+
+// A valid saved chart with its studies and drawings in Meridian's form, or null.
+export function restoreChart(value: unknown): ChartConfig | null {
+  if (!isRecord(value) || typeof value.id !== 'string' || typeof value.symbol !== 'string' || !isChartTimeframe(value.timeframe)) return null;
+  if (!chartTypeKeys.includes(String(value.type)) || typeof value.isGridShown !== 'boolean' || typeof value.isVolumeShown !== 'boolean') return null;
+  if (value.frame !== undefined && !isFrame(value.frame) || value.isMinimized !== undefined && typeof value.isMinimized !== 'boolean') return null;
+  const drawings = migrateDrawings(value.drawings);
+  const indicators = migrateIndicators(value.indicators);
+  if (!drawings || !indicators) return null;
+  const chart: ChartConfig = { ...(value as unknown as ChartConfig), drawings, indicators };
+  if (value.settings === undefined) delete chart.settings;
+  else chart.settings = restoreSettings(value.settings);
+  return chart;
 }
 
-function isChart(value: unknown): value is ChartConfig {
-  if (!isRecord(value) || typeof value.id !== 'string' || typeof value.symbol !== 'string' || !timeframes.some((period) => period.label === value.timeframe)) return false;
-  if (!['bars', 'candles', 'line'].includes(String(value.type)) || typeof value.isGridShown !== 'boolean' || typeof value.isVolumeShown !== 'boolean') return false;
-  if (!Array.isArray(value.drawings) || !Array.isArray(value.indicators)) return false;
-  if (value.frame !== undefined && !isFrame(value.frame) || value.isMinimized !== undefined && typeof value.isMinimized !== 'boolean') return false;
-  return value.drawings.every(isDrawing) &&
-    value.indicators.every((indicator) => isRecord(indicator) && typeof indicator.id === 'string' && indicatorKinds.some((kind) => kind.key === indicator.kind) && isRecord(indicator.params) && Object.values(indicator.params).every((parameter) => typeof parameter === 'boolean' || typeof parameter === 'number' && Number.isFinite(parameter)));
+export function restoreCharts(value: unknown): ChartConfig[] {
+  return Array.isArray(value) ? value.map(restoreChart).filter((chart): chart is ChartConfig => chart !== null) : [];
 }
 
 export function restoreProfiles(value: unknown): ChartProfile[] {
   if (!Array.isArray(value)) return [];
-  return value
-    .filter((profile): profile is ChartProfile => isRecord(profile) && isName(profile.name) && isScheme(profile.scheme) && ['tabs', 'tile', 'windows'].includes(String(profile.layout)) && typeof profile.activeChartId === 'string' && Array.isArray(profile.charts) && profile.charts.every(isChart))
-    .map((profile) => ({ ...profile, ...restoreLayout(profile.layout, profile.charts) }));
+  return value.flatMap((profile): ChartProfile[] => {
+    if (!isRecord(profile) || !isName(profile.name) || !['tabs', 'tile', 'windows'].includes(String(profile.layout)) || typeof profile.activeChartId !== 'string' || !Array.isArray(profile.charts)) return [];
+    const charts = profile.charts.map(restoreChart);
+    if (!charts.every((chart): chart is ChartConfig => chart !== null)) return [];
+    return [{ name: profile.name, activeChartId: profile.activeChartId, ...restoreLayout(String(profile.layout), charts) }];
+  });
 }
 
 export function restoreTemplates(value: unknown): ChartTemplate[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((template): template is ChartTemplate => isRecord(template) && isName(template.name) && isScheme(template.scheme) && isRecord(template.settings) && isChart({ ...template.settings, id: '', symbol: '', timeframe: 'H1' }));
+  return value.flatMap((template): ChartTemplate[] => {
+    if (!isRecord(template) || !isName(template.name) || !isRecord(template.settings)) return [];
+    const chart = restoreChart({ ...template.settings, id: '', symbol: '', timeframe: 'H1' });
+    if (!chart) return [];
+    const { id, symbol, timeframe, frame, isMinimized, ...settings } = chart;
+    return [{ name: template.name, settings }];
+  });
 }

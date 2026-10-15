@@ -3,10 +3,10 @@ import type { MenuItem } from './MenuBar';
 import { connectProfile, removeProfile } from '../lib/accounts';
 import { togglePanel } from '../lib/commands';
 import { openContextMenu } from '../lib/context-menu';
-import { indicatorKinds } from '../lib/indicators';
+import { studyGroups } from '../lib/indicator-menu';
 import { session } from '../lib/session';
 import { useStore } from '../lib/store';
-import { activeChart, openDialog, workspace } from '../lib/workspace';
+import { activeChart, addIndicator, openDialog, workspace } from '../lib/workspace';
 import { Panel } from './Panel';
 
 interface TreeNodeProps {
@@ -15,14 +15,15 @@ interface TreeNodeProps {
   detail?: string;
   title?: string;
   isEmphasized?: boolean;
+  isInitiallyCollapsed?: boolean;
   children?: ReactNode;
   onOpen?: () => void;
   menu?: () => MenuItem[];
 }
 
 // Leaves act on a single click, like a desktop sidebar; branches expand on click.
-function TreeNode({ label, icon, detail, title, isEmphasized, children, onOpen, menu }: TreeNodeProps) {
-  const [isExpanded, setIsExpanded] = useState(true);
+function TreeNode({ label, icon, detail, title, isEmphasized, isInitiallyCollapsed, children, onOpen, menu }: TreeNodeProps) {
+  const [isExpanded, setIsExpanded] = useState(!isInitiallyCollapsed);
   const hasChildren = children !== undefined;
   const activate = () => hasChildren ? setIsExpanded(!isExpanded) : onOpen?.();
   return (
@@ -52,7 +53,7 @@ export function Navigator() {
   const profileId = useStore(session, (state) => state.profileId);
   const status = useStore(session, (state) => state.status);
   const chartId = useStore(workspace, (state) => activeChart(state)?.id);
-  const attach = (indicator: (typeof indicatorKinds)[number]['key']) => chartId && openDialog({ kind: 'indicator', chartId, indicator });
+  const attach = (kind: string) => chartId && addIndicator(chartId, kind);
 
   return (
     <Panel title="Navigator" onClose={() => togglePanel('isNavigatorShown')}>
@@ -84,15 +85,19 @@ export function Navigator() {
               <TreeNode label="Manage accounts" icon="⋯" onOpen={() => openDialog({ kind: 'accounts' })} />
             </TreeNode>
             <TreeNode label="Indicators" icon="ƒ">
-              {indicatorKinds.map((kind) => (
-                <TreeNode
-                  key={kind.key}
-                  label={kind.label}
-                  icon="ƒ"
-                  title="Click to attach to the active chart"
-                  onOpen={() => attach(kind.key)}
-                  menu={() => [{ label: 'Attach to Chart', isDisabled: !chartId, action: () => attach(kind.key) }]}
-                />
+              {studyGroups().map((group) => (
+                <TreeNode key={group.label} label={group.label} icon="▤" isInitiallyCollapsed>
+                  {group.studies.map((study) => (
+                    <TreeNode
+                      key={study.type}
+                      label={study.title}
+                      icon="ƒ"
+                      title="Click to attach to the active chart"
+                      onOpen={() => attach(study.type)}
+                      menu={() => [{ label: 'Attach to Chart', isDisabled: !chartId, action: () => attach(study.type) }]}
+                    />
+                  ))}
+                </TreeNode>
               ))}
             </TreeNode>
           </TreeNode>

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { closeChart, loadProfile, makeChart, removeProfile, saveProfile, updateActiveChart, workspace } from './workspace';
+import { closeChart, loadProfile, makeChart, openDialog, toggleAnalysisMode, removeProfile, saveProfile, updateActiveChart, workspace } from './workspace';
 
 test('profile switches retain current edits and persist them without transient UI state', () => {
   const writes = new Map<string, string>();
@@ -28,4 +28,38 @@ test('profile switches retain current edits and persist them without transient U
   assert.equal(workspace.get().charts.length, 0);
   assert.equal(JSON.parse(writes.get('openterm.workspace.v1')!).charts.length, 0);
   delete (globalThis as { localStorage?: unknown }).localStorage;
+});
+
+test('analysis mode refuses trade tickets but keeps charting dialogs', () => {
+  workspace.set({ isAnalysisMode: true, dialog: null });
+  openDialog({ kind: 'order', symbol: 'EURUSD' });
+  openDialog({ kind: 'modifyPosition', ticket: 1 });
+  openDialog({ kind: 'manage', ticket: 1 });
+  assert.equal(workspace.get().dialog, null);
+  openDialog({ kind: 'alerts' });
+  assert.deepEqual(workspace.get().dialog, { kind: 'alerts' });
+  workspace.set({ isAnalysisMode: false, dialog: null });
+  openDialog({ kind: 'order', symbol: 'EURUSD' });
+  assert.equal(workspace.get().dialog?.kind, 'order');
+  workspace.set({ dialog: null });
+});
+
+test('entering analysis mode leaves trading state behind but keeps charting state', () => {
+  workspace.set({ isAnalysisMode: false, page: 'copier', tool: 'riskOrder', depthSymbol: 'EURUSD', dialog: { kind: 'order', symbol: 'EURUSD' } });
+  toggleAnalysisMode();
+  let state = workspace.get();
+  assert.equal(state.isAnalysisMode, true);
+  assert.equal(state.page, 'trading');
+  assert.equal(state.tool, 'cursor');
+  assert.equal(state.depthSymbol, null);
+  assert.equal(state.dialog, null);
+  toggleAnalysisMode();
+  assert.equal(workspace.get().isAnalysisMode, false);
+
+  workspace.set({ tool: 'trend', dialog: { kind: 'alerts' } });
+  toggleAnalysisMode();
+  state = workspace.get();
+  assert.equal(state.tool, 'trend');
+  assert.deepEqual(state.dialog, { kind: 'alerts' });
+  workspace.set({ isAnalysisMode: false, dialog: null, tool: 'cursor' });
 });

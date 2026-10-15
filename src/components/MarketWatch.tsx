@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SymbolSpec } from '../../shared/protocol';
-import { newOrder, toggleDepth, togglePanel } from '../lib/commands';
+import { newOrder, showSymbol, toggleDepth, togglePanel } from '../lib/commands';
 import { formatClock, formatPrice } from '../lib/format';
 import { session } from '../lib/session';
 import { useStore } from '../lib/store';
@@ -47,7 +47,7 @@ function QuoteRow({ spec, isSelected, dropSide, onSelect, onMenu, onDragStart, o
       data-key={spec.name}
       className={`quote-row is-${direction}${isSelected ? ' is-selected' : ''}${dropClass(dropSide)}`}
       onMouseDown={onSelect}
-      onDoubleClick={() => newOrder(spec.name)}
+      onDoubleClick={() => workspace.get().isAnalysisMode ? showSymbol(spec.name) : newOrder(spec.name)}
       onContextMenu={onMenu}
       draggable
       onDragStart={(event) => {
@@ -288,6 +288,7 @@ export function MarketWatch() {
   const lists = useStore(watchlists, (state) => state.lists);
   const all = useStore(session, (state) => state.symbols);
   const hasCharts = useStore(workspace, (state) => state.charts.length > 0);
+  const isAnalysis = useStore(workspace, (state) => state.isAnalysisMode);
   const [tab, setTab] = useState<(typeof tabs)[number]>('Symbols');
   const [selected, setSelected] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ index: number; side: DropSide } | null>(null);
@@ -332,10 +333,10 @@ export function MarketWatch() {
     const others = otherLists(name);
     const isListed = row.symbol !== null;
     openContextMenu(event, [
-      { label: 'New Order', shortcut: 'F9', isDisabled: !isListed, action: () => newOrder(name) },
+      ...(isAnalysis ? [] : [{ label: 'New Order', shortcut: 'F9', isDisabled: !isListed, action: () => newOrder(name) }]),
       { label: 'Chart Window', isDisabled: !isListed, action: () => openChart(name) },
       { label: 'Show in Active Chart', isDisabled: !isListed || !hasCharts, action: () => updateActiveChart({ symbol: name }) },
-      { label: 'Depth of Market', shortcut: 'Alt+B', isDisabled: !isListed, action: () => toggleDepth(name) },
+      ...(isAnalysis ? [] : [{ label: 'Depth of Market', shortcut: 'Alt+B', isDisabled: !isListed, action: () => toggleDepth(name) }]),
       { label: 'Specification...', isDisabled: !isListed, action: () => openDialog({ kind: 'specification', symbol: name }) },
       { label: '', isSeparator: true },
       { label: 'Add to Watchlist', isDisabled: !others.length, items: others },
@@ -390,12 +391,15 @@ export function MarketWatch() {
       event.preventDefault();
       const next = at < 0 ? 0 : Math.max(0, Math.min(symbolRows.length - 1, at + (event.key === 'ArrowDown' ? 1 : -1)));
       setSelected(keyOf(symbolRows[next]));
+      // Stepping through the watchlist flips the chart along with it, as in charting apps.
+      if (isAnalysis && symbolRows[next].symbol) showSymbol(symbolRows[next].symbol);
     } else if ((event.key === 'Delete' || event.key === 'Backspace') && selected && at >= 0) {
       event.preventDefault();
       remove(selected);
     } else if (event.key === 'Enter' && selected && all[selected]) {
       event.preventDefault();
-      openChart(selected);
+      if (isAnalysis) showSymbol(selected);
+      else openChart(selected);
     }
   };
 
@@ -410,7 +414,7 @@ export function MarketWatch() {
           aria-label={`Watchlist ${list.name}`}
           onKeyDown={onListKey}
           onContextMenu={(event) => openContextMenu(event, [
-            { label: 'New Order', shortcut: 'F9', action: () => newOrder(selected && all[selected] ? selected : specs[0]?.name) },
+            ...(isAnalysis ? [] : [{ label: 'New Order', shortcut: 'F9', action: () => newOrder(selected && all[selected] ? selected : specs[0]?.name) }]),
             { label: 'Add Symbol', action: () => search.current?.focus() },
             { label: 'Add Section...', action: () => setEditing({ kind: 'section' }) },
             { label: 'Sort by Name', isDisabled: list.entries.length < 2, action: sortActiveWatchlist },

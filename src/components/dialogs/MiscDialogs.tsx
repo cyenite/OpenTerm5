@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ConnectionSettings, ResolvedServer, SymbolSpec } from '../../../shared/protocol';
-import { indicatorKind, type IndicatorKey } from '../../lib/indicators';
 import { refreshSession, session, terminal } from '../../lib/session';
 import { searchSymbols } from '../../lib/symbol-search';
 import { rowsOf, toggleWatched, useActiveWatchlist, watchedSpecs } from '../../lib/watchlists';
 import { useStore } from '../../lib/store';
-import { addIndicator, closeDialog, defaultParams } from '../../lib/workspace';
+import { closeDialog } from '../../lib/workspace';
 import { Dialog } from './Dialog';
 import { BrokerServerField } from './BrokerServerField';
 
@@ -176,65 +175,6 @@ export function LoginDialog({ profileId }: { profileId?: string }) {
   );
 }
 
-interface IndicatorDialogProps {
-  chartId: string;
-  indicator: IndicatorKey;
-}
-
-const paramLabels: Record<string, string> = {
-  period: 'Period',
-  slowing: 'Slowing periods',
-  tenkan: 'Tenkan-sen periods',
-  kijun: 'Kijun-sen periods',
-  senkou: 'Senkou Span B periods',
-  acceleration: 'Acceleration step',
-  maxAcceleration: 'Maximum acceleration',
-  deviations: 'Deviations',
-  fast: 'Fast EMA',
-  slow: 'Slow EMA',
-  signal: 'MACD SMA',
-  isExponential: 'Exponential',
-};
-
-export function IndicatorDialog({ chartId, indicator }: IndicatorDialogProps) {
-  const [params, setParams] = useState(defaultParams(indicator));
-  const [error, setError] = useState<string | null>(null);
-  const kind = indicatorKind(indicator);
-  return (
-    <Dialog title={kind.label} width={340}>
-      <form
-        className="order-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (Object.values(params).some((value) => typeof value === 'number' && (!Number.isFinite(value) || value <= 0))) { setError('Indicator parameters must be positive numbers.'); return; }
-          if ('acceleration' in params && Number(params.acceleration) > Number(params.maxAcceleration)) { setError('Maximum acceleration must be at least the acceleration step.'); return; }
-          addIndicator(chartId, indicator, params);
-          closeDialog();
-        }}
-      >
-        {Object.entries(params).map(([key, value]) =>
-          typeof value === 'boolean' ? (
-            <label key={key} className="check">
-              <input type="checkbox" checked={value} onChange={(event) => setParams({ ...params, [key]: event.target.checked })} />
-              {paramLabels[key] ?? key}
-            </label>
-          ) : (
-            <label key={key} className="field">
-              <span>{paramLabels[key] ?? key}</span>
-              <input type="number" min={key === 'acceleration' || key === 'maxAcceleration' ? 0.001 : 1} step={key === 'acceleration' || key === 'maxAcceleration' ? 0.001 : key === 'deviations' ? 0.1 : 1} value={value} onChange={(event) => setParams({ ...params, [key]: Number(event.target.value) || 1 })} />
-            </label>
-          ),
-        )}
-        {error && <p role="alert" className="is-loss">{error}</p>}
-        <div className="dialog-actions">
-          <button type="button" onClick={closeDialog}>Cancel</button>
-          <button className="is-primary" type="submit">OK</button>
-        </div>
-      </form>
-    </Dialog>
-  );
-}
-
 export function AboutDialog() {
   const status = useStore(session, (state) => state.status);
   return (
@@ -245,10 +185,6 @@ export function AboutDialog() {
       <p className="is-muted">
         {status?.isConnected ? `Connected to ${status.company ?? 'trade server'}, server build ${status.build}.` : 'Not connected.'}{' '}
         MetaTrader is a trademark of MetaQuotes Ltd. OpenTerm5 is not affiliated with MetaQuotes.
-      </p>
-      <p className="is-muted">
-        <b>Third-party licences</b><br />
-        Lightweight Charts™, Copyright TradingView, Inc., Apache License 2.0, <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">tradingview.com</a>
       </p>
       <div className="dialog-actions">
         <button className="is-primary" onClick={closeDialog}>OK</button>

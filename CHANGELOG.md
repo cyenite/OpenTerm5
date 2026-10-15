@@ -7,6 +7,55 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Analysis mode (View → Analysis Mode, Ctrl+Shift+A): a chart-first layout with a top bar for symbol
+  search, timeframes, chart types, indicators and alerts, drawing tools on a left rail and the
+  watchlist on the right. Order tickets, One-Click trading, the risk planner, Depth of Market and the
+  Toolbox are withdrawn, while accounts, copiers, signals and automation keep running in the
+  background. Open positions and pending orders can be shown on the charts, read-only.
+- Meridian (`packages/meridian-charts`), OpenTerm5's own chart engine, now draws every chart. Charts
+  gain area, baseline and Heikin Ashi styles, loading older history on scroll, axis dragging, resizable
+  panes and a legend with settings for each study. 38 Meridian studies sit next to MetaTrader's own
+  indicator formulas. Analysis mode shows the drawing toolbar: 75 tools in six groups with sectioned
+  flyouts, favourites, a magnet, a style bar for the selected object, and measure and zoom tools.
+- Seconds timeframes S1, S5, S15 and S30, built from the quotes OpenTerm5 receives. MetaTrader
+  supplies neither seconds bars nor past ticks, so a seconds chart starts with the first quote for its
+  symbol and keeps up to four hours. Seconds show on the time axis, crosshair, status bar and Data
+  Window.
+- Meridian themes (View → Theme): Meridian Dark, Light and Midnight, or Match System. One theme colours
+  the whole window and its charts, and hosts can define their own.
+- Advanced charting: undo and redo (Ctrl+Z, Ctrl+Y) for drawings and indicators; copy and paste of
+  drawings between charts; text edited in place on the chart; a context menu on drawings (settings,
+  copy, clone, stacking order, lock, hide, remove) and on the price axis (auto scale, regular,
+  percent, indexed and logarithmic scales, invert); an object tree; bar replay with play, step and
+  speed; Chart Settings for candle, wick and border colours, status line, scales, grid, crosshair and
+  watermark, saved with each chart and its templates; crosshairs that follow each other across chart
+  windows; and price alerts drawn on the chart, with **Add Alert** in the chart's context menu.
+- Drawing settings in tabs (Style, Levels, Text, Coordinates, Visibility), with editable Fibonacci and
+  Gann levels and per-timeframe visibility. New tools: pitchfan, Fibonacci spiral, fixed Gann square,
+  forecast, bars pattern and ghost feed, bringing the toolbar to 82 tools. Fibonacci, Gann, pitchfork,
+  channel, position, regression, VWAP and volume profile tools gain TradingView-style options.
+- 48 more Meridian studies (86 in all), among them DEMA, TEMA, KAMA, ALMA, Williams Alligator,
+  Chandelier Exit, ZigZag, Williams Fractals, TTM Squeeze, Vortex, Choppiness, Connors RSI, Fisher
+  Transform, Schaff Trend Cycle, KST, PPO, TSI and Klinger. The indicator menus split Meridian's
+  studies into **Trend & Overlays** and **Oscillators & Volume**.
+- Hollow candles chart type.
+- Alt shortcuts on a focused chart: Alt+T trend line, Alt+H horizontal line, Alt+J horizontal ray,
+  Alt+V vertical line, Alt+C cross line, Alt+F Fibonacci retracement, Alt+R reset the chart view,
+  Alt+I invert the scale, Alt+L logarithmic and Alt+P percent scale. Shift-click measures.
+
+### Changed
+
+- MetaTrader's chart colour schemes (Green on Black, Color on White, Black on White) are replaced by
+  Meridian themes. Profiles and templates no longer store a colour scheme.
+- Saved charts move to Meridian's format on first start: indicators keep their MetaTrader formulas
+  and settings, and drawings keep their anchors. The indicator parameter dialog is replaced by the
+  settings on each study's legend row.
+
+### Removed
+
+- The TradingView Lightweight Charts dependency.
 ## [0.2.0] - 2026-10-14
 
 ### Added

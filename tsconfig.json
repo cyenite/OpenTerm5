@@ -12,8 +12,12 @@
     "allowImportingTsExtensions": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "types": []
+    "types": [],
+    "paths": {
+      "@meridian/charts": ["./packages/meridian-charts/src/index.ts"],
+      "@meridian/charts/*": ["./packages/meridian-charts/src/*"]
+    }
   },
-  "include": ["src", "shared"],
-  "exclude": ["src/**/*.test.ts", "shared/**/*.test.ts"]
+  "include": ["src", "shared", "packages/meridian-charts/src"],
+  "exclude": ["src/**/*.test.ts", "shared/**/*.test.ts", "packages/**/*.test.ts"]
 }

@@ -1,11 +1,11 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { timeframes } from '../../shared/protocol';
 import { newOrder, setChartType, setTimeframe, toggleDepth, toggleOneClick, togglePanel, zoom } from '../lib/commands';
 import { defaultSymbol } from '../lib/broker-symbols';
 import { useStore } from '../lib/store';
-import { activeChart, chartTypes, openChart, tools, workspace, type ChartType, type Tool } from '../lib/workspace';
+import { activeChart, chartTypes, openChart, toggleAnalysisMode, tools, workspace, type ChartType, type Tool } from '../lib/workspace';
 import { HintBubble, hintProps, type HintContent } from './ui/Hint';
 import { Icon, type IconName } from './ui/Icon';
+import { chartTimeframes } from '../lib/mt5-timeframes';
 
 interface ToolButtonProps {
   hint: HintContent;
@@ -15,10 +15,10 @@ interface ToolButtonProps {
   isPrimary?: boolean;
   isDisabled?: boolean;
   textLevel?: number;
-  onClick: () => void;
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }
 
-function ToolButton({ hint, icon, text, isActive, isPrimary, isDisabled, textLevel, onClick }: ToolButtonProps) {
+export function ToolButton({ hint, icon, text, isActive, isPrimary, isDisabled, textLevel, onClick }: ToolButtonProps) {
   const className = ['tool-button', isActive && 'is-active', isPrimary && 'is-primary', textLevel && 'has-text'].filter(Boolean).join(' ');
   return (
     <button
@@ -29,7 +29,7 @@ function ToolButton({ hint, icon, text, isActive, isPrimary, isDisabled, textLev
       aria-pressed={isActive}
       aria-disabled={isDisabled || undefined}
       data-text-level={textLevel}
-      onClick={() => { if (!isDisabled) onClick(); }}
+      onClick={(event) => { if (!isDisabled) onClick(event); }}
       {...hintProps(hint)}
     >
       {icon && <Icon name={icon} />}
@@ -43,11 +43,11 @@ interface ToolGroupProps {
   children: React.ReactNode;
 }
 
-function ToolGroup({ label, children }: ToolGroupProps) {
+export function ToolGroup({ label, children }: ToolGroupProps) {
   return <div className="toolbar-group" role="group" aria-label={label}>{children}</div>;
 }
 
-const chartTypeIcons: Record<ChartType, IconName> = { bars: 'bars', candles: 'candles', line: 'line' };
+export const chartTypeIcons: Record<ChartType, IconName> = { bars: 'bars', candles: 'candles', hollow: 'hollow', line: 'line', area: 'area', baseline: 'baseline', heikinashi: 'heikinashi' };
 const toolIcons: Record<Tool, IconName> = { cursor: 'cursor', crosshair: 'crosshair', hline: 'hline', trend: 'trend', vline: 'vline', ray: 'ray', rectangle: 'rectangle', fibonacci: 'fibonacci', riskOrder: 'riskOrder' };
 
 // Labels stay while the toolbar fits on one row. When it would not, the least needed labels go
@@ -98,6 +98,9 @@ export function Toolbar() {
         <ToolButton text="New Order" isPrimary hint={{ title: 'New Order', shortcut: 'F9', description: 'Open the order ticket for the active symbol.' }} onClick={() => newOrder()} />
         <ToolButton icon="oneClick" text="One-Click" textLevel={1} isActive={state.isOneClickEnabled} hint={{ title: 'One-Click Trading', description: 'Buy and sell from the chart immediately, without a confirmation ticket.' }} onClick={toggleOneClick} />
       </ToolGroup>
+      <ToolGroup label="Mode">
+        <ToolButton icon="analysis" text="Analysis" textLevel={1} hint={{ title: 'Analysis Mode', shortcut: 'Ctrl+Shift+A', description: 'A chart-first layout without trading controls. Accounts, copiers and signals keep running.' }} onClick={toggleAnalysisMode} />
+      </ToolGroup>
       <ToolGroup label="Chart type">
         {chartTypes.map((type) => (
           <ToolButton key={type.key} icon={chartTypeIcons[type.key]} isActive={chart?.type === type.key} isDisabled={!hasChart} hint={{ title: type.label, shortcut: type.shortcut, description: type.description }} onClick={() => setChartType(type.key)} />
@@ -113,7 +116,7 @@ export function Toolbar() {
         ))}
       </ToolGroup>
       <ToolGroup label="Timeframe">
-        {timeframes
+        {chartTimeframes
           .filter((timeframe) => timeframe.isOnToolbar)
           .map((timeframe) => (
             <ToolButton key={timeframe.label} text={timeframe.label} isActive={chart?.timeframe === timeframe.label} isDisabled={!hasChart} hint={{ title: `Timeframe ${timeframe.label}`, description: 'The period each bar on the active chart covers.' }} onClick={() => setTimeframe(timeframe.label)} />

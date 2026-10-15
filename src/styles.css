@@ -2,6 +2,7 @@
   box-sizing: border-box;
 }
 
+/* Fallback palette until Meridian applies the chosen theme at startup (src/lib/theme.ts). */
 :root {
   --layer-notice: 45;
   --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', Inter, Ubuntu, Cantarell, system-ui, sans-serif;
@@ -491,7 +492,7 @@ button:active:not(:disabled) {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: #808080;
+  background: var(--chrome);
 }
 
 .chart-area {
@@ -640,10 +641,11 @@ button:active:not(:disabled) {
   margin-left: auto;
 }
 
+
 .chart-window {
   position: relative;
   height: 100%;
-  border: 1px solid #555;
+  border: 1px solid var(--border);
 }
 
 .chart-window.is-active {
@@ -653,21 +655,6 @@ button:active:not(:disabled) {
 .chart-canvas {
   position: absolute;
   inset: 0;
-}
-
-.chart-canvas[data-tool='hline'],
-.chart-canvas[data-tool='trend'] {
-  cursor: crosshair;
-}
-
-.chart-legend {
-  position: absolute;
-  left: 6px;
-  top: 4px;
-  font-size: 11px;
-  pointer-events: none;
-  z-index: 3;
-  white-space: pre;
 }
 
 .chart-status {
@@ -1102,7 +1089,7 @@ button:disabled {
 .tick-chart {
   width: 260px;
   height: 220px;
-  background: #000;
+  background: var(--surface-alt);
   border: 1px solid var(--border);
 }
 
@@ -1110,7 +1097,7 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #aaa;
+  color: var(--muted);
 }
 
 .tick-chart polyline {
@@ -1119,15 +1106,15 @@ button:disabled {
 }
 
 .tick-chart .tick-bid {
-  stroke: #00ff00;
+  stroke: var(--buy);
 }
 
 .tick-chart .tick-ask {
-  stroke: #ff0000;
+  stroke: var(--sell);
 }
 
 .tick-chart text {
-  fill: #fff;
+  fill: var(--muted);
   font-size: 10px;
 }
 
@@ -2165,10 +2152,10 @@ pre {
   inset: 0;
   pointer-events: none;
   z-index: 5;
-  --line-entry: #3d8bff;
-  --line-stop: #ff453a;
-  --line-target: #30d158;
-  --line-pending: #ff9f0a;
+  --line-entry: var(--buy);
+  --line-stop: var(--loss);
+  --line-target: var(--profit);
+  --line-pending: var(--warn);
 }
 
 .overlay-capture {
@@ -3103,4 +3090,46 @@ button.is-link {
   gap: 4px 16px;
   padding-top: 8px;
   border-top: 0.5px solid var(--border-soft);
+}
+
+/* Analysis mode: a chart-first layout with Meridian's drawing toolbar in each chart and the watchlist on the right. */
+.analysis-bar {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.analysis-symbol {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.analysis-symbol strong {
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+.analysis-symbol input {
+  width: 130px;
+  height: 24px;
+}
+
+.analysis-spacer {
+  flex: 1;
+  min-width: 8px;
+}
+
+.analysis-activity {
+  flex: none;
+  color: var(--muted);
+}
+
+.dock-right.analysis-dock {
+  width: 300px;
+  flex-direction: column;
+  min-height: 0;
 }

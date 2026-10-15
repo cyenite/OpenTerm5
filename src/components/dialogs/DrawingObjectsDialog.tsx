@@ -1,77 +1,78 @@
 import { Component } from 'react';
-import { isDrawing } from '../../lib/drawing-geometry';
-import { closeDialog, tools, updateChart, workspace, type Drawing } from '../../lib/workspace';
+import { drawingToolInfo } from '@meridian/charts';
+import { closeDialog, updateChart, workspace, type Drawing } from '../../lib/workspace';
 import { Dialog } from './Dialog';
 
 interface ObjectsProps { readonly chartId: string }
 interface ObjectsState {
   error: string;
   selected: string;
-  fields: Record<string, string>;
+  // Anchor fields as typed: time in seconds since the epoch (UTC) and price.
+  anchors: { time: string; price: string }[];
+}
+
+function drawingLabel(drawing: Drawing): string {
+  return drawingToolInfo.get(drawing.type)?.label ?? drawing.type;
 }
 
 export class DrawingObjectsDialog extends Component<ObjectsProps, ObjectsState> {
-  state: ObjectsState = { error: '', selected: '', fields: {} };
+  state: ObjectsState = { error: '', selected: '', anchors: [] };
   private unsubscribe?: () => void;
 
   componentDidMount() { this.unsubscribe = workspace.subscribe(() => this.forceUpdate()); }
   componentWillUnmount() { this.unsubscribe?.(); }
 
+  private chart() {
+    return workspace.get().charts.find((chart) => chart.id === this.props.chartId);
+  }
+
   private select = (id: string) => {
-    const drawing = workspace.get().charts.find((chart) => chart.id === this.props.chartId)?.drawings.find((entry) => entry.id === id);
-    const fields: Record<string, string> = {};
-    if (drawing?.kind === 'hline') fields.price = String(drawing.price);
-    else if (drawing?.kind === 'vline') fields.time = String(drawing.time);
-    else if (drawing) {
-      fields.fromTime = String(drawing.from.time);
-      fields.fromPrice = String(drawing.from.price);
-      if ('to' in drawing) { fields.toTime = String(drawing.to.time); fields.toPrice = String(drawing.to.price); }
-    }
-    this.setState({ selected: id, fields, error: '' });
+    const drawing = this.chart()?.drawings.find((entry) => entry.id === id);
+    const anchors = (drawing?.anchors ?? []).map((anchor) => ({ time: String(Math.round(anchor.time / 1000)), price: String(anchor.price) }));
+    this.setState({ selected: id, anchors, error: '' });
   };
 
   private save = () => {
-    const chart = workspace.get().charts.find((entry) => entry.id === this.props.chartId);
+    const chart = this.chart();
     const drawing = chart?.drawings.find((entry) => entry.id === this.state.selected);
     if (!chart || !drawing) { this.setState({ error: 'The selected object no longer exists.' }); return; }
-    const number = (name: string) => {
-      const raw = this.state.fields[name]?.trim();
-      const value = raw ? Number(raw) : NaN;
-      if (!Number.isFinite(value)) throw new Error('Enter finite values for every coordinate.');
-      return value;
-    };
-    try {
-      const candidate: Drawing = drawing.kind === 'hline' ? { ...drawing, price: number('price') } : drawing.kind === 'vline' ? { ...drawing, time: number('time') } : drawing.kind === 'ray' ? { ...drawing, from: { time: number('fromTime'), price: number('fromPrice') } } : { ...drawing, from: { time: number('fromTime'), price: number('fromPrice') }, to: { time: number('toTime'), price: number('toPrice') } };
-      if (!isDrawing(candidate)) throw new Error('Invalid object coordinates.');
-      updateChart(chart.id, { drawings: chart.drawings.map((entry) => entry.id === candidate.id ? candidate : entry) });
-      this.setState({ error: '' });
-    } catch (reason) { this.setState({ error: reason instanceof Error ? reason.message : 'Object properties could not be saved.' }); }
+    const anchors = this.state.anchors.map((anchor) => ({ time: Number(anchor.time) * 1000, price: Number(anchor.price) }));
+    if (!anchors.every((anchor) => Number.isFinite(anchor.time) && Number.isFinite(anchor.price))) { this.setState({ error: 'Enter finite values for every coordinate.' }); return; }
+    updateChart(chart.id, { drawings: chart.drawings.map((entry) => entry.id === drawing.id ? { ...entry, anchors } : entry) });
+    this.setState({ error: '' });
   };
 
   private remove = (isAll: boolean) => {
-    const chart = workspace.get().charts.find((entry) => entry.id === this.props.chartId);
+    const chart = this.chart();
     if (!chart) return;
     updateChart(chart.id, { drawings: isAll ? [] : chart.drawings.filter((entry) => entry.id !== this.state.selected) });
-    this.setState({ selected: '', fields: {}, error: '' });
+    this.setState({ selected: '', anchors: [], error: '' });
   };
 
+  private setAnchor(index: number, field: 'time' | 'price', value: string) {
+    this.setState(({ anchors }) => ({ anchors: anchors.map((anchor, position) => position === index ? { ...anchor, [field]: value } : anchor) }));
+  }
+
   render() {
-    const chart = workspace.get().charts.find((entry) => entry.id === this.props.chartId);
-    const { error, fields, selected } = this.state;
+    const chart = this.chart();
+    const { error, anchors, selected } = this.state;
     const drawing = chart?.drawings.find((entry) => entry.id === selected);
-    const labels: Record<string, string> = { price: 'Price', time: 'Time (UTC)', fromTime: 'First anchor time (UTC)', fromPrice: 'First anchor price', toTime: 'Second anchor time (UTC)', toPrice: 'Second anchor price' };
     return (
       <Dialog title={`Objects: ${chart?.symbol ?? 'closed chart'}`} width={560}>
         <div className="order-form">
-          <label className="field"><span>Object</span><select value={selected} onChange={(event) => this.select(event.target.value)}><option value="">Select an object</option>{chart?.drawings.map((entry) => <option key={entry.id} value={entry.id}>{tools.find((tool) => tool.key === entry.kind)?.label ?? entry.kind} · {entry.id}</option>)}</select></label>
+          <label className="field"><span>Object</span><select value={selected} onChange={(event) => this.select(event.target.value)}><option value="">Select an object</option>{chart?.drawings.map((entry) => <option key={entry.id} value={entry.id}>{drawingLabel(entry)} · {entry.id}</option>)}</select></label>
           {!chart?.drawings.length && <p>No drawing objects on this chart.</p>}
-          {drawing && Object.entries(fields).map(([name, value]) => {
-            const isTime = name === 'time' || name.endsWith('Time');
-            const milliseconds = Number(value) * 1000;
-            const display = isTime ? !!value.trim() && Number.isFinite(milliseconds) && Math.abs(milliseconds) <= 8.64e15 ? new Date(milliseconds).toISOString().slice(0, 19) : '' : value;
-            return <label className="field" key={name}><span>{labels[name]}</span><input type={isTime ? 'datetime-local' : 'number'} step={isTime ? '1' : 'any'} value={display} onChange={(event) => this.setState({ fields: { ...fields, [name]: isTime ? event.target.value ? String(Date.parse(`${event.target.value}Z`) / 1000) : '' : event.target.value } })} /></label>;
+          {drawing && anchors.map((anchor, index) => {
+            const milliseconds = Number(anchor.time) * 1000;
+            const display = anchor.time.trim() && Number.isFinite(milliseconds) && Math.abs(milliseconds) <= 8.64e15 ? new Date(milliseconds).toISOString().slice(0, 19) : '';
+            const name = anchors.length > 1 ? `Anchor ${index + 1} ` : '';
+            return (
+              <div key={index} className="stack">
+                {drawing.type !== 'hline' && <label className="field"><span>{name}time (UTC)</span><input type="datetime-local" step="1" value={display} onChange={(event) => this.setAnchor(index, 'time', event.target.value ? String(Date.parse(`${event.target.value}Z`) / 1000) : '')} /></label>}
+                {drawing.type !== 'vline' && <label className="field"><span>{name}price</span><input type="number" step="any" value={anchor.price} onChange={(event) => this.setAnchor(index, 'price', event.target.value)} /></label>}
+              </div>
+            );
           })}
-          {drawing?.kind === 'fibonacci' && <p className="is-muted">0% is the second anchor; 100% is the first. Levels extend to the right. Edit anchor coordinates to change direction and scale.</p>}
           {error && <p role="alert" className="is-loss">{error}</p>}
           <div className="dialog-actions">
             <button disabled={!chart?.drawings.length} onClick={() => this.remove(true)}>Delete all</button>
