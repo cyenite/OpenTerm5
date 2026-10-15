@@ -94,6 +94,7 @@ function migrateSerialized(value: Record<string, unknown>): Drawing | null {
       ...(typeof savedStyle.lineColor === 'string' ? { lineColor: savedStyle.lineColor } : {}),
       ...(Number.isFinite(savedStyle.lineWidth) ? { lineWidth: savedStyle.lineWidth as number } : {}),
       ...(savedStyle.lineStyle === 'solid' || savedStyle.lineStyle === 'dashed' || savedStyle.lineStyle === 'dotted' ? { lineStyle: savedStyle.lineStyle } : {}),
+      ...(Number.isFinite(savedStyle.lineOpacity) ? { lineOpacity: Math.max(0, Math.min(1, savedStyle.lineOpacity as number)) } : {}),
       ...(typeof savedStyle.fillColor === 'string' ? { fillColor: savedStyle.fillColor } : {}),
       ...(Number.isFinite(savedStyle.fillOpacity) ? { fillOpacity: savedStyle.fillOpacity as number } : {}),
       ...(typeof savedStyle.textColor === 'string' ? { textColor: savedStyle.textColor } : {}),

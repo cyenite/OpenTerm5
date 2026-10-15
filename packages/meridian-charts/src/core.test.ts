@@ -95,6 +95,7 @@ test('every tool builds shapes from its anchors without throwing', () => {
       theme: { text: '#fff', background: '#000', up: '#0f0', down: '#f00', muted: '#888' },
       formatPrice: (price: number) => price.toFixed(2),
       formatDuration: (ms: number) => `${ms}ms`,
+      formatTime: (time: number) => String(time),
       timeToX: (time: number) => (time - 1_000_000) / 10_000,
       priceToY: (price: number) => 300 - price,
       bars: Array.from({ length: 50 }, (_, index) => ({ time: 1_000_000 + index * 60_000, open: 100, high: 102, low: 98, close: 101, volume: 10 })),

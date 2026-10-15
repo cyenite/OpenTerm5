@@ -1,4 +1,5 @@
 import { applyTheme, resolveTheme, systemThemeId, type MeridianTheme } from '@meridian/charts/themes';
+import { importedThemes } from './custom-themes';
 import { Store } from './store';
 import { workspace } from './workspace';
 
@@ -18,6 +19,7 @@ export function startTheming(): void {
   };
   update();
   workspace.subscribe(update);
+  importedThemes.subscribe(update);
   media.addEventListener('change', update);
 }
 

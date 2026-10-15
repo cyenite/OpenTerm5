@@ -9,6 +9,9 @@ import { startAutomation } from './lib/automation';
 import { startTickBars } from './lib/mt5-provider';
 import { registerMt5Studies } from './lib/mt5-studies';
 import { startTheming } from './lib/theme';
+import { startImportedThemes } from './lib/custom-themes';
+import { startSymbolDrawings } from './lib/symbol-drawings';
+import { startDrawingTemplates } from './lib/drawing-templates';
 import './styles.css';
 
 document.body.classList.add(`platform-${window.terminal.platform}`);
@@ -18,6 +21,9 @@ startTickBars();
 startSession();
 startBrokerSymbols();
 startWatchlists();
+startSymbolDrawings();
+startDrawingTemplates();
+startImportedThemes();
 startAutomation();
 
 createRoot(document.getElementById('root')!).render(

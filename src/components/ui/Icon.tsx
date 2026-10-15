@@ -36,6 +36,10 @@ const paths = {
   replay: <><path d="M5 4v16" /><path d="m9 6 10 6-10 6z" /></>,
   objectTree: <><path d="M4 5h6M4 5v14M4 12h5M4 19h5" /><rect x="12" y="3" width="8" height="4" rx="1" /><rect x="11" y="10" width="9" height="4" rx="1" /><rect x="11" y="17" width="9" height="4" rx="1" /></>,
   chartSettings: <><circle cx="12" cy="12" r="3" /><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" /></>,
+  chevron: <path d="m7 10 5 5 5-5" />,
+  plus: <path d="M12 5v14M5 12h14" />,
+  panels: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16M9 14h12" /></>,
+  trade: <><path d="M4 17 9 11l4 3 7-8" /><path d="M15 6h5v5" /></>,
   exit: <><path d="M14 4h6v16h-6" /><path d="M10 8l-4 4 4 4M6 12h10" /></>,
 } as const;
 

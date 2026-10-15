@@ -46,6 +46,8 @@ export interface DrawingStyle {
   lineColor: string;
   lineWidth: number;
   lineStyle: LineStyle;
+  // 0 to 1; a border can be fully transparent while its box stays filled.
+  lineOpacity?: number;
   fillColor?: string;
   fillOpacity?: number;
   textColor?: string;
@@ -67,6 +69,22 @@ export interface SerializedDrawing {
   zIndex: number;
   createdAt: number;
   props?: Record<string, unknown>;
+}
+
+// A tool's saved settings, applied from a drawing's Template menu.
+export interface DrawingTemplate {
+  name: string;
+  style: DrawingStyle;
+  props?: Record<string, unknown>;
+  text?: string;
+}
+
+// Where a host keeps drawing templates, by tool type.
+export interface DrawingTemplateStore {
+  list(type: string): readonly DrawingTemplate[];
+  // Replaces a template of the same name.
+  save(type: string, template: DrawingTemplate): void;
+  remove(type: string, name: string): void;
 }
 
 // ── Studies ──────────────────────────────────────────────────────────────────

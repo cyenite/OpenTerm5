@@ -88,6 +88,7 @@ export function parseAccountModel(payload: Uint8Array, login: number): WebAccoun
       isTradeAllowed: !(flags & (4 | 8 | 512)),
       profit: 0, margin: 0, equity: balance + credit,
       marginFree: balance + credit, marginLevel: 0,
+      utcOffsetSeconds: buffer.readInt32LE(739) + buffer.readUInt8(743) * 3600,
     },
     hasMargin: false,
     serverOffsetSeconds: buffer.readInt32LE(739) + buffer.readUInt8(743) * 3600,

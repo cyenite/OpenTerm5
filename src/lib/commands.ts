@@ -2,7 +2,7 @@ import type { ChartTimeframe } from './mt5-timeframes';
 import { defaultSymbol } from './broker-symbols';
 import { activeChart, arrangeWindows, closeChart, openChart, openDialog, pages, toggleAnalysisMode, updateActiveChart, workspace, type ChartType, type ToolboxTab, type WorkspaceState } from './workspace';
 
-type PanelFlag = 'isMarketWatchShown' | 'isNavigatorShown' | 'isToolboxShown' | 'isDataWindowShown' | 'isStatusBarShown' | 'isChartBarShown';
+type PanelFlag = 'isMarketWatchShown' | 'isNavigatorShown' | 'isToolboxShown' | 'isDataWindowShown' | 'isStatusBarShown' | 'isChartBarShown' | 'isTradeDrawingToolbarShown';
 
 export function togglePanel(flag: PanelFlag): void {
   workspace.set((state) => ({ [flag]: !state[flag] }) as Partial<WorkspaceState>);

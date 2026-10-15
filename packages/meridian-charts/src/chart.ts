@@ -4,13 +4,14 @@ import { TimeScale } from './core/time-scale';
 import { timeTicks } from './core/time-ticks';
 import { timeframeMs, timeUnits } from './core/timeframes';
 import { drawingToolInfo } from './drawings/catalogue';
-import { applyDrawingFields, drawingFields, isShownOn } from './drawings/settings';
+import { rebaseDrawings } from './drawings/history';
+import { applyDrawingFields, drawingFields, isShownOn, templateOf, withTemplate } from './drawings/settings';
 import { hitShape, paintShapes, ShapeList, type Pt } from './drawings/shapes';
 import { styleFor, toolDefinitions, type CreateEnv, type ToolDefinition, type ToolEnv } from './drawings/tools';
-import { applySettingsFields, defaultSettings, restoreSettings, settingsFields, type ChartSettings } from './settings';
+import { applySettingsFields, backgroundGradientOf, defaultSettings, restoreSettings, settingsFields, themeSettings, type ChartSettings } from './settings';
 import { getStudy, resolveInputs, studyCaption } from './studies/registry';
-import type { MeridianTheme } from './themes';
-import type { Bar, DataProvider, DrawingPoint, InputValue, PriceStyle, SerializedDrawing, StudyDefinition, StudyOutput } from './types';
+import { listThemes, type MeridianTheme } from './themes';
+import type { Bar, DataProvider, DrawingPoint, DrawingTemplateStore, InputValue, PriceStyle, SerializedDrawing, StudyDefinition, StudyOutput } from './types';
 import { openDialog, type Field } from './ui/dialog';
 import { Legend, type LegendEntry, type LegendValue } from './ui/legend';
 import { openMenu, separator, type MenuEntry } from './ui/menu';
@@ -41,6 +42,8 @@ export interface MeridianChartOptions {
   settings?: unknown;
   // Faint text behind the bars; defaults to the title.
   watermark?: string;
+  // Named templates for each drawing tool, offered in a drawing's settings.
+  drawingTemplates?: DrawingTemplateStore;
 }
 
 export interface MeridianPriceLine {
@@ -253,6 +256,7 @@ export class MeridianChart {
   private seq = 0;
   private chartSettings: ChartSettings;
   private watermark: string | null;
+  private readonly drawingTemplates: DrawingTemplateStore | null;
   private undoStack: Snapshot[] = [];
   private redoStack: Snapshot[] = [];
   private dragBefore: Snapshot | null = null;
@@ -291,6 +295,7 @@ export class MeridianChart {
     this.depth = this.pageBars;
     this.chartSettings = restoreSettings(options.settings);
     this.watermark = options.watermark ?? null;
+    this.drawingTemplates = options.drawingTemplates ?? null;
 
     this.root = element('div', 'mc-root', container);
     this.root.dataset.meridianChart = this.id;
@@ -480,6 +485,7 @@ export class MeridianChart {
       fields: settingsFields(this.chartSettings, this.theme),
       onApply: (values) => this.setSettings(applySettingsFields(values, this.theme)),
       onDefaults: () => Object.fromEntries(settingsFields(defaultSettings, this.theme).map((field) => [field.key, field.value as never])),
+      templates: () => listThemes().map((theme) => ({ label: theme.label, values: Object.fromEntries(settingsFields(themeSettings(this.chartSettings, theme), this.theme).map((field) => [field.key, field.value as never])) })),
     });
   }
 
@@ -660,7 +666,7 @@ export class MeridianChart {
     context.drawImage(this.canvas, 0, 0);
     context.scale(this.ratio, this.ratio);
     context.font = `600 13px ${this.theme.chart.fontFamily}`;
-    context.fillStyle = this.theme.chart.text;
+    context.fillStyle = this.colors().text;
     context.textBaseline = 'top';
     context.fillText(this.title, 12, 10);
     return copy;
@@ -793,10 +799,21 @@ export class MeridianChart {
     return structuredClone(this.drawingList);
   }
 
-  setDrawings(drawings: readonly SerializedDrawing[]): void {
-    this.drawingList = structuredClone(drawings.filter((drawing) => toolDefinitions.has(drawing.type)) as SerializedDrawing[]);
+  // An undoable change is one the user made to this chart through the host. Any other (another
+  // chart's edit, an import) stays out of the undo history, so undoing never reverts or revives it.
+  setDrawings(drawings: readonly SerializedDrawing[], { isUndoable = false }: { isUndoable?: boolean } = {}): void {
+    const next = structuredClone(drawings.filter((drawing) => toolDefinitions.has(drawing.type)) as SerializedDrawing[]);
+    if (isUndoable) {
+      this.checkpoint();
+    } else {
+      const rebase = (snapshot: Snapshot): Snapshot => ({ ...snapshot, drawings: rebaseDrawings(snapshot.drawings, this.drawingList, next) });
+      this.undoStack = this.undoStack.map(rebase);
+      this.redoStack = this.redoStack.map(rebase);
+    }
+    this.drawingList = next;
     if (this.selectedId && !this.drawingList.some((drawing) => drawing.id === this.selectedId)) this.select(null);
     else if (this.selectedId) this.select(this.selectedId);
+    this.refreshTree();
     this.invalidate();
   }
 
@@ -997,6 +1014,8 @@ export class MeridianChart {
       '--mc-accent': ui.accent,
       '--mc-active-bg': ui.accentSoft,
       '--mc-legend-hover': ui.hover,
+      // The legend sits on the chart, so a chart text colour from Chart Settings applies to it too.
+      '--mc-legend-text': this.chartSettings.textColor ?? ui.text,
     };
     for (const [name, value] of Object.entries(variables)) this.root.style.setProperty(name, value);
     this.canvas.style.background = this.colors().background;
@@ -1016,8 +1035,13 @@ export class MeridianChart {
       wickUp: settings.wickUpColor ?? up,
       wickDown: settings.wickDownColor ?? down,
       background: settings.background ?? chart.background,
-      grid: settings.gridColor ?? chart.grid,
+      backgroundGradient: backgroundGradientOf(settings, this.theme),
+      verticalGrid: settings.verticalGridColor ?? chart.grid,
+      horizontalGrid: settings.horizontalGridColor ?? chart.grid,
       crosshair: settings.crosshairColor ?? chart.crosshair,
+      text: settings.textColor ?? chart.text,
+      scaleLine: settings.scaleLineColor ?? chart.border,
+      separator: settings.separatorColor ?? chart.border,
     };
   }
 
@@ -1025,6 +1049,7 @@ export class MeridianChart {
     const scale = this.panes[0].scale;
     scale.setMode(this.chartSettings.scaleMode);
     scale.isInverted = this.chartSettings.isScaleInverted;
+    scale.margins = { top: this.chartSettings.topMarginPercent / 100, bottom: this.chartSettings.bottomMarginPercent / 100 };
     const wasAtEnd = this.timeScale.isAtEnd();
     const margin = this.chartSettings.rightMarginBars;
     if (margin !== this.timeScale.rightMarginBars) {
@@ -1476,9 +1501,14 @@ export class MeridianChart {
         const drawing = this.drawingList.find((candidate) => candidate.id === drag.id);
         const definition = drawing && toolDefinitions.get(drawing.type);
         if (!drawing || !definition) break;
+        const point = this.dataPoint(p, definition.anchors !== 'free');
+        if (definition.handles) {
+          drawing.anchors = definition.handles.drag(drawing.anchors, drag.index, point);
+          break;
+        }
         const anchors = [...drawing.anchors];
-        anchors[drag.index] = this.dataPoint(p, definition.anchors !== 'free');
-        drawing.anchors = definition.constrain ? definition.constrain(anchors, drag.index) : anchors;
+        anchors[drag.index] = point;
+        drawing.anchors = anchors;
         break;
       }
       case 'place':
@@ -1714,10 +1744,20 @@ export class MeridianChart {
     const definition = drawing && toolDefinitions.get(drawing.type);
     if (!drawing || !definition) return;
     this.closeDialog?.();
+    const valuesOf = (restyled: SerializedDrawing) => Object.fromEntries(drawingFields(restyled, definition).map((field) => [field.key, field.value as never]));
+    const store = this.drawingTemplates;
     this.closeDialog = openDialog(this.root, {
       title: drawingToolInfo.get(drawing.type)?.label ?? 'Drawing',
       fields: drawingFields(drawing, definition),
       focus,
+      onDefaults: () => valuesOf(withTemplate(drawing, null, styleFor(drawing.type))),
+      templates: () => (store?.list(drawing.type) ?? []).map((template) => ({ label: template.name, values: valuesOf(withTemplate(drawing, template, styleFor(drawing.type))) })),
+      ...(store ? {
+        templateActions: {
+          save: (name, values) => store.save(drawing.type, templateOf(applyDrawingFields(drawing, definition, values), name)),
+          remove: (name) => store.remove(drawing.type, name),
+        },
+      } : {}),
       onApply: (values) => {
         const current = this.drawingList.find((candidate) => candidate.id === id);
         if (!current) return;
@@ -1893,15 +1933,17 @@ export class MeridianChart {
       drawing,
       bounds: { left: 0, top: this.panes[0].top, width: this.plotWidth, height: this.panes[0].height },
       style: drawing.style,
-      theme: { text: chart.text, background: ui.surfaceRaised, up: chart.up, down: chart.down, muted: ui.muted },
+      theme: { text: this.colors().text, background: ui.surfaceRaised, up: chart.up, down: chart.down, muted: ui.muted },
       formatPrice: (price) => formatPrice(price, this.precision),
       formatDuration,
+      formatTime: (time) => formatCrosshairTime(time, this.interval),
       timeToX: (time) => this.timeScale.timeToX(time),
       priceToY: (price) => scale.priceToY(price),
       bars: this.barList,
       indexOf: (time) => this.timeScale.indexOf(time),
       intervalMs: this.interval,
       isDraft,
+      isSelected: drawing.id === this.selectedId,
     };
   }
 
@@ -1940,7 +1982,9 @@ export class MeridianChart {
   private handlePoints(drawing: SerializedDrawing): Pt[] {
     if (toolDefinitions.get(drawing.type)?.anchors === 'free') return [];
     const scale = this.panes[0].scale;
-    return drawing.anchors.map((anchor) => ({ x: this.timeScale.timeToX(anchor.time), y: scale.priceToY(anchor.price) }));
+    const definition = toolDefinitions.get(drawing.type);
+    const points = definition?.handles && drawing.anchors.length === definition.anchors ? definition.handles.at(drawing.anchors) : drawing.anchors;
+    return points.map((anchor) => ({ x: this.timeScale.timeToX(anchor.time), y: scale.priceToY(anchor.price) }));
   }
 
   // ── Rendering ───────────────────────────────────────────────────────────
@@ -2016,11 +2060,16 @@ export class MeridianChart {
 
   private render(): void {
     const ctx = this.context;
-    const { chart } = this.theme;
     const colors = this.colors();
     const settings = this.chartSettings;
     ctx.setTransform(this.ratio, 0, 0, this.ratio, 0, 0);
-    ctx.fillStyle = colors.background;
+    let backgroundFill: string | CanvasGradient = colors.background;
+    if (colors.backgroundGradient) {
+      backgroundFill = ctx.createLinearGradient(0, 0, 0, this.height);
+      backgroundFill.addColorStop(0, colors.background);
+      backgroundFill.addColorStop(1, colors.backgroundGradient);
+    }
+    ctx.fillStyle = backgroundFill;
     ctx.fillRect(0, 0, this.width, this.height);
     if (!this.plotWidth || !this.height) return;
 
@@ -2040,18 +2089,23 @@ export class MeridianChart {
     const scaleTicks = new Map(this.panes.map((pane) => [pane, pane.scale.ticks(this.formatter(pane))]));
 
     // Grid
-    if (this.isGridShown && (settings.isVerticalGridShown || settings.isHorizontalGridShown)) {
-      ctx.strokeStyle = colors.grid;
+    if (this.isGridShown) {
       ctx.lineWidth = 1;
-      ctx.beginPath();
       if (settings.isVerticalGridShown) {
+        ctx.strokeStyle = colors.verticalGrid;
+        ctx.setLineDash(dashOf(settings.verticalGridStyle));
+        ctx.beginPath();
         for (const tick of ticks) {
           const x = this.crisp(this.timeScale.indexToX(tick.index));
           ctx.moveTo(x, 0);
           ctx.lineTo(x, timeAxisTop);
         }
+        ctx.stroke();
       }
       if (settings.isHorizontalGridShown) {
+        ctx.strokeStyle = colors.horizontalGrid;
+        ctx.setLineDash(dashOf(settings.horizontalGridStyle));
+        ctx.beginPath();
         for (const pane of this.panes) {
           for (const tick of scaleTicks.get(pane)!) {
             const y = this.crisp(pane.scale.priceToY(tick.price));
@@ -2060,8 +2114,9 @@ export class MeridianChart {
             ctx.lineTo(this.plotWidth, y);
           }
         }
+        ctx.stroke();
       }
-      ctx.stroke();
+      ctx.setLineDash([]);
     }
     if (settings.isWatermarkShown) this.paintWatermark(this.panes[0]);
 
@@ -2096,23 +2151,26 @@ export class MeridianChart {
     if (this.replay) this.paintReplay(timeAxisTop);
 
     // Axes
-    ctx.fillStyle = colors.background;
+    ctx.fillStyle = backgroundFill;
     ctx.fillRect(this.plotWidth, 0, this.width - this.plotWidth, this.height);
     ctx.fillRect(0, timeAxisTop, this.width, TIME_AXIS_HEIGHT);
-    ctx.strokeStyle = chart.border;
     ctx.lineWidth = 1;
+    ctx.strokeStyle = colors.separator;
     ctx.beginPath();
-    ctx.moveTo(this.crisp(this.plotWidth), 0);
-    ctx.lineTo(this.crisp(this.plotWidth), timeAxisTop);
-    ctx.moveTo(0, this.crisp(timeAxisTop));
-    ctx.lineTo(this.width, this.crisp(timeAxisTop));
     for (const pane of this.panes.slice(1)) {
       ctx.moveTo(0, this.crisp(pane.top));
       ctx.lineTo(this.width, this.crisp(pane.top));
     }
     ctx.stroke();
-    ctx.font = `11px ${chart.fontFamily}`;
-    ctx.fillStyle = chart.text;
+    ctx.strokeStyle = colors.scaleLine;
+    ctx.beginPath();
+    ctx.moveTo(this.crisp(this.plotWidth), 0);
+    ctx.lineTo(this.crisp(this.plotWidth), timeAxisTop);
+    ctx.moveTo(0, this.crisp(timeAxisTop));
+    ctx.lineTo(this.width, this.crisp(timeAxisTop));
+    ctx.stroke();
+    ctx.font = this.scaleFont();
+    ctx.fillStyle = colors.text;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
     for (const pane of this.panes) {
@@ -2126,10 +2184,10 @@ export class MeridianChart {
     for (const tick of ticks) {
       const x = this.timeScale.indexToX(tick.index);
       if (x < 20 || x > this.plotWidth - 20) continue;
-      ctx.font = `${tick.isMajor ? '600 ' : ''}11px ${chart.fontFamily}`;
+      ctx.font = this.scaleFont(tick.isMajor);
       ctx.fillText(tick.label, x, timeAxisTop + TIME_AXIS_HEIGHT / 2);
     }
-    ctx.font = `11px ${chart.fontFamily}`;
+    ctx.font = this.scaleFont();
     this.paintAxisTags();
     this.paintCrosshair();
     this.updateLegends();
@@ -2140,9 +2198,18 @@ export class MeridianChart {
     return (Math.round(value * this.ratio) + 0.5) / this.ratio;
   }
 
+  private scaleFont(isBold = false): string {
+    return `${isBold ? '600 ' : ''}${this.chartSettings.scaleFontSize}px ${this.theme.chart.fontFamily}`;
+  }
+
+  // Price tags on the axis fit the axis font: 17px high at the default 11px.
+  private tagHeight(): number {
+    return this.chartSettings.scaleFontSize + 6;
+  }
+
   private measureAxis(): number {
     const ctx = this.context;
-    ctx.font = `11px ${this.theme.chart.fontFamily}`;
+    ctx.font = this.scaleFont();
     let widest = 40;
     for (const pane of this.panes) {
       for (const value of [pane.scale.min, pane.scale.max]) {
@@ -2216,50 +2283,68 @@ export class MeridianChart {
       ctx.stroke();
       return;
     }
-    const body = Math.max(1, Math.floor(spacing * 0.75) - (spacing > 4 ? 1 : 0));
+    // Candles are laid out in device pixels, as TradingView does: an odd body centred on a whole
+    // pixel wick. Edges falling between pixels get blended with the background, which washes the
+    // colours out, most visibly on thin bodies and 1px wicks.
+    const ratio = this.ratio;
+    const wick = Math.max(1, Math.floor(ratio));
+    const bodyWidth = Math.max(wick, Math.floor(spacing * 0.75 * ratio) - (spacing > 4 ? 1 : 0));
+    const body = bodyWidth - ((bodyWidth - wick) % 2);
+    const border = Math.max(1, Math.floor(ratio));
     const isBars = this.priceStyle === 'bars';
     const colors = this.colors();
-    const { isWickVisible, isBorderVisible } = this.chartSettings;
+    const { isBodyVisible, isWickVisible, isBorderVisible } = this.chartSettings;
     const isHollow = this.priceStyle === 'hollow';
+    const fill = (color: string, left: number, top: number, width: number, height: number) => {
+      if (width <= 0 || height <= 0) return;
+      ctx.fillStyle = color;
+      ctx.fillRect(left / ratio, top / ratio, width / ratio, height / ratio);
+    };
+    // A rectangle's outline drawn inside it, `size` device pixels thick.
+    const outline = (color: string, left: number, top: number, width: number, height: number, size: number) => {
+      if (width <= size * 2 || height <= size * 2) return fill(color, left, top, width, height);
+      fill(color, left, top, width, size);
+      fill(color, left, top + height - size, width, size);
+      fill(color, left, top + size, size, height - size * 2);
+      fill(color, left + width - size, top + size, size, height - size * 2);
+    };
     for (const isUp of [true, false]) {
       const bodyColor = isUp ? colors.up : colors.down;
       const wickColor = isUp ? colors.wickUp : colors.wickDown;
       const borderColor = isUp ? colors.borderUp : colors.borderDown;
-      ctx.lineWidth = 1;
       for (let index = start; index <= end; index++) {
         const bar = bars[index];
         if ((bar.close >= bar.open) !== isUp) continue;
-        const x = Math.round(this.timeScale.indexToX(index) * this.ratio) / this.ratio;
-        const high = scale.priceToY(bar.high);
-        const low = scale.priceToY(bar.low);
-        const open = scale.priceToY(bar.open);
-        const close = scale.priceToY(bar.close);
+        const center = Math.round(this.timeScale.indexToX(index) * ratio);
+        const wickLeft = center - Math.floor(wick / 2);
+        const high = Math.round(scale.priceToY(bar.high) * ratio);
+        const low = Math.round(scale.priceToY(bar.low) * ratio);
+        const open = Math.round(scale.priceToY(bar.open) * ratio);
+        const close = Math.round(scale.priceToY(bar.close) * ratio);
         if (isBars) {
-          const tick = Math.max(1, Math.floor(body / 2));
-          ctx.fillStyle = bodyColor;
-          ctx.fillRect(x - 0.5, high, 1, Math.max(1, low - high));
-          ctx.fillRect(x - tick, open - 0.5, tick, 1);
-          ctx.fillRect(x, close - 0.5, tick, 1);
+          const tick = Math.max(wick, Math.floor(body / 2));
+          fill(bodyColor, wickLeft, high, wick, Math.max(wick, low - high));
+          fill(bodyColor, wickLeft - tick, open - Math.floor(wick / 2), tick, wick);
+          fill(bodyColor, wickLeft + wick, close - Math.floor(wick / 2), tick, wick);
           continue;
         }
         const top = Math.min(open, close);
-        const bottom = Math.max(open, close);
+        const height = Math.max(wick, Math.max(open, close) - top);
+        const bottom = top + height;
         if (isWickVisible) {
-          ctx.fillStyle = wickColor;
-          ctx.fillRect(x - 0.5, high, 1, Math.max(0, top - high));
-          ctx.fillRect(x - 0.5, bottom, 1, Math.max(0, low - bottom));
+          fill(wickColor, wickLeft, high, wick, top - high);
+          fill(wickColor, wickLeft, bottom, wick, low - bottom);
         }
-        const height = Math.max(1, bottom - top);
+        const left = center - Math.floor(body / 2);
         if (isHollow && isUp) {
-          ctx.strokeStyle = bodyColor;
-          ctx.strokeRect(x - body / 2 + 0.5, top + 0.5, Math.max(0, body - 1), Math.max(0, height - 1));
+          outline(bodyColor, left, top, body, height, border);
           continue;
         }
-        ctx.fillStyle = bodyColor;
-        ctx.fillRect(x - body / 2, top, body, height);
-        if (isBorderVisible && body > 2) {
-          ctx.strokeStyle = borderColor;
-          ctx.strokeRect(x - body / 2 + 0.5, top + 0.5, body - 1, Math.max(0, height - 1));
+        const hasBorder = isBorderVisible && body > border * 2 + 1;
+        if (hasBorder) outline(borderColor, left, top, body, height, border);
+        if (isBodyVisible) {
+          if (hasBorder) fill(bodyColor, left + border, top + border, body - border * 2, height - border * 2);
+          else fill(bodyColor, left, top, body, height);
         }
       }
     }
@@ -2416,7 +2501,7 @@ export class MeridianChart {
     const size = Math.max(18, Math.min(72, this.plotWidth / Math.max(6, text.length) * 1.1, pane.height / 4));
     ctx.save();
     ctx.font = `600 ${size}px ${this.theme.chart.fontFamily}`;
-    ctx.fillStyle = this.theme.chart.text;
+    ctx.fillStyle = this.colors().text;
     ctx.globalAlpha = 0.07;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -2452,11 +2537,11 @@ export class MeridianChart {
     if (!bar) return;
     const ctx = this.context;
     const colors = this.colors();
-    const color = bar.close >= bar.open ? colors.up : colors.down;
+    const { lastPriceLineColor, lastPriceLineWidth } = this.chartSettings;
     const y = this.crisp(pane.scale.priceToY(this.barList[this.barList.length - 1].close));
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([1, 2]);
+    ctx.strokeStyle = lastPriceLineColor ?? (bar.close >= bar.open ? colors.up : colors.down);
+    ctx.lineWidth = lastPriceLineWidth;
+    ctx.setLineDash([lastPriceLineWidth, lastPriceLineWidth * 2]);
     ctx.beginPath();
     ctx.moveTo(0, y);
     ctx.lineTo(this.plotWidth, y);
@@ -2493,15 +2578,16 @@ export class MeridianChart {
     const y = pane.scale.priceToY(price);
     if (y < pane.top || y > pane.top + pane.height) return;
     const ctx = this.context;
-    const height = subtitle ? 30 : 17;
-    const top = Math.max(pane.top, Math.min(pane.top + pane.height - height, y - 8.5));
+    const line = this.tagHeight();
+    const height = subtitle ? line * 2 - 4 : line;
+    const top = Math.max(pane.top, Math.min(pane.top + pane.height - height, y - line / 2));
     ctx.fillStyle = color;
     ctx.fillRect(this.plotWidth + 1, top, this.width - this.plotWidth - 1, height);
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, this.plotWidth + 8, top + 8.5);
-    if (subtitle) ctx.fillText(subtitle, this.plotWidth + 8, top + 22);
+    ctx.fillText(text, this.plotWidth + 8, top + line / 2);
+    if (subtitle) ctx.fillText(subtitle, this.plotWidth + 8, top + line + 5);
   }
 
   private paintDrawings(): void {
@@ -2540,21 +2626,21 @@ export class MeridianChart {
     const ctx = this.context;
     const timeAxisTop = this.height - TIME_AXIS_HEIGHT;
     ctx.strokeStyle = this.colors().crosshair;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = this.chartSettings.crosshairWidth;
     ctx.setLineDash(dashOf(this.chartSettings.crosshairStyle));
     ctx.beginPath();
     ctx.moveTo(x, 0);
     ctx.lineTo(x, timeAxisTop);
     ctx.stroke();
     ctx.setLineDash([]);
-    this.timeTag(x, this.barList[index].time);
+    if (this.chartSettings.isTimeCrosshairLabelShown) this.timeTag(x, this.barList[index].time);
   }
 
   private timeTag(x: number, time: number): void {
     const ctx = this.context;
     const timeAxisTop = this.height - TIME_AXIS_HEIGHT;
     const label = formatCrosshairTime(time, this.interval);
-    ctx.font = `11px ${this.theme.chart.fontFamily}`;
+    ctx.font = this.scaleFont();
     const width = ctx.measureText(label).width + 16;
     const left = Math.max(0, Math.min(this.plotWidth - width, x - width / 2));
     ctx.fillStyle = this.theme.ui.muted;
@@ -2589,7 +2675,7 @@ export class MeridianChart {
       ctx.fill();
     } else if (!isArrow) {
       ctx.strokeStyle = crosshair;
-      ctx.lineWidth = 1;
+      ctx.lineWidth = this.chartSettings.crosshairWidth;
       ctx.setLineDash(this.chartSettings.crosshairStyle === 'dashed' ? [4, 4] : dashOf(this.chartSettings.crosshairStyle));
       ctx.beginPath();
       ctx.moveTo(x, 0);
@@ -2603,16 +2689,18 @@ export class MeridianChart {
       ctx.setLineDash([]);
     }
     const tagColor = ui.muted;
-    if (pane) {
+    if (pane && this.chartSettings.isPriceCrosshairLabelShown) {
       const text = this.axisText(pane, pane.scale.yToPrice(hover.y));
+      const height = this.tagHeight() + 1;
+      ctx.font = this.scaleFont();
       ctx.fillStyle = tagColor;
-      ctx.fillRect(this.plotWidth + 1, hover.y - 9, this.width - this.plotWidth - 1, 18);
+      ctx.fillRect(this.plotWidth + 1, hover.y - height / 2, this.width - this.plotWidth - 1, height);
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillText(text, this.plotWidth + 8, hover.y);
     }
-    this.timeTag(x, this.barList[index].time);
+    if (this.chartSettings.isTimeCrosshairLabelShown) this.timeTag(x, this.barList[index].time);
   }
 
   private updateLegends(): void {
@@ -2621,25 +2709,27 @@ export class MeridianChart {
     for (const pane of this.panes) {
       const entries: LegendEntry[] = this.studies.filter((study) => study.paneId === pane.id).map((study) => ({
         id: study.id,
-        title: studyCaption(study.definition, study.inputs),
+        title: this.chartSettings.isStudyArgumentsShown ? studyCaption(study.definition, study.inputs) : study.definition.shortTitle ?? study.definition.title,
         values: index >= 0 && this.chartSettings.isStudyValuesShown ? this.studyValues(study, index) : [],
         isHidden: !study.isVisible,
       }));
       let title: { text: string; values: LegendValue[] } | null = null;
-      const { isTitleShown, isOhlcShown } = this.chartSettings;
-      if (pane.id === 'price' && (isTitleShown || isOhlcShown)) {
+      const { isTitleShown, isOhlcShown, isBarChangeShown } = this.chartSettings;
+      if (pane.id === 'price' && (isTitleShown || isOhlcShown || isBarChangeShown)) {
         const colors = this.colors();
         const color = bar && bar.close >= bar.open ? colors.up : colors.down;
         const previous = this.displayBars[index - 1];
         const change = bar && previous ? bar.close - previous.close : 0;
         title = {
           text: isTitleShown ? this.title : '',
-          values: bar && isOhlcShown ? [
-            { text: `O${formatPrice(bar.open, this.precision)}`, color },
-            { text: `H${formatPrice(bar.high, this.precision)}`, color },
-            { text: `L${formatPrice(bar.low, this.precision)}`, color },
-            { text: `C${formatPrice(bar.close, this.precision)}`, color },
-            { text: previous ? `${change >= 0 ? '+' : ''}${formatPrice(change, this.precision)} (${(change / previous.close * 100).toFixed(2)}%)` : '', color },
+          values: bar ? [
+            ...(isOhlcShown ? [
+              { text: `O${formatPrice(bar.open, this.precision)}`, color },
+              { text: `H${formatPrice(bar.high, this.precision)}`, color },
+              { text: `L${formatPrice(bar.low, this.precision)}`, color },
+              { text: `C${formatPrice(bar.close, this.precision)}`, color },
+            ] : []),
+            ...(isBarChangeShown ? [{ text: previous ? `${change >= 0 ? '+' : ''}${formatPrice(change, this.precision)} (${(change / previous.close * 100).toFixed(2)}%)` : '', color }] : []),
           ] : [],
         };
       }

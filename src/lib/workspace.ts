@@ -2,6 +2,7 @@ import type { OrderTypeKey } from '../../shared/protocol';
 import type { ChartTimeframe } from './mt5-timeframes';
 import { defaultThemeId } from '@meridian/charts/themes';
 import type { ChartSettings, InputValue } from '@meridian/charts';
+import { restoreSettings } from '@meridian/charts/settings';
 import type { Drawing, IndicatorConfig } from './chart-model';
 import { Store } from './store';
 import { arrangeFrames, clampFrame, raise, type ChartFrame, type WindowArrangement } from './chart-windows';
@@ -85,6 +86,7 @@ export type Dialog =
   | { kind: 'alerts' }
   | { kind: 'profile' }
   | { kind: 'template'; chartId: string }
+  | { kind: 'tradingview' }
   | { kind: 'about' };
 
 export interface WorkspaceState {
@@ -108,12 +110,17 @@ export interface WorkspaceState {
   isDataWindowShown: boolean;
   isChartBarShown: boolean;
   isMarketWatchShown: boolean;
+  // Trade mode keeps the chart's drawing rail closed unless asked; analysis mode always shows it.
+  isTradeDrawingToolbarShown: boolean;
   isOneClickEnabled: boolean;
   hasAcceptedOneClick: boolean;
   // Analysis mode swaps the terminal chrome for a chart-first layout. Accounts, copiers, signals
   // and automation keep running; only the controls that place or change trades are withdrawn.
   isAnalysisMode: boolean;
   isAnalysisPositionsShown: boolean;
+  // Chart Settings that new charts start with, such as ones imported from TradingView; missing
+  // means the defaults.
+  defaultChartSettings?: ChartSettings;
 }
 
 const STORAGE_KEY = 'openterm.workspace.v1';
@@ -155,6 +162,7 @@ function initialState(): WorkspaceState {
     isDataWindowShown: false,
     isChartBarShown: true,
     isMarketWatchShown: true,
+    isTradeDrawingToolbarShown: false,
     isOneClickEnabled: false,
     hasAcceptedOneClick: false,
     isAnalysisMode: false,
@@ -170,6 +178,8 @@ function initialState(): WorkspaceState {
       restored.windowStack = [...(saved.windowStack ?? []).filter((id) => restored.charts.some((chart) => chart.id === id)), ...restored.charts.map((chart) => chart.id).filter((id) => !saved.windowStack?.includes(id))];
       if (!restored.profiles.some((profile) => profile.name === restored.activeProfile)) restored.activeProfile = 'Default';
       if (!restored.profiles.some((profile) => profile.name === 'Default')) restored.profiles = [captureProfile(restored, 'Default'), ...restored.profiles];
+      if (saved.defaultChartSettings === undefined) delete restored.defaultChartSettings;
+      else restored.defaultChartSettings = restoreSettings(saved.defaultChartSettings);
       return restored;
     }
   } catch {
@@ -211,8 +221,18 @@ export function updateActiveChart(patch: Partial<ChartConfig> | ((chart: ChartCo
 export function openChart(symbol: string, timeframe?: ChartTimeframe): void {
   const state = workspace.get();
   const frame = arrangeFrames(state.charts.length + 1, 'cascade').at(-1);
-  const chart = { ...makeChart(symbol, timeframe ?? activeChart(state)?.timeframe ?? 'H1'), frame };
+  const chart: ChartConfig = { ...makeChart(symbol, timeframe ?? activeChart(state)?.timeframe ?? 'H1'), frame };
+  if (state.defaultChartSettings) chart.settings = structuredClone(state.defaultChartSettings);
   workspace.set((current) => ({ charts: [...current.charts, chart], activeChartId: chart.id, windowStack: raise(current.windowStack, chart.id) }));
+}
+
+// Chart Settings for every open chart, and optionally their chart type. With `isDefault`, charts
+// opened later start with them too.
+export function applyChartSettingsToAll(settings: ChartSettings, type?: ChartType, isDefault = false): void {
+  workspace.set((state) => ({
+    charts: state.charts.map((chart) => ({ ...chart, settings: structuredClone(settings), ...(type ? { type } : {}) })),
+    ...(isDefault ? { defaultChartSettings: structuredClone(settings) } : {}),
+  }));
 }
 
 export function closeChart(id: string): void {

@@ -10,6 +10,7 @@ export interface ToolEnv {
   theme: { text: string; background: string; up: string; down: string; muted: string };
   formatPrice: (price: number) => string;
   formatDuration: (ms: number) => string;
+  formatTime: (time: number) => string;
   timeToX: (time: number) => number;
   priceToY: (price: number) => number;
   bars: readonly Bar[];
@@ -17,6 +18,7 @@ export interface ToolEnv {
   intervalMs: number;
   // True while the drawing is still being placed.
   isDraft: boolean;
+  isSelected: boolean;
 }
 
 export interface CreateEnv {
@@ -31,21 +33,30 @@ export interface Level {
   value: number;
   color: string;
   isVisible: boolean;
+  // Shown beside the level when the tool's level text is on.
+  text?: string;
 }
 
 // Extra settings a tool offers in its settings dialog. Values live in the drawing's `props`
 // under the field's key; read them with `fieldValue`.
-export type ToolField =
+// `tab` puts a field on another tab of the settings dialog than Style.
+export type ToolField = { tab?: string } & (
   | { key: string; label: string; type: 'checkbox'; default: boolean }
   | { key: string; label: string; type: 'number'; default: number; min?: number; max?: number; step?: number }
   | { key: string; label: string; type: 'select'; default: string; options: readonly string[] }
   | { key: string; label: string; type: 'color'; default: string }
-  | { key: string; label: string; type: 'levels'; default: readonly Level[] };
+  | { key: string; label: string; type: 'levels'; default: readonly Level[] }
+);
 
 export function fieldValue<T>(env: { drawing: SerializedDrawing }, definition: ToolDefinition | undefined, key: string): T {
   const saved = env.drawing.props?.[key];
   if (saved !== undefined) return saved as T;
   return definition?.fields?.find((field) => field.key === key)?.default as T;
+}
+
+export interface ToolHandles {
+  at: (anchors: readonly DrawingPoint[]) => DrawingPoint[];
+  drag: (anchors: readonly DrawingPoint[], handle: number, point: DrawingPoint) => DrawingPoint[];
 }
 
 export interface ToolDefinition {
@@ -54,8 +65,8 @@ export interface ToolDefinition {
   anchors: number | 'free' | 'multi';
   // One-click tools that need several anchors build them from the first click.
   create?: (first: DrawingPoint, env: CreateEnv) => DrawingPoint[];
-  // Keeps related anchors consistent when one of them is dragged.
-  constrain?: (anchors: DrawingPoint[], moved: number) => DrawingPoint[];
+  // Handles placed elsewhere than on the anchors, and the anchors that dragging one gives.
+  handles?: ToolHandles;
   isFillable?: boolean;
   hasText?: boolean;
   defaultText?: string;
@@ -69,7 +80,7 @@ export interface ToolDefinition {
 
 const dashes: Record<DrawingStyle['lineStyle'], readonly number[]> = { solid: [], dashed: [6, 4], dotted: [1.5, 3] };
 
-const stroke = (env: ToolEnv, overrides: ShapeStyle = {}): ShapeStyle => ({ color: env.style.lineColor, width: env.style.lineWidth, dash: dashes[env.style.lineStyle], ...overrides });
+const stroke = (env: ToolEnv, overrides: ShapeStyle = {}): ShapeStyle => ({ color: env.style.lineColor, width: env.style.lineWidth, dash: dashes[env.style.lineStyle], ...(env.style.lineOpacity !== undefined ? { opacity: env.style.lineOpacity } : {}), ...overrides });
 
 const area = (env: ToolEnv, color = env.style.fillColor ?? env.style.lineColor, opacity = env.style.fillOpacity ?? 0.15): ShapeStyle => ({ width: 0, fill: color, fillOpacity: opacity });
 
@@ -156,6 +167,8 @@ interface LabelOptions {
   color?: string;
   size?: number;
   bold?: boolean;
+  italic?: boolean;
+  rotation?: number;
 }
 
 // A text label. Multi-line text (split on '\n') is stacked, with one background box behind all of
@@ -166,7 +179,7 @@ function label(g: ShapeList, at: Pt, text: string, env: ToolEnv, options: LabelO
   const padding = options.background || options.border ? 4 : 0;
   const lines = text.split('\n');
   if (lines.length === 1) {
-    g.text(at, text, { color, size, bold: options.bold, align: options.align, baseline: options.baseline, background: options.background, border: options.border, padding });
+    g.text(at, text, { color, size, bold: options.bold, italic: options.italic, rotation: options.rotation, align: options.align, baseline: options.baseline, background: options.background, border: options.border, padding });
     return;
   }
   const align = options.align ?? 'left';
@@ -181,7 +194,7 @@ function label(g: ShapeList, at: Pt, text: string, env: ToolEnv, options: LabelO
   }
   const x = align === 'center' ? left + width / 2 : align === 'right' || align === 'end' ? left + width - padding : left + padding;
   lines.forEach((line, index) => {
-    g.text({ x, y: top + padding + lineHeight * (index + 0.5) }, line, { color, size, bold: options.bold, align: align === 'end' ? 'right' : align === 'start' ? 'left' : align, baseline: 'middle' });
+    g.text({ x, y: top + padding + lineHeight * (index + 0.5) }, line, { color, size, bold: options.bold, italic: options.italic, align: align === 'end' ? 'right' : align === 'start' ? 'left' : align, baseline: 'middle' });
   });
 }
 
@@ -229,7 +242,7 @@ function optionsFor(env: ToolEnv, definition: ToolDefinition): Options {
         const level = item as Partial<Level>;
         const number = Number(level.value);
         if (!Number.isFinite(number) || level.isVisible === false) return [];
-        return [{ value: number, color: typeof level.color === 'string' && level.color ? level.color : '#787b86', isVisible: true }];
+        return [{ value: number, color: typeof level.color === 'string' && level.color ? level.color : '#787b86', isVisible: true, ...(typeof level.text === 'string' && level.text ? { text: level.text } : {}) }];
       }).sort((left, right) => left.value - right.value);
     },
   };
@@ -251,6 +264,8 @@ const checkbox = (key: string, label: string, value = false): ToolField => ({ ke
 const numberField = (key: string, label: string, value: number, min?: number, max?: number, step?: number): ToolField => ({ key, label, type: 'number', default: value, min, max, step });
 const selectField = (key: string, label: string, options: readonly string[], value = options[0]): ToolField => ({ key, label, type: 'select', default: value, options });
 const levelsField = (key: string, label: string, levels: readonly Level[]): ToolField => ({ key, label, type: 'levels', default: levels });
+const colorField = (key: string, label: string, value: string): ToolField => ({ key, label, type: 'color', default: value });
+const onTab = (tab: string, fields: readonly ToolField[]): ToolField[] => fields.map((field) => ({ ...field, tab }));
 
 const backgroundFields = (opacity = 8): ToolField[] => [checkbox('fillBackground', 'Background', true), numberField('backgroundOpacity', 'Background opacity (%)', opacity, 0, 100, 1)];
 
@@ -303,23 +318,31 @@ const gannName = (value: number) => (value < 1 ? `1/${Math.round(1 / value)}` : 
 
 // ── Fibonacci ───────────────────────────────────────────────────────────────
 
-function fibFields(levels: readonly Level[], options: { prices?: boolean; reverse?: boolean; label?: string; extra?: ToolField[] } = {}): ToolField[] {
+function fibFields(levels: readonly Level[], options: { prices?: boolean; reverse?: boolean; trendLine?: boolean; label?: string; extra?: ToolField[] } = {}): ToolField[] {
   return [
     levelsField('levels', options.label ?? 'Levels', levels),
     ...(options.extra ?? []),
     ...(options.prices === false ? [] : [checkbox('showPrices', 'Prices', true)]),
     checkbox('showLevels', 'Levels labels', true),
+    checkbox('isPercent', 'Levels as percentages'),
+    checkbox('showText', 'Level text', true),
     selectField('labelsPosition', 'Labels position', ['Left', 'Right']),
+    numberField('labelFontSize', 'Labels font size', 11, 8, 24, 1),
+    ...(options.trendLine ? [checkbox('showTrendLine', 'Trend line', true)] : []),
     ...(options.reverse ? [checkbox('reverse', 'Reverse')] : []),
     ...backgroundFields(),
   ];
 }
 
-function levelText(env: ToolEnv, o: Options, value: number, price?: number): string {
-  const ratio = o.bool('showLevels') ? trim(value) : '';
+function levelText(env: ToolEnv, o: Options, value: number, price?: number, text?: string): string {
+  const ratio = o.bool('showLevels') ? (o.bool('isPercent') ? `${trim(value * 100, 1)}%` : trim(value)) : '';
   const shown = price !== undefined && o.bool('showPrices') ? env.formatPrice(price) : '';
-  return ratio && shown ? `${ratio} (${shown})` : ratio || shown;
+  const numbers = ratio && shown ? `${ratio} (${shown})` : ratio || shown;
+  const named = text && o.bool('showText') ? text : '';
+  return [numbers, named].filter(Boolean).join(' ');
 }
+
+const levelFontSize = (o: Options) => o.num('labelFontSize') || 11;
 
 const isLeft = (o: Options) => o.str('labelsPosition') !== 'Right';
 
@@ -338,14 +361,14 @@ function horizontalLevels(g: ShapeList, env: ToolEnv, o: Options, levels: readon
   for (const { level, price } of levels) {
     const y = env.priceToY(price);
     g.line({ x: left, y }, { x: right, y }, levelStroke(env, level.color));
-    const text = levelText(env, o, level.value, price);
+    const text = levelText(env, o, level.value, price, level.text);
     if (!text) continue;
     if (isLeft(o)) {
       const inside = !!env.style.extendLeft;
-      label(g, { x: inside ? left + 4 : left - 4, y: inside ? y - 2 : y }, text, env, { align: inside ? 'left' : 'right', baseline: inside ? 'bottom' : 'middle', color: level.color, size: 11 });
+      label(g, { x: inside ? left + 4 : left - 4, y: inside ? y - 2 : y }, text, env, { align: inside ? 'left' : 'right', baseline: inside ? 'bottom' : 'middle', color: level.color, size: levelFontSize(o) });
     } else {
       const inside = !!env.style.extendRight;
-      label(g, { x: inside ? right - 4 : right + 4, y: inside ? y - 2 : y }, text, env, { align: inside ? 'right' : 'left', baseline: inside ? 'bottom' : 'middle', color: level.color, size: 11 });
+      label(g, { x: inside ? right - 4 : right + 4, y: inside ? y - 2 : y }, text, env, { align: inside ? 'right' : 'left', baseline: inside ? 'bottom' : 'middle', color: level.color, size: levelFontSize(o) });
     }
   }
 }
@@ -365,33 +388,46 @@ function radialLevels(g: ShapeList, env: ToolEnv, o: Options, center: Pt, radius
     const r = radius * level.value;
     if (r <= 0) continue;
     g.ellipse(center.x, center.y, r, r, levelStroke(env, level.color), 0, start, end);
-    const text = levelText(env, o, level.value);
+    const text = levelText(env, o, level.value, undefined, level.text);
     if (!text) continue;
     const angle = isFull ? (isLeft(o) ? Math.PI : 0) : isLeft(o) ? start : end;
     const at = { x: center.x + (r + 4) * Math.cos(angle), y: center.y + (r + 4) * Math.sin(angle) };
-    label(g, at, text, env, { align: Math.cos(angle) < -0.3 ? 'right' : Math.cos(angle) > 0.3 ? 'left' : 'center', color: level.color, size: 11 });
+    label(g, at, text, env, { align: Math.cos(angle) < -0.3 ? 'right' : Math.cos(angle) > 0.3 ? 'left' : 'center', color: level.color, size: levelFontSize(o) });
   }
 }
 
 // ── Lines ───────────────────────────────────────────────────────────────────
 
-const lineInfoFields = (value = false): ToolField[] => [checkbox('showPriceRange', 'Price range', value), checkbox('showBarsRange', 'Bars range', value), checkbox('showAngle', 'Angle', value)];
+const lineInfoFields = (value = false): ToolField[] => onTab('Stats', [
+  checkbox('showPriceRange', 'Price range', value),
+  checkbox('showPercentPriceRange', 'Percent change', value),
+  checkbox('showBarsRange', 'Bars range', value),
+  checkbox('showDateTimeRange', 'Date/time range', value),
+  checkbox('showAngle', 'Angle', value),
+  checkbox('showMiddlePoint', 'Middle point'),
+  checkbox('alwaysShowStats', 'Always show stats', true),
+]);
 
-function lineInfo(env: ToolEnv, show: { price: boolean; bars: boolean; angle: boolean }): string[] {
+interface LineStats { price: boolean; percent: boolean; bars: boolean; duration: boolean; angle: boolean }
+
+function lineInfo(env: ToolEnv, show: LineStats): string[] {
   const [a, b] = env.points;
   const [p0, p1] = env.anchors;
+  const change = p1.price - p0.price;
   const lines: string[] = [];
-  if (show.price) {
-    const change = p1.price - p0.price;
-    lines.push(`${signed(env, change)} (${percent(change, p0.price)})`);
-  }
-  if (show.bars) lines.push(`${barsBetween(env, p0.time, p1.time)} bars, ${env.formatDuration(Math.abs(p1.time - p0.time))}`);
+  const changes = [show.price ? signed(env, change) : '', show.percent ? percent(change, p0.price) : ''].filter(Boolean);
+  if (changes.length) lines.push(changes.length === 2 ? `${changes[0]} (${changes[1]})` : changes[0]);
+  const spans = [show.bars ? `${barsBetween(env, p0.time, p1.time)} bars` : '', show.duration ? env.formatDuration(Math.abs(p1.time - p0.time)) : ''].filter(Boolean);
+  if (spans.length) lines.push(spans.join(', '));
   if (show.angle) lines.push(`${(Math.atan2(a.y - b.y, b.x - a.x) * 180 / Math.PI).toFixed(2)}°`);
   return lines;
 }
 
 function infoLabel(g: ShapeList, env: ToolEnv, o: Options, at: Pt): void {
-  const lines = lineInfo(env, { price: o.bool('showPriceRange'), bars: o.bool('showBarsRange'), angle: o.bool('showAngle') });
+  const [a, b] = env.points;
+  if (o.bool('showMiddlePoint')) g.ellipse((a.x + b.x) / 2, (a.y + b.y) / 2, 3, 3, { color: env.style.lineColor, width: 1, fill: env.theme.background });
+  if (!o.bool('alwaysShowStats') && !env.isSelected) return;
+  const lines = lineInfo(env, { price: o.bool('showPriceRange'), percent: o.bool('showPercentPriceRange'), bars: o.bool('showBarsRange'), duration: o.bool('showDateTimeRange'), angle: o.bool('showAngle') });
   if (lines.length) label(g, { x: at.x + 8, y: at.y + 8 }, lines.join('\n'), env, { baseline: 'top', background: env.theme.background, border: env.style.lineColor, color: env.theme.text, size: 11 });
 }
 
@@ -499,6 +535,15 @@ const positionFields: ToolField[] = [
   numberField('accountSize', 'Account size', 1000, 0),
   numberField('lotSize', 'Lot size', 1, 0),
   numberField('riskPercent', 'Risk (%)', 1, 0, 100, 0.1),
+  colorField('profitColor', 'Target colour', '#089981'),
+  colorField('stopColor', 'Stop colour', '#f23645'),
+  numberField('areaOpacity', 'Background opacity (%)', 20, 0, 100, 1),
+  ...onTab('Text', [
+    checkbox('showStats', 'Always show stats', true),
+    checkbox('showPriceLabels', 'Target and stop labels', true),
+    checkbox('isCompact', 'Compact labels'),
+    colorField('textColor', 'Text colour', '#ffffff'),
+  ]),
 ];
 
 // Follows price from the entry bar to the end of the position: the trade closes at the first bar
@@ -521,9 +566,13 @@ function position(isLong: boolean): Build {
     const [entryPoint, targetPoint, stopPoint] = env.anchors;
     const [entryPrice, targetPrice, stopPrice] = [entryPoint.price, targetPoint.price, stopPoint.price];
     const x0 = entry.x;
-    const x1 = Math.max(target.x, x0 + 1);
-    g.rect({ x: x0, y: entry.y }, { x: x1, y: target.y }, { width: 0, fill: '#089981', fillOpacity: 0.2 });
-    g.rect({ x: x0, y: entry.y }, { x: x1, y: stop.y }, { width: 0, fill: '#f23645', fillOpacity: 0.2 });
+    // The far edge can be dragged to either side of the entry, as in TradingView.
+    const x1 = Math.abs(target.x - x0) < 1 ? x0 + 1 : target.x;
+    const profitColor = o.str('profitColor');
+    const stopColor = o.str('stopColor');
+    const opacity = o.num('areaOpacity') / 100;
+    g.rect({ x: x0, y: entry.y }, { x: x1, y: target.y }, { width: 0, fill: profitColor, fillOpacity: opacity });
+    g.rect({ x: x0, y: entry.y }, { x: x1, y: stop.y }, { width: 0, fill: stopColor, fillOpacity: opacity });
     g.line({ x: x0, y: entry.y }, { x: x1, y: entry.y }, { color: env.theme.muted, width: 1 });
     const reward = Math.abs(targetPrice - entryPrice);
     const risk = Math.abs(entryPrice - stopPrice);
@@ -533,20 +582,34 @@ function position(isLong: boolean): Build {
     const money = (priceMove: number) => amount(priceMove * quantity * lot);
     const pct = (price: number) => percent(price - entryPrice, entryPrice);
     const mid = (x0 + x1) / 2;
-    label(g, { x: mid, y: target.y + (isLong ? -12 : 12) }, `Target: ${env.formatPrice(targetPrice)} (${pct(targetPrice)}) ${env.formatPrice(reward)}, Amount: ${money(reward)}`, env, { align: 'center', background: '#089981', size: 11 });
-    label(g, { x: mid, y: stop.y + (isLong ? 12 : -12) }, `Stop: ${env.formatPrice(stopPrice)} (${pct(stopPrice)}) ${env.formatPrice(risk)}, Amount: ${money(risk)}`, env, { align: 'center', background: '#f23645', size: 11 });
-    const outcome = positionOutcome(env, isLong, entryPoint, targetPoint.time, targetPrice, stopPrice);
-    const pnl = outcome ? `${outcome.isClosed ? 'Closed' : 'Open'} P&L: ${money((outcome.exit - entryPrice) * (isLong ? 1 : -1))}, ` : '';
-    const text = `${isLong ? 'Long' : 'Short'} · ${pnl}Qty: ${amount(quantity)}\nRisk/Reward Ratio: ${risk ? (reward / risk).toFixed(2) : '–'}`;
-    label(g, { x: mid, y: entry.y }, text, env, { align: 'center', background: env.theme.muted, size: 11 });
+    const isCompact = o.bool('isCompact');
+    const color = o.str('textColor');
+    const ratio = risk ? (reward / risk).toFixed(2) : '-';
+    if (o.bool('showPriceLabels') || env.isSelected) {
+      const targetText = isCompact ? `${env.formatPrice(targetPrice)} (${pct(targetPrice)})` : `Target: ${env.formatPrice(targetPrice)} (${pct(targetPrice)}) ${env.formatPrice(reward)}, Amount: ${money(reward)}`;
+      const stopText = isCompact ? `${env.formatPrice(stopPrice)} (${pct(stopPrice)})` : `Stop: ${env.formatPrice(stopPrice)} (${pct(stopPrice)}) ${env.formatPrice(risk)}, Amount: ${money(risk)}`;
+      label(g, { x: mid, y: target.y + (isLong ? -12 : 12) }, targetText, env, { align: 'center', background: profitColor, color, size: 11 });
+      label(g, { x: mid, y: stop.y + (isLong ? 12 : -12) }, stopText, env, { align: 'center', background: stopColor, color, size: 11 });
+    }
+    if (o.bool('showStats') || env.isSelected) {
+      const outcome = targetPoint.time > entryPoint.time ? positionOutcome(env, isLong, entryPoint, targetPoint.time, targetPrice, stopPrice) : null;
+      const pnl = outcome ? `${outcome.isClosed ? 'Closed' : 'Open'} P&L: ${money((outcome.exit - entryPrice) * (isLong ? 1 : -1))}, ` : '';
+      const text = isCompact ? `R:R ${ratio}` : `${isLong ? 'Long' : 'Short'} · ${pnl}Qty: ${amount(quantity)}\nRisk/Reward Ratio: ${ratio}`;
+      label(g, { x: mid, y: entry.y }, text, env, { align: 'center', background: env.theme.muted, color, size: 11 });
+    }
   };
 }
 
-// Keeps the target and stop at the same time, whichever one is dragged.
-const syncPositionTimes = (anchors: DrawingPoint[], moved: number): DrawingPoint[] => {
-  if (moved === 1) return [anchors[0], anchors[1], { ...anchors[2], time: anchors[1].time }];
-  if (moved === 2) return [anchors[0], { ...anchors[1], time: anchors[2].time }, anchors[2]];
-  return anchors;
+// As in TradingView: the entry, target and stop handles sit on the entry's edge, and one handle
+// on the far edge, at the entry price, sets the position's length.
+const positionHandles: ToolHandles = {
+  at: ([entry, target, stop]) => [entry, { time: entry.time, price: target.price }, { time: entry.time, price: stop.price }, { time: target.time, price: entry.price }],
+  drag: ([entry, target, stop], handle, point) => {
+    if (handle === 0) return [point, target, stop];
+    if (handle === 1) return [entry, { ...target, price: point.price }, stop];
+    if (handle === 2) return [entry, target, { ...stop, price: point.price }];
+    return [entry, { ...target, time: point.time }, { ...stop, time: point.time }];
+  },
 };
 
 // Deterministic noise in [0, 1) for the ghost feed, so a drawing looks the same on every paint.
@@ -617,6 +680,70 @@ function regression(env: ToolEnv, from: number, to: number, source: (bar: Bar) =
 
 const textFields: ToolField[] = [checkbox('bold', 'Bold')];
 
+const fontFields = [checkbox('bold', 'Bold'), checkbox('italic', 'Italic')];
+
+const lineTextFields: ToolField[] = onTab('Text', [
+  selectField('textAlign', 'Alignment', ['Left', 'Center', 'Right'], 'Center'),
+  selectField('textPosition', 'Position', ['Above line', 'On line', 'Below line']),
+  ...fontFields,
+]);
+
+const boxTextFields: ToolField[] = onTab('Text', [
+  selectField('textAlign', 'Alignment', ['Left', 'Center', 'Right'], 'Center'),
+  selectField('textPosition', 'Position', ['Top', 'Middle', 'Bottom'], 'Middle'),
+  ...fontFields,
+]);
+
+const arrowFields: ToolField[] = [checkbox('startArrow', 'Arrow at start'), checkbox('endArrow', 'Arrow at end')];
+
+const lineText = { hasText: true, defaultText: '' };
+
+// The drawing's text along the line from a to b, turned to the line's slope but never upside down.
+function textAlongLine(g: ShapeList, env: ToolEnv, o: Options, a: Pt, b: Pt): void {
+  const text = textOf(env);
+  if (!text) return;
+  const isVertical = Math.abs(b.x - a.x) < 1e-6;
+  const [from, to] = isVertical ? (a.y >= b.y ? [a, b] : [b, a]) : a.x <= b.x ? [a, b] : [b, a];
+  const rotation = Math.atan2(to.y - from.y, to.x - from.x);
+  const where = o.str('textAlign');
+  const at = where === 'Left' ? from : where === 'Right' ? to : midpoint(from, to);
+  const position = o.str('textPosition');
+  label(g, at, text, env, {
+    align: where === 'Left' ? 'left' : where === 'Right' ? 'right' : 'center',
+    baseline: position === 'On line' ? 'middle' : position === 'Below line' ? 'top' : 'bottom',
+    color: env.style.textColor ?? env.style.lineColor,
+    size: fontSize(env),
+    bold: o.bool('bold'),
+    italic: o.bool('italic'),
+    rotation,
+  });
+}
+
+// Text placed inside a box by the tool's alignment and position.
+function textInBox(g: ShapeList, env: ToolEnv, o: Options, a: Pt, b: Pt): void {
+  const text = textOf(env);
+  if (!text) return;
+  const [left, right, top, bottom] = [Math.min(a.x, b.x), Math.max(a.x, b.x), Math.min(a.y, b.y), Math.max(a.y, b.y)];
+  const where = o.str('textAlign');
+  const position = o.str('textPosition');
+  const x = where === 'Left' ? left + 6 : where === 'Right' ? right - 6 : (left + right) / 2;
+  const y = position === 'Top' ? top + 4 : position === 'Bottom' ? bottom - 4 : (top + bottom) / 2;
+  label(g, { x, y }, text, env, {
+    align: where === 'Left' ? 'left' : where === 'Right' ? 'right' : 'center',
+    baseline: position === 'Top' ? 'top' : position === 'Bottom' ? 'bottom' : 'middle',
+    color: env.style.textColor ?? env.style.lineColor,
+    size: fontSize(env),
+    bold: o.bool('bold'),
+    italic: o.bool('italic'),
+  });
+}
+
+function lineEnds(g: ShapeList, env: ToolEnv, o: Options, a: Pt, b: Pt): void {
+  const size = 8 + env.style.lineWidth * 2;
+  if (o.bool('startArrow')) g.arrowHead(b, a, size, stroke(env, { dash: [] }));
+  if (o.bool('endArrow')) g.arrowHead(a, b, size, stroke(env, { dash: [] }));
+}
+
 const definitions: ToolDefinition[] = [
   // Lines
   two('trend-line', (g, env, o) => {
@@ -624,25 +751,30 @@ const definitions: ToolDefinition[] = [
     if (!b) return;
     const [start, end] = extend(a, b, env.bounds, !!env.style.extendLeft, !!env.style.extendRight);
     g.line(start, end, stroke(env));
+    lineEnds(g, env, o, a, b);
+    textAlongLine(g, env, o, a, b);
     infoLabel(g, env, o, b);
-  }, { fields: lineInfoFields() }),
+  }, { ...lineText, fields: [...arrowFields, ...lineInfoFields(), ...lineTextFields] }),
   two('ray', (g, env, o) => {
     const [a, b] = env.points;
     if (!b) return;
     g.line(...extend(a, b, env.bounds, false, true), stroke(env));
+    lineEnds(g, env, o, a, b);
+    textAlongLine(g, env, o, a, b);
     infoLabel(g, env, o, b);
-  }, { fields: lineInfoFields() }),
+  }, { ...lineText, fields: [...arrowFields, ...lineInfoFields(), ...lineTextFields] }),
   two('extended-line', (g, env, o) => {
     const [a, b] = env.points;
     if (!b) return;
     g.line(...extend(a, b, env.bounds, true, true), stroke(env));
+    textAlongLine(g, env, o, a, b);
     infoLabel(g, env, o, b);
-  }, { fields: lineInfoFields() }),
+  }, { ...lineText, fields: [...lineInfoFields(), ...lineTextFields] }),
   two('info-line', (g, env) => {
     const [a, b] = env.points;
     if (!b) return;
     g.line(a, b, stroke(env));
-    label(g, { x: b.x + 8, y: b.y }, lineInfo(env, { price: true, bars: true, angle: true }).join('\n'), env, { background: env.theme.background, color: env.theme.text, size: 11 });
+    label(g, { x: b.x + 8, y: b.y }, lineInfo(env, { price: true, percent: true, bars: true, duration: true, angle: true }).join('\n'), env, { background: env.theme.background, color: env.theme.text, size: 11 });
   }),
   two('trend-angle', (g, env) => {
     const [a, b] = env.points;
@@ -653,19 +785,47 @@ const definitions: ToolDefinition[] = [
     g.ellipse(a.x, a.y, 30, 30, { width: 1, color: env.style.lineColor }, 0, Math.min(0, -angle), Math.max(0, -angle));
     label(g, { x: a.x + 36, y: a.y - (angle >= 0 ? 10 : -10) }, `${(angle * 180 / Math.PI).toFixed(2)}°`, env, { size: 11 });
   }),
-  one('horizontal-line', (g, env) => {
+  one('horizontal-line', (g, env, o) => {
     const [a] = env.points;
-    g.line({ x: 0, y: a.y }, { x: env.bounds.width, y: a.y }, stroke(env));
-    label(g, { x: env.bounds.width - 4, y: a.y }, env.formatPrice(env.anchors[0].price), env, { align: 'right', background: env.style.lineColor, size: 11 });
-  }),
-  one('horizontal-ray', (g, env) => {
+    const [start, end] = [{ x: 0, y: a.y }, { x: env.bounds.width, y: a.y }];
+    g.line(start, end, stroke(env));
+    textAlongLine(g, env, o, start, { x: end.x - (o.bool('showPrice') ? 80 : 4), y: a.y });
+    if (o.bool('showPrice')) label(g, { x: env.bounds.width - 4, y: a.y }, env.formatPrice(env.anchors[0].price), env, { align: 'right', background: env.style.lineColor, size: 11 });
+  }, { ...lineText, fields: [checkbox('showPrice', 'Price label', true), ...lineTextFields] }),
+  one('horizontal-ray', (g, env, o) => {
     const [a] = env.points;
     g.line(a, { x: env.bounds.width, y: a.y }, stroke(env));
-    label(g, { x: env.bounds.width - 4, y: a.y }, env.formatPrice(env.anchors[0].price), env, { align: 'right', background: env.style.lineColor, size: 11 });
-  }),
-  one('vertical-line', (g, env) => {
+    textAlongLine(g, env, o, a, { x: env.bounds.width - (o.bool('showPrice') ? 80 : 4), y: a.y });
+    if (o.bool('showPrice')) label(g, { x: env.bounds.width - 4, y: a.y }, env.formatPrice(env.anchors[0].price), env, { align: 'right', background: env.style.lineColor, size: 11 });
+  }, { ...lineText, fields: [checkbox('showPrice', 'Price label', true), ...lineTextFields] }),
+  one('vertical-line', (g, env, o) => {
     const [a] = env.points;
-    g.line({ x: a.x, y: env.bounds.top }, { x: a.x, y: env.bounds.top + env.bounds.height }, stroke(env));
+    const [top, bottom] = [env.bounds.top, env.bounds.top + env.bounds.height];
+    g.line({ x: a.x, y: top }, { x: a.x, y: bottom }, stroke(env));
+    if (o.bool('showTime')) label(g, { x: a.x, y: bottom - 4 }, env.formatTime(env.anchors[0].time), env, { align: 'center', baseline: 'bottom', background: env.style.lineColor, size: 11 });
+    const text = textOf(env);
+    if (!text) return;
+    const position = o.str('textPosition');
+    const side = o.str('textAlign');
+    const y = position === 'Top' ? top + 6 : position === 'Bottom' ? bottom - (o.bool('showTime') ? 26 : 6) : (top + bottom) / 2;
+    const font = { color: env.style.textColor ?? env.style.lineColor, size: fontSize(env), bold: o.bool('bold'), italic: o.bool('italic') };
+    // Turned a quarter left, the text reads upwards and its baseline faces the line's right.
+    if (o.str('textOrientation') === 'Vertical') {
+      label(g, { x: side === 'Left' ? a.x - 3 : side === 'Right' ? a.x + 3 : a.x, y }, text, env, { ...font, rotation: -Math.PI / 2, align: position === 'Top' ? 'right' : position === 'Bottom' ? 'left' : 'center', baseline: side === 'Left' ? 'bottom' : side === 'Right' ? 'top' : 'middle' });
+    } else {
+      label(g, { x: side === 'Left' ? a.x - 4 : side === 'Right' ? a.x + 4 : a.x, y }, text, env, { ...font, align: side === 'Left' ? 'right' : side === 'Right' ? 'left' : 'center', baseline: position === 'Top' ? 'top' : position === 'Bottom' ? 'bottom' : 'middle' });
+    }
+  }, {
+    ...lineText,
+    fields: [
+      checkbox('showTime', 'Time label', true),
+      ...onTab('Text', [
+        selectField('textOrientation', 'Orientation', ['Vertical', 'Horizontal']),
+        selectField('textPosition', 'Position', ['Top', 'Middle', 'Bottom']),
+        selectField('textAlign', 'Side', ['Left', 'Center', 'Right'], 'Right'),
+        ...fontFields,
+      ]),
+    ],
   }),
   one('cross-line', (g, env) => {
     const [a] = env.points;
@@ -771,24 +931,24 @@ const definitions: ToolDefinition[] = [
   two('fib-retracement', (g, env, o) => {
     const [a, b] = env.points;
     if (!b) return;
-    g.line(a, b, guide(env));
+    if (o.bool('showTrendLine')) g.line(a, b, guide(env));
     const [p0, p1] = env.anchors;
     // Level 0 sits on the second anchor and 1 on the first; reversed, the other way round.
     const [zero, one] = o.bool('reverse') ? [p0.price, p1.price] : [p1.price, p0.price];
     const levels = o.levels().map((level) => ({ level, price: zero + (one - zero) * level.value }));
     horizontalLevels(g, env, o, levels, Math.min(a.x, b.x), Math.max(a.x, b.x));
-  }, { fields: fibFields(retracementLevels, { reverse: true }) }),
+  }, { fields: fibFields(retracementLevels, { reverse: true, trendLine: true }) }),
   three('fib-extension', (g, env, o) => {
     const [a, b, c] = env.points;
     if (!b) return;
-    g.poly(c ? [a, b, c] : [a, b], false, guide(env));
+    if (o.bool('showTrendLine')) g.poly(c ? [a, b, c] : [a, b], false, guide(env));
     if (!c) return;
     const [p0, p1, p2] = env.anchors;
     // Levels project the first leg from the third anchor; reversed, they project it the other way.
     const move = (p1.price - p0.price) * (o.bool('reverse') ? -1 : 1);
     const levels = o.levels().map((level) => ({ level, price: p2.price + move * level.value }));
     horizontalLevels(g, env, o, levels, c.x, c.x + Math.max(40, Math.abs(b.x - a.x)));
-  }, { fields: fibFields(extensionLevels, { reverse: true }) }),
+  }, { fields: fibFields(extensionLevels, { reverse: true, trendLine: true }) }),
   three('fib-channel', (g, env, o) => {
     const [a, b, c] = env.points;
     if (!b) return;
@@ -813,7 +973,7 @@ const definitions: ToolDefinition[] = [
     for (const { level, start, end, drawn } of lines) {
       g.line(...drawn, levelStroke(env, level.color));
       const left = isLeft(o);
-      const text = levelText(env, o, level.value, (left ? p0.price : p1.price) + priceOffset * level.value);
+      const text = levelText(env, o, level.value, (left ? p0.price : p1.price) + priceOffset * level.value, level.text);
       if (text) label(g, left ? { x: start.x - 4, y: start.y } : { x: end.x + 4, y: end.y }, text, env, { align: left ? 'right' : 'left', color: level.color, size: 11 });
     }
   }, { fields: fibFields(channelLevels) }),
@@ -858,7 +1018,7 @@ const definitions: ToolDefinition[] = [
     for (const level of prices) {
       const end = priceEnd(level.value);
       g.line(...extend(a, end, env.bounds, false, true), levelStroke(env, level.color));
-      const text = levelText(env, o, level.value, p0.price + (p1.price - p0.price) * level.value);
+      const text = levelText(env, o, level.value, p0.price + (p1.price - p0.price) * level.value, level.text);
       if (text) label(g, { x: (left ? Math.min(a.x, b.x) : Math.max(a.x, b.x)) + (left ? -4 : 4), y: end.y }, text, env, { align: left ? 'right' : 'left', color: level.color, size: 10 });
     }
     for (const level of times) {
@@ -1127,8 +1287,8 @@ const definitions: ToolDefinition[] = [
   }),
 
   // Forecasting
-  three('long-position', position(true), { create: positionCreate(true), constrain: syncPositionTimes, fields: positionFields }),
-  three('short-position', position(false), { create: positionCreate(false), constrain: syncPositionTimes, fields: positionFields }),
+  three('long-position', position(true), { create: positionCreate(true), handles: positionHandles, fields: positionFields }),
+  three('short-position', position(false), { create: positionCreate(false), handles: positionHandles, fields: positionFields }),
   two('forecast', (g, env) => {
     const [a, b] = env.points;
     const [p0, p1] = env.anchors;
@@ -1431,9 +1591,12 @@ const definitions: ToolDefinition[] = [
     const [a, b] = env.points;
     if (!b) return;
     const right = env.style.extendRight ? { x: env.bounds.width, y: b.y } : b;
-    g.rect(a, right, { ...stroke(env), fill: env.style.fillColor ?? env.style.lineColor, fillOpacity: env.style.fillOpacity ?? 0.15 });
-    if (o.bool('showMiddleLine')) g.line({ x: a.x, y: (a.y + b.y) / 2 }, { x: right.x, y: (a.y + b.y) / 2 }, stroke(env, { width: 1, dash: [4, 4] }));
-  }, { isFillable: true, fields: [checkbox('showMiddleLine', 'Middle line')] }),
+    // Fill and border apart, so a transparent border leaves the fill as it is.
+    g.rect(a, right, { width: 0, fill: env.style.fillColor ?? env.style.lineColor, fillOpacity: env.style.fillOpacity ?? 0.15 });
+    g.rect(a, right, stroke(env));
+    if (o.bool('showMiddleLine')) g.line({ x: a.x, y: (a.y + b.y) / 2 }, { x: right.x, y: (a.y + b.y) / 2 }, stroke(env, { width: 1, dash: [4, 4], opacity: 1 }));
+    textInBox(g, env, o, a, right);
+  }, { ...lineText, isFillable: true, fields: [checkbox('showMiddleLine', 'Middle line'), ...boxTextFields] }),
   three('rotated-rectangle', (g, env) => {
     const [a, b, c] = env.points;
     if (!b) return;
@@ -1488,7 +1651,20 @@ const definitions: ToolDefinition[] = [
 
   // Text and notes. Multi-line text is stacked line by line; only bold is offered as the shapes
   // have no italic face.
-  one('text', (g, env, o) => label(g, env.points[0], textOf(env, 'Text'), env, { size: fontSize(env), bold: o.bool('bold'), baseline: 'middle' }), { hasText: true, defaultText: 'Text', defaults: { lineColor: '#2962ff' }, fields: textFields }),
+  one('text', (g, env, o) => label(g, env.points[0], textOf(env, 'Text'), env, {
+    color: env.style.textColor ?? env.style.lineColor,
+    size: fontSize(env),
+    bold: o.bool('bold'),
+    italic: o.bool('italic'),
+    baseline: 'middle',
+    background: o.bool('showBackground') ? o.str('backgroundColor') : undefined,
+    border: o.bool('showBorder') ? o.str('borderColor') : undefined,
+  }), {
+    hasText: true,
+    defaultText: 'Text',
+    defaults: { lineColor: '#2962ff' },
+    fields: [...fontFields, checkbox('showBackground', 'Background'), colorField('backgroundColor', 'Background colour', '#2962ff'), checkbox('showBorder', 'Border'), colorField('borderColor', 'Border colour', '#2962ff')],
+  }),
   one('anchored-text', (g, env, o) => label(g, env.points[0], textOf(env, 'Text'), env, { size: fontSize(env), bold: o.bool('bold'), background: env.theme.background, color: env.style.textColor ?? env.theme.text }), { hasText: true, defaultText: 'Text', fields: textFields }),
   one('note', (g, env, o) => {
     const [a] = env.points;

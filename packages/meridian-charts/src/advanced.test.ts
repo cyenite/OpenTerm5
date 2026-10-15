@@ -81,7 +81,8 @@ test('drawing settings edit style, coordinates and visibility', () => {
   const values: FieldValues = Object.fromEntries(fields.map((field) => [field.key, field.value as FieldValues[string]]));
   const unchanged = applyDrawingFields(subject, definition, values);
   assert.deepEqual(unchanged.anchors, subject.anchors);
-  assert.deepEqual({ ...unchanged.style, extendRight: undefined }, { ...subject.style, extendRight: undefined, fillColor: subject.style.fillColor ?? subject.style.lineColor, fillOpacity: subject.style.fillOpacity ?? 0.15 });
+  assert.deepEqual({ ...unchanged.style, extendRight: undefined }, { ...subject.style, extendRight: undefined, fillColor: subject.style.fillColor ?? subject.style.lineColor, fillOpacity: subject.style.fillOpacity ?? 0.15, textColor: subject.style.textColor ?? subject.style.lineColor, fontSize: subject.style.fontSize ?? 13 });
+  assert.equal(applyDrawingFields(subject, definition, { ...values, lineOpacity: 0 }).style.lineOpacity, 0, 'a see-through border is kept');
   assert.equal(unchanged.props?.visibility, undefined, 'shown everywhere by default');
 
   const edited = applyDrawingFields(subject, definition, { ...values, lineWidth: 3, 'price:1': 1.25, 'time:0': 2_000, 'visible:seconds': false, 'visible:minutes': false });

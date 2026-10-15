@@ -9,6 +9,7 @@ import { BotCheckError } from './bot-check';
 import { browserFetch, openBrowserSocket, verifyBrokerAccess } from './browser-network';
 import { loadAccounts, secretCipher } from './accounts';
 import { SessionPool } from './session-pool';
+import { handleTradingView } from './tradingview';
 import { AutomationHost } from './automation-host';
 import type { AutomationEvent, AutomationMethod } from '../shared/automation';
 import { orderType } from '../shared/protocol';
@@ -211,6 +212,7 @@ ipcMain.handle('terminal:request', async (_event, method: TerminalMethod, params
       send('accounts', accountProfiles());
       return true;
     }) };
+    if (method.startsWith('tradingview.')) return { result: await handleTradingView(method, params, window) };
     if (method === 'order.send' && isChanging) throw new Error('Account connection is changing. Send the order again after login completes.');
     await settledConnection();
     if (method === 'order.send') {

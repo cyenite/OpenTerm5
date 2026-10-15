@@ -1,6 +1,5 @@
 import { CloseByDialog } from './components/dialogs/CloseByDialog';
 import { ManagePositionDialog } from './components/dialogs/ManagePositionDialog';
-import { TopTabs } from './components/TopTabs';
 import { AutomationPage } from './components/pages/AutomationPage';
 import { CopyTradingPage } from './components/pages/CopyTradingPage';
 import { SignalsPage } from './components/pages/SignalsPage';
@@ -10,8 +9,9 @@ import { SymbolSpecificationDialog } from './components/dialogs/SymbolSpecificat
 import { PriceAlertsDialog } from './components/dialogs/PriceAlertsDialog';
 import { AccountsDialog } from './components/dialogs/AccountsDialog';
 import { WorkspacePresetDialog } from './components/dialogs/WorkspacePresetDialog';
+import { TradingViewDialog } from './components/dialogs/TradingViewDialog';
 import { useEffect } from 'react';
-import { AnalysisBar } from './components/AnalysisBar';
+import { AppBar } from './components/AppBar';
 import { ChartWorkspace } from './components/ChartWorkspace';
 import { ContextMenuHost } from './components/ContextMenu';
 import { DataWindow } from './components/DataWindow';
@@ -20,11 +20,11 @@ import { AboutDialog, ConnectionDialog, LoginDialog, SymbolsDialog } from './com
 import { ModifyOrderDialog, ModifyPositionDialog } from './components/dialogs/ModifyDialogs';
 import { OrderDialog } from './components/dialogs/OrderDialog';
 import { MarketWatch } from './components/MarketWatch';
-import { MenuBar } from './components/MenuBar';
 import { Navigator } from './components/Navigator';
 import { StatusBar } from './components/StatusBar';
 import { Toolbar } from './components/Toolbar';
 import { Toolbox } from './components/Toolbox';
+import { HintBubble } from './components/ui/Hint';
 import { handleShortcut } from './lib/commands';
 import { useStore } from './lib/store';
 import { workspace, type Dialog } from './lib/workspace';
@@ -55,6 +55,7 @@ function ActiveDialog({ dialog }: ActiveDialogProps) {
     case 'profile': return <WorkspacePresetDialog />;
     case 'template': return <WorkspacePresetDialog chartId={dialog.chartId} />;
     case 'alerts': return <PriceAlertsDialog />;
+    case 'tradingview': return <TradingViewDialog />;
     case 'about':
       return <AboutDialog />;
   }
@@ -79,13 +80,12 @@ export function App() {
 
   return (
     <div className={`app${isAnalysis ? ' is-analysis' : ''}`}>
-      <MenuBar />
-      {!isAnalysis && <TopTabs />}
+      <AppBar />
       <PriceAlertNotice />
       {page === 'copier' && <main className="workbench is-page"><CopyTradingPage /></main>}
       {page === 'signals' && <main className="workbench is-page"><SignalsPage /></main>}
       {page === 'automation' && <main className="workbench is-page"><AutomationPage /></main>}
-      {page === 'trading' && (isAnalysis ? <AnalysisBar /> : <Toolbar />)}
+      {page === 'trading' && <Toolbar />}
       {/* Every slot below stays in place across modes, so the charts survive a mode switch. */}
       <main className={`workbench${page !== 'trading' ? ' is-offstage' : ''}`} aria-hidden={page !== 'trading'}>
         {isLeftShown && (
@@ -114,6 +114,7 @@ export function App() {
       {state.isStatusBarShown && <StatusBar />}
       {state.dialog && <ActiveDialog dialog={state.dialog} />}
       <ContextMenuHost />
+      <HintBubble />
     </div>
   );
 }

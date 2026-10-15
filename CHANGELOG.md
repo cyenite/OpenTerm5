@@ -44,14 +44,52 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Alt shortcuts on a focused chart: Alt+T trend line, Alt+H horizontal line, Alt+J horizontal ray,
   Alt+V vertical line, Alt+C cross line, Alt+F Fibonacci retracement, Alt+R reset the chart view,
   Alt+I invert the scale, Alt+L logarithmic and Alt+P percent scale. Shift-click measures.
+- Import from TradingView (File menu): sign in to TradingView in its own window, choose which symbols'
+  drawings to copy and which account symbol receives each, and import saved TradingView chart themes.
+  Imported drawings belong to their symbol and show on every chart of it; imported themes appear
+  under View → Theme and in each chart's Chart Settings › Template menu. Drawings land on the
+  broker's bars: its server clock, daylight saving changes included, is read from its own forex
+  history. Drawings copied before are kept unless you choose to replace them.
+- Chart Settings: a Template menu applies any chart theme's colours to that chart, a gradient
+  background (top and bottom colours) and a chart text colour. Themes can define a gradient.
+- Drawing templates: save a drawing's look under a name and apply it from any drawing's settings
+  (Template menu), and copy the templates saved in TradingView.
+- TradingView-style drawing settings: text on trend lines, rays, horizontal and vertical lines and
+  rectangles (alignment, position, bold, italic); price and time labels that can be hidden; arrow
+  ends; line opacity; more line stats (percent change, date range, middle point, show on select);
+  Fibonacci level text, percentages, label size and the trend line; long and short positions with
+  compact labels, hideable stats and labels, and their own colours; text boxes with background and
+  border.
+- Import TradingView chart settings (File → Import from TradingView → Chart settings): pick one chart
+  from your TradingView layouts and apply its background, grids, candles, scales, status line,
+  crosshair, margins and, optionally, chart type to every chart and to new charts. Chart Settings
+  gains the options this needs: separate vertical and horizontal grid colours and styles, candle
+  bodies, crosshair width, scale line colour and font size, pane separator colour, last price line
+  colour and width, top and bottom margins, bar change and indicator inputs in the status line, and
+  the crosshair's price and time labels.
 
 ### Changed
 
+- The top of the window is two rows instead of three, the same in trading and analysis mode: an app
+  bar with the menus, workspaces, a Trade/Analysis switch and the account, and a chart bar with the
+  symbol, timeframes (more in a menu), one chart type menu, indicators, alerts, replay, undo and redo,
+  then the trading actions (trade mode only), chart tools and a Panels menu. Drawing tools are on the
+  chart's left rail: always in analysis mode, and in trade mode when opened with the chart bar's
+  Drawing Toolbar button (also View → Drawing Toolbar); zoom stays on the mouse wheel, `+`/`-`
+  and the Charts menu.
+- Candles are painted on whole screen pixels, as TradingView does, so their colours are as solid and
+  vivid as TradingView's. Before, every body edge and wick was half blended with the background.
+- Long and short positions are edited as in TradingView: the target and stop handles sit on the entry
+  side and one handle on the far side sets the length, which can now also extend to the left.
 - MetaTrader's chart colour schemes (Green on Black, Color on White, Black on White) are replaced by
   Meridian themes. Profiles and templates no longer store a colour scheme.
 - Saved charts move to Meridian's format on first start: indicators keep their MetaTrader formulas
   and settings, and drawings keep their anchors. The indicator parameter dialog is replaced by the
   settings on each study's legend row.
+- The drawing toolbar's flyout arrows are visible without hovering.
+- Undo and redo on a chart no longer revert or revive drawings changed elsewhere (another chart of the
+  same symbol, an import). Changes made to the chart from its menus and dialogs, such as Delete All
+  Objects, can now be undone on that chart. The Object Tree follows those changes.
 
 ### Removed
 

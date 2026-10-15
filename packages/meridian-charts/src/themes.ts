@@ -33,6 +33,8 @@ export interface MeridianUiTokens {
 
 export interface MeridianChartTokens {
   background: string;
+  // When set, the background fades from `background` at the top to this colour at the bottom.
+  backgroundGradient?: string;
   text: string;
   grid: string;
   border: string;
