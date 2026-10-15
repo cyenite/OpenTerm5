@@ -15,6 +15,7 @@ import { listThemes } from '@meridian/charts/themes';
 import { setThemePreference, systemThemeId } from '../lib/theme';
 import { useStore } from '../lib/store';
 import { useWatchedSpecs } from '../lib/watchlists';
+import { drawingsForSymbol, replaceChartObjects, symbolDrawings } from '../lib/symbol-drawings';
 import { windowArrangements } from '../lib/chart-windows';
 import {
   activeChart,
@@ -55,6 +56,8 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
   const symbols = useWatchedSpecs();
   const chart = activeChart(state);
   const hasChart = chart !== undefined;
+  const symbolObjectCount = useStore(symbolDrawings, (current) => (chart ? drawingsForSymbol(current, chart.symbol).length : 0));
+  const hasObjects = !!chart?.drawings.length || symbolObjectCount > 0;
   const isAnalysis = state.isAnalysisMode;
   // Analysis mode keeps the menus for charting and drops what places trades or opens terminal panels.
   const unlessAnalysis = (items: MenuItem[]) => isAnalysis ? [] : items;
@@ -71,6 +74,8 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
           ...state.profiles.map((profile) => ({ label: profile.name, isChecked: state.activeProfile === profile.name, action: () => loadProfile(profile.name) })),
           { label: 'Remove Profile', items: state.profiles.filter((profile) => profile.name !== state.activeProfile && profile.name !== 'Default').map((profile) => ({ label: profile.name, action: () => removeProfile(profile.name) })) },
         ] },
+        separator,
+        { label: 'Import from TradingView...', action: () => openDialog({ kind: 'tradingview' }) },
         separator,
         { label: 'Accounts...', action: () => openDialog({ kind: 'accounts' }) },
         { label: 'Login to Trade Account', action: () => openDialog({ kind: 'login' }) },
@@ -95,6 +100,7 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
         separator,
         { label: 'Status Bar', isChecked: state.isStatusBarShown, action: () => togglePanel('isStatusBarShown') },
         { label: 'Chart Bar', isChecked: state.isChartBarShown, action: () => togglePanel('isChartBarShown') },
+        ...unlessAnalysis([{ label: 'Drawing Toolbar', isChecked: state.isTradeDrawingToolbarShown, action: () => togglePanel('isTradeDrawingToolbarShown') }]),
         { label: 'Full Screen', shortcut: 'F11', action: toggleFullScreen },
         separator,
         { label: 'Theme', items: [
@@ -140,7 +146,7 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
         ] },
         { label: 'Objects List...', shortcut: 'Ctrl+B', isDisabled: !hasChart, action: () => chart && openDialog({ kind: 'objects', chartId: chart.id }) },
         { label: 'Save Chart Image...', isDisabled: !hasChart, action: () => window.dispatchEvent(new Event('openterm:chart-image')) },
-        { label: 'Delete All Objects', isDisabled: !chart?.drawings.length, action: () => updateActiveChart({ drawings: [] }) },
+        { label: 'Delete All Objects', isDisabled: !hasObjects, action: () => chart && replaceChartObjects(chart, []) },
         separator,
         { label: 'Grid', shortcut: 'Ctrl+G', isChecked: chart?.isGridShown, isDisabled: !hasChart, action: () => updateActiveChart((current) => ({ isGridShown: !current.isGridShown })) },
         { label: 'Volumes', shortcut: 'Ctrl+L', isChecked: chart?.isVolumeShown, isDisabled: !hasChart, action: () => updateActiveChart((current) => ({ isVolumeShown: !current.isVolumeShown })) },

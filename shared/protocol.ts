@@ -1,3 +1,4 @@
+import type { TradingViewAccount, TradingViewChartSettingsScan, TradingViewDrawings, TradingViewDrawingTemplate, TradingViewScan, TradingViewSymbol } from './tradingview';
 import type { Valuation } from './valuation';
 
 export const timeframes = [
@@ -20,8 +21,8 @@ export const timeframes = [
   { label: 'H8', seconds: 28800, isOnToolbar: false },
   { label: 'H12', seconds: 43200, isOnToolbar: false },
   { label: 'D1', seconds: 86400, isOnToolbar: true },
-  { label: 'W1', seconds: 604800, isOnToolbar: true },
-  { label: 'MN1', seconds: 2592000, isOnToolbar: true },
+  { label: 'W1', seconds: 604800, isOnToolbar: false },
+  { label: 'MN1', seconds: 2592000, isOnToolbar: false },
 ] as const;
 
 export type Timeframe = (typeof timeframes)[number]['label'];
@@ -78,6 +79,8 @@ export interface Account {
   isFifo?: boolean;
   isEquityLive?: boolean;
   isTradeAllowed: boolean;
+  // The trade server's clock minus UTC right now, as the server reports it.
+  utcOffsetSeconds?: number;
 }
 
 export interface SymbolSpec {
@@ -259,6 +262,15 @@ export interface TerminalMethods {
   'accounts.remove': [{ id: string }, boolean];
   'brokers.search': [{ query: string }, BrokerServer[]];
   'brokers.resolve': [{ server: string; webUrl?: string }, ResolvedServer];
+  'tradingview.account': [Record<string, never>, TradingViewAccount | null];
+  'tradingview.signIn': [Record<string, never>, TradingViewAccount | null];
+  'tradingview.signOut': [Record<string, never>, boolean];
+  'tradingview.symbols': [Record<string, never>, TradingViewScan];
+  'tradingview.drawings': [{ symbols: TradingViewSymbol[] }, TradingViewDrawings];
+  'tradingview.drawingTemplates': [{ types: string[] }, TradingViewDrawingTemplate[]];
+  'tradingview.themes': [Record<string, never>, string[]];
+  'tradingview.theme': [{ name: string }, unknown];
+  'tradingview.chartSettings': [Record<string, never>, TradingViewChartSettingsScan];
   'terminal.status': [Record<string, never>, TerminalStatus];
   'account.info': [Record<string, never>, Account | null];
   'account.login': [{ login: number; password: string; otp?: string; webEndpoint?: string; label?: string; isPasswordSaved?: boolean }, Account];

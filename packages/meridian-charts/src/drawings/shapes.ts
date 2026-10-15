@@ -20,7 +20,8 @@ export type Shape =
   | { kind: 'poly'; points: Pt[]; closed: boolean; style: ShapeStyle }
   | { kind: 'rect'; x: number; y: number; w: number; h: number; style: ShapeStyle }
   | { kind: 'ellipse'; cx: number; cy: number; rx: number; ry: number; rotation: number; start: number; end: number; style: ShapeStyle }
-  | { kind: 'text'; x: number; y: number; text: string; align: CanvasTextAlign; baseline: CanvasTextBaseline; color: string; size: number; bold: boolean; background?: string; border?: string; padding: number; radius: number };
+  // `rotation` turns the text about (x, y), in radians, so a label can follow a sloped line.
+  | { kind: 'text'; x: number; y: number; text: string; align: CanvasTextAlign; baseline: CanvasTextBaseline; color: string; size: number; bold: boolean; italic: boolean; rotation: number; background?: string; border?: string; padding: number; radius: number };
 
 export interface Bounds {
   left: number;
@@ -52,8 +53,8 @@ export class ShapeList {
     return this;
   }
 
-  text(at: Pt, text: string, options: { align?: CanvasTextAlign; baseline?: CanvasTextBaseline; color: string; size?: number; bold?: boolean; background?: string; border?: string; padding?: number; radius?: number }): this {
-    this.shapes.push({ kind: 'text', x: at.x, y: at.y, text, align: options.align ?? 'left', baseline: options.baseline ?? 'middle', color: options.color, size: options.size ?? 12, bold: options.bold ?? false, background: options.background, border: options.border, padding: options.padding ?? 0, radius: options.radius ?? 3 });
+  text(at: Pt, text: string, options: { align?: CanvasTextAlign; baseline?: CanvasTextBaseline; color: string; size?: number; bold?: boolean; italic?: boolean; rotation?: number; background?: string; border?: string; padding?: number; radius?: number }): this {
+    this.shapes.push({ kind: 'text', x: at.x, y: at.y, text, align: options.align ?? 'left', baseline: options.baseline ?? 'middle', color: options.color, size: options.size ?? 12, bold: options.bold ?? false, italic: options.italic ?? false, rotation: options.rotation ?? 0, background: options.background, border: options.border, padding: options.padding ?? 0, radius: options.radius ?? 3 });
     return this;
   }
 
@@ -157,7 +158,11 @@ export function hitShape(shape: Shape, p: Pt, tolerance: number, measure: (text:
     }
     case 'text': {
       const box = textBox(shape, measure);
-      return p.x >= box.x - 2 && p.x <= box.x + box.width + 2 && p.y >= box.y - 2 && p.y <= box.y + box.height + 2;
+      // Into the text's own frame, where its box is upright.
+      const cos = Math.cos(-shape.rotation);
+      const sin = Math.sin(-shape.rotation);
+      const local = { x: shape.x + (p.x - shape.x) * cos - (p.y - shape.y) * sin, y: shape.y + (p.x - shape.x) * sin + (p.y - shape.y) * cos };
+      return local.x >= box.x - 2 && local.x <= box.x + box.width + 2 && local.y >= box.y - 2 && local.y <= box.y + box.height + 2;
     }
   }
 }
@@ -181,7 +186,12 @@ export function paintShapes(ctx: CanvasRenderingContext2D, shapes: readonly Shap
   for (const shape of shapes) {
     ctx.save();
     if (shape.kind === 'text') {
-      ctx.font = `${shape.bold ? '600 ' : ''}${shape.size}px ${defaults.font}`;
+      ctx.font = `${shape.italic ? 'italic ' : ''}${shape.bold ? '600 ' : ''}${shape.size}px ${defaults.font}`;
+      if (shape.rotation) {
+        ctx.translate(shape.x, shape.y);
+        ctx.rotate(shape.rotation);
+        ctx.translate(-shape.x, -shape.y);
+      }
       if (shape.background || shape.border) {
         const box = textBox(shape, (text) => ctx.measureText(text).width);
         roundRect(ctx, box.x, box.y, box.width, box.height, shape.radius);

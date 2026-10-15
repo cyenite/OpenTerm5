@@ -4,7 +4,7 @@ import { timeframes, type Timeframe } from '../../shared/protocol';
 // quotes it receives (see tick-bars.ts), so they sit next to the broker's timeframes here.
 export const secondsTimeframes = [
   { label: 'S1', seconds: 1, isOnToolbar: false },
-  { label: 'S5', seconds: 5, isOnToolbar: true },
+  { label: 'S5', seconds: 5, isOnToolbar: false },
   { label: 'S15', seconds: 15, isOnToolbar: false },
   { label: 'S30', seconds: 30, isOnToolbar: false },
 ] as const;

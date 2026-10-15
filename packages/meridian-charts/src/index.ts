@@ -25,4 +25,4 @@ export {
   type ThemePatch,
 } from './themes';
 export { iconSvg } from './ui/icons';
-export type { Bar, BarRange, DataProvider, DrawingPoint, DrawingStyle, InputValue, LineStyle, PriceStyle, SerializedDrawing, StudyBand, StudyDefinition, StudyInput, StudyLevel, StudyOutput, StudyPlot, SymbolInfo } from './types';
+export type { Bar, BarRange, DataProvider, DrawingPoint, DrawingStyle, DrawingTemplate, DrawingTemplateStore, InputValue, LineStyle, PriceStyle, SerializedDrawing, StudyBand, StudyDefinition, StudyInput, StudyLevel, StudyOutput, StudyPlot, SymbolInfo } from './types';

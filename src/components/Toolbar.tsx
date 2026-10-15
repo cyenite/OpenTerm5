@@ -1,11 +1,18 @@
-import { useLayoutEffect, useRef, useState } from 'react';
-import { newOrder, setChartType, setTimeframe, toggleDepth, toggleOneClick, togglePanel, zoom } from '../lib/commands';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { newOrder, setChartType, setTimeframe, showSymbol, toggleDepth, toggleFullScreen, toggleOneClick, togglePanel } from '../lib/commands';
+import { chartInstance, chartUi } from '../lib/chart-instances';
 import { defaultSymbol } from '../lib/broker-symbols';
-import { useStore } from '../lib/store';
-import { activeChart, chartTypes, openChart, toggleAnalysisMode, tools, workspace, type ChartType, type Tool } from '../lib/workspace';
-import { HintBubble, hintProps, type HintContent } from './ui/Hint';
-import { Icon, type IconName } from './ui/Icon';
+import { openMenuAt } from '../lib/context-menu';
+import { indicatorMenuItems } from '../lib/indicator-menu';
 import { chartTimeframes } from '../lib/mt5-timeframes';
+import { session } from '../lib/session';
+import { useStore } from '../lib/store';
+import { useWatchedSpecs } from '../lib/watchlists';
+import { activeChart, chartTypes, openChart, openDialog, toggleAnalysisPositions, workspace, type ChartType } from '../lib/workspace';
+import type { MenuItem } from './MenuBar';
+import { SymbolSearch } from './SymbolSearch';
+import { hintProps, type HintContent } from './ui/Hint';
+import { Icon, type IconName } from './ui/Icon';
 
 interface ToolButtonProps {
   hint: HintContent;
@@ -14,19 +21,21 @@ interface ToolButtonProps {
   isActive?: boolean;
   isPrimary?: boolean;
   isDisabled?: boolean;
+  hasMenu?: boolean;
   textLevel?: number;
   onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }
 
-export function ToolButton({ hint, icon, text, isActive, isPrimary, isDisabled, textLevel, onClick }: ToolButtonProps) {
-  const className = ['tool-button', isActive && 'is-active', isPrimary && 'is-primary', textLevel && 'has-text'].filter(Boolean).join(' ');
+export function ToolButton({ hint, icon, text, isActive, isPrimary, isDisabled, hasMenu, textLevel, onClick }: ToolButtonProps) {
+  const className = ['tool-button', isActive && 'is-active', isPrimary && 'is-primary', textLevel && 'has-text', hasMenu && 'has-menu'].filter(Boolean).join(' ');
   return (
     <button
       type="button"
       className={className}
       aria-label={hint.title}
       aria-keyshortcuts={hint.shortcut}
-      aria-pressed={isActive}
+      aria-pressed={hasMenu ? undefined : isActive}
+      aria-haspopup={hasMenu ? 'menu' : undefined}
       aria-disabled={isDisabled || undefined}
       data-text-level={textLevel}
       onClick={(event) => { if (!isDisabled) onClick(event); }}
@@ -34,6 +43,7 @@ export function ToolButton({ hint, icon, text, isActive, isPrimary, isDisabled, 
     >
       {icon && <Icon name={icon} />}
       {text && <span className="tool-text">{text}</span>}
+      {hasMenu && <Icon name="chevron" size={12} />}
     </button>
   );
 }
@@ -48,7 +58,11 @@ export function ToolGroup({ label, children }: ToolGroupProps) {
 }
 
 export const chartTypeIcons: Record<ChartType, IconName> = { bars: 'bars', candles: 'candles', hollow: 'hollow', line: 'line', area: 'area', baseline: 'baseline', heikinashi: 'heikinashi' };
-const toolIcons: Record<Tool, IconName> = { cursor: 'cursor', crosshair: 'crosshair', hline: 'hline', trend: 'trend', vline: 'vline', ray: 'ray', rectangle: 'rectangle', fibonacci: 'fibonacci', riskOrder: 'riskOrder' };
+
+const menuBelow = (event: React.MouseEvent<HTMLElement>, items: readonly MenuItem[]) => {
+  const box = event.currentTarget.getBoundingClientRect();
+  openMenuAt(box.left, box.bottom + 4, items);
+};
 
 // Labels stay while the toolbar fits on one row. When it would not, the least needed labels go
 // first (level 1), then the rest (level 2); each comes back once the window regains the width
@@ -78,51 +92,121 @@ function useCompactToolbar() {
   return { toolbar, level };
 }
 
+function SymbolPicker() {
+  const symbol = useStore(workspace, (state) => activeChart(state)?.symbol);
+  const symbols = useStore(session, (state) => state.symbols);
+  const watchedSpecs = useWatchedSpecs();
+  const watched = useMemo(() => new Set(watchedSpecs.map((spec) => spec.name)), [watchedSpecs]);
+  return (
+    <div className="chart-symbol" title={symbol ? symbols[symbol]?.description : undefined}>
+      <strong>{symbol ?? 'No chart'}</strong>
+      <SymbolSearch symbols={symbols} watched={watched} onPick={showSymbol} label="Change symbol" placeholder="Symbol search" />
+    </div>
+  );
+}
+
+// The toolbar's timeframes are the common ones; any other the chart is on joins them so the
+// current choice always shows, and the menu lists them all.
+function TimeframePicker() {
+  const timeframe = useStore(workspace, (state) => activeChart(state)?.timeframe);
+  const shown = chartTimeframes.filter((candidate) => candidate.isOnToolbar || candidate.label === timeframe);
+  const all: MenuItem[] = chartTimeframes.map((candidate) => ({ label: candidate.label, isChecked: candidate.label === timeframe, action: () => setTimeframe(candidate.label) }));
+  return (
+    <ToolGroup label="Timeframe">
+      {shown.map((candidate) => (
+        <ToolButton key={candidate.label} text={candidate.label} isActive={timeframe === candidate.label} isDisabled={!timeframe} hint={{ title: `Timeframe ${candidate.label}`, description: 'The period each bar on the active chart covers.' }} onClick={() => setTimeframe(candidate.label)} />
+      ))}
+      <ToolButton hasMenu isDisabled={!timeframe} hint={{ title: 'All Timeframes', description: 'Seconds, minutes, hours, days, weeks and months.' }} onClick={(event) => menuBelow(event, all)} />
+    </ToolGroup>
+  );
+}
+
+function ChartTypePicker() {
+  const type = useStore(workspace, (state) => activeChart(state)?.type);
+  const current = chartTypes.find((candidate) => candidate.key === type) ?? chartTypes[1];
+  const items: MenuItem[] = chartTypes.map((candidate) => ({ label: candidate.label, shortcut: candidate.shortcut, isChecked: candidate.key === type, action: () => setChartType(candidate.key) }));
+  return <ToolButton icon={chartTypeIcons[current.key]} hasMenu isDisabled={!type} hint={{ title: `Chart Type: ${current.label}`, description: 'Candles, bars, line, area, baseline or Heikin Ashi.' }} onClick={(event) => menuBelow(event, items)} />;
+}
+
+interface PanelsMenuProps {
+  isAnalysis: boolean;
+}
+
+function PanelsMenu({ isAnalysis }: PanelsMenuProps) {
+  const state = useStore(workspace, (current) => current);
+  const hasChart = activeChart(state) !== undefined;
+  const items: MenuItem[] = [
+    { label: isAnalysis ? 'Watchlist' : 'Market Watch', shortcut: 'Ctrl+M', isChecked: state.isMarketWatchShown, action: () => togglePanel('isMarketWatchShown') },
+    { label: 'Data Window', shortcut: 'Ctrl+D', isChecked: state.isDataWindowShown, action: () => togglePanel('isDataWindowShown') },
+    ...(isAnalysis
+      ? [{ label: 'Positions on Charts', isChecked: state.isAnalysisPositionsShown, action: toggleAnalysisPositions }]
+      : [
+        { label: 'Navigator', shortcut: 'Ctrl+N', isChecked: state.isNavigatorShown, action: () => togglePanel('isNavigatorShown') },
+        { label: 'Toolbox', shortcut: 'Ctrl+T', isChecked: state.isToolboxShown, action: () => togglePanel('isToolboxShown') },
+        { label: 'Depth of Market', shortcut: 'Alt+B', isChecked: state.depthSymbol !== null, isDisabled: !hasChart, action: () => toggleDepth() },
+      ]),
+    { label: '', isSeparator: true },
+    ...(isAnalysis ? [] : [{ label: 'Drawing Toolbar', isChecked: state.isTradeDrawingToolbarShown, action: () => togglePanel('isTradeDrawingToolbarShown') }]),
+    { label: 'Chart Tabs', isChecked: state.isChartBarShown, action: () => togglePanel('isChartBarShown') },
+    { label: 'Status Bar', isChecked: state.isStatusBarShown, action: () => togglePanel('isStatusBarShown') },
+    { label: '', isSeparator: true },
+    { label: 'Full Screen', shortcut: 'F11', action: toggleFullScreen },
+  ];
+  return <ToolButton icon="panels" hasMenu hint={{ title: 'Panels', description: 'Show or hide the watchlist, data window, toolbox and other panels.' }} onClick={(event) => menuBelow(event, items)} />;
+}
+
+function TradingActions() {
+  const tool = useStore(workspace, (state) => state.tool);
+  const isOneClickEnabled = useStore(workspace, (state) => state.isOneClickEnabled);
+  return (
+    <ToolGroup label="Trading">
+      <ToolButton icon="riskOrder" isActive={tool === 'riskOrder'} hint={{ title: 'Risk Order', description: 'Drag the entry, then the stop loss and take profit on the chart; the volume follows your risk setting.' }} onClick={() => workspace.set({ tool: tool === 'riskOrder' ? 'cursor' : 'riskOrder' })} />
+      <ToolButton icon="oneClick" text="One-Click" textLevel={1} isActive={isOneClickEnabled} hint={{ title: 'One-Click Trading', description: 'Buy and sell from the chart immediately, without a confirmation ticket.' }} onClick={toggleOneClick} />
+      <ToolButton text="New Order" isPrimary hint={{ title: 'New Order', shortcut: 'F9', description: 'Open the order ticket for the active symbol.' }} onClick={() => newOrder()} />
+    </ToolGroup>
+  );
+}
+
+// The chart bar is the same in both modes, so moving between them never rearranges what the user
+// reaches for: what is charted on the left, editing in the middle, and on the right the trading
+// actions (trade mode only), chart tools and panels.
 export function Toolbar() {
   const state = useStore(workspace, (current) => current);
+  const isAnalysis = state.isAnalysisMode;
   const chart = activeChart(state);
   const hasChart = chart !== undefined;
+  const ui = useStore(chartUi, (current) => (chart ? current.byId[chart.id] : undefined));
+  const engine = () => chartInstance(chart?.id);
   const { toolbar, level } = useCompactToolbar();
 
   return (
-    <div ref={toolbar} className="toolbar" data-level={level} role="toolbar" aria-label="Terminal">
-      <ToolGroup label="Windows">
-        <ToolButton icon="newChart" text="New Chart" textLevel={1} hint={{ title: 'New Chart', description: 'Open another chart window for the current symbol.' }} onClick={() => openChart(chart?.symbol ?? defaultSymbol())} />
-        <ToolButton icon="marketWatch" text="Market Watch" textLevel={2} isActive={state.isMarketWatchShown} hint={{ title: 'Market Watch', shortcut: 'Ctrl+M', description: 'Live bid and ask prices for the symbols you follow.' }} onClick={() => togglePanel('isMarketWatchShown')} />
-        <ToolButton icon="navigator" text="Navigator" textLevel={2} isActive={state.isNavigatorShown} hint={{ title: 'Navigator', shortcut: 'Ctrl+N', description: 'Your trading accounts and the indicators you can add.' }} onClick={() => togglePanel('isNavigatorShown')} />
-        <ToolButton icon="toolbox" text="Toolbox" textLevel={2} isActive={state.isToolboxShown} hint={{ title: 'Toolbox', shortcut: 'Ctrl+T', description: 'Open positions, pending orders, history and the journal.' }} onClick={() => togglePanel('isToolboxShown')} />
-        <ToolButton icon="dataWindow" text="Data Window" textLevel={2} isActive={state.isDataWindowShown} hint={{ title: 'Data Window', shortcut: 'Ctrl+D', description: 'Prices and indicator values under the pointer.' }} onClick={() => togglePanel('isDataWindowShown')} />
-        <ToolButton icon="depth" text="Depth" textLevel={2} isActive={state.depthSymbol !== null} isDisabled={!hasChart} hint={{ title: 'Depth of Market', shortcut: 'Alt+B', description: "The order book for the active chart's symbol." }} onClick={() => toggleDepth()} />
+    <div ref={toolbar} className="toolbar chart-toolbar" data-level={level} role="toolbar" aria-label="Chart">
+      <SymbolPicker />
+      <ToolButton icon="plus" hint={{ title: 'New Chart', description: 'Open another chart of the current symbol.' }} onClick={() => openChart(chart?.symbol ?? defaultSymbol())} />
+      <span className="toolbar-divider" />
+      <TimeframePicker />
+      <span className="toolbar-divider" />
+      <ToolGroup label="Chart">
+        <ChartTypePicker />
+        <ToolButton icon="indicators" text="Indicators" textLevel={2} hasMenu isDisabled={!hasChart} hint={{ title: 'Indicators', description: 'Add a study to the active chart.' }} onClick={(event) => chart && menuBelow(event, indicatorMenuItems(chart.id))} />
+        <ToolButton icon="alert" text="Alert" textLevel={1} hint={{ title: 'Price Alerts', description: 'Get notified when price reaches a level.' }} onClick={() => openDialog({ kind: 'alerts' })} />
+        <ToolButton icon="replay" text="Replay" textLevel={1} isActive={!!ui?.isReplaying} isDisabled={!ui} hint={{ title: 'Bar Replay', description: 'Hide the later bars and play the chart forward from a bar you pick.' }} onClick={() => (ui?.isReplaying ? engine()?.exitReplay() : engine()?.startReplay())} />
       </ToolGroup>
-      <ToolGroup label="Trading">
-        <ToolButton text="New Order" isPrimary hint={{ title: 'New Order', shortcut: 'F9', description: 'Open the order ticket for the active symbol.' }} onClick={() => newOrder()} />
-        <ToolButton icon="oneClick" text="One-Click" textLevel={1} isActive={state.isOneClickEnabled} hint={{ title: 'One-Click Trading', description: 'Buy and sell from the chart immediately, without a confirmation ticket.' }} onClick={toggleOneClick} />
+      <span className="toolbar-divider" />
+      <ToolGroup label="Edit">
+        {!isAnalysis && <ToolButton icon="trend" isActive={state.isTradeDrawingToolbarShown} hint={{ title: 'Drawing Toolbar', description: 'Show or hide the drawing tools on the left of each chart.' }} onClick={() => togglePanel('isTradeDrawingToolbarShown')} />}
+        <ToolButton icon="undo" isDisabled={!ui?.canUndo} hint={{ title: 'Undo', shortcut: 'Ctrl+Z', description: 'Undo the last change to drawings or indicators.' }} onClick={() => engine()?.undo()} />
+        <ToolButton icon="redo" isDisabled={!ui?.canRedo} hint={{ title: 'Redo', shortcut: 'Ctrl+Y' }} onClick={() => engine()?.redo()} />
       </ToolGroup>
-      <ToolGroup label="Mode">
-        <ToolButton icon="analysis" text="Analysis" textLevel={1} hint={{ title: 'Analysis Mode', shortcut: 'Ctrl+Shift+A', description: 'A chart-first layout without trading controls. Accounts, copiers and signals keep running.' }} onClick={toggleAnalysisMode} />
+      <div className="toolbar-spacer" />
+      {!isAnalysis && <TradingActions />}
+      {!isAnalysis && <span className="toolbar-divider" />}
+      <ToolGroup label="View">
+        <ToolButton icon="objectTree" isActive={!!ui?.isObjectTreeShown} isDisabled={!ui} hint={{ title: 'Object Tree', description: 'List the indicators and drawings on the chart.' }} onClick={() => engine()?.toggleObjectTree()} />
+        <ToolButton icon="chartSettings" isDisabled={!ui} hint={{ title: 'Chart Settings', description: 'Colours, status line, scales and appearance of the active chart.' }} onClick={() => engine()?.openChartSettings()} />
+        <ToolButton icon="camera" isDisabled={!hasChart} hint={{ title: 'Save Chart Image' }} onClick={() => window.dispatchEvent(new Event('openterm:chart-image'))} />
+        <PanelsMenu isAnalysis={isAnalysis} />
       </ToolGroup>
-      <ToolGroup label="Chart type">
-        {chartTypes.map((type) => (
-          <ToolButton key={type.key} icon={chartTypeIcons[type.key]} isActive={chart?.type === type.key} isDisabled={!hasChart} hint={{ title: type.label, shortcut: type.shortcut, description: type.description }} onClick={() => setChartType(type.key)} />
-        ))}
-      </ToolGroup>
-      <ToolGroup label="Zoom">
-        <ToolButton icon="zoomIn" isDisabled={!hasChart} hint={{ title: 'Zoom In', shortcut: '+' }} onClick={() => zoom(1.25)} />
-        <ToolButton icon="zoomOut" isDisabled={!hasChart} hint={{ title: 'Zoom Out', shortcut: '-' }} onClick={() => zoom(0.8)} />
-      </ToolGroup>
-      <ToolGroup label="Drawing tools">
-        {tools.map((tool) => (
-          <ToolButton key={tool.key} icon={toolIcons[tool.key]} isActive={state.tool === tool.key} hint={{ title: tool.label, description: tool.description }} onClick={() => workspace.set({ tool: tool.key })} />
-        ))}
-      </ToolGroup>
-      <ToolGroup label="Timeframe">
-        {chartTimeframes
-          .filter((timeframe) => timeframe.isOnToolbar)
-          .map((timeframe) => (
-            <ToolButton key={timeframe.label} text={timeframe.label} isActive={chart?.timeframe === timeframe.label} isDisabled={!hasChart} hint={{ title: `Timeframe ${timeframe.label}`, description: 'The period each bar on the active chart covers.' }} onClick={() => setTimeframe(timeframe.label)} />
-          ))}
-      </ToolGroup>
-      <HintBubble />
     </div>
   );
 }

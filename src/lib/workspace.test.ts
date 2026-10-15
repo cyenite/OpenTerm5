@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { closeChart, loadProfile, makeChart, openDialog, toggleAnalysisMode, removeProfile, saveProfile, updateActiveChart, workspace } from './workspace';
+import { defaultSettings } from '@meridian/charts';
+import { applyChartSettingsToAll, closeChart, loadProfile, makeChart, openChart, openDialog, toggleAnalysisMode, removeProfile, saveProfile, updateActiveChart, workspace } from './workspace';
 
 test('profile switches retain current edits and persist them without transient UI state', () => {
   const writes = new Map<string, string>();
@@ -62,4 +63,20 @@ test('entering analysis mode leaves trading state behind but keeps charting stat
   assert.equal(state.tool, 'trend');
   assert.deepEqual(state.dialog, { kind: 'alerts' });
   workspace.set({ isAnalysisMode: false, dialog: null, tool: 'cursor' });
+});
+
+test('imported chart settings reach every chart, and new charts when they are the default', () => {
+  const charts = [makeChart('EURUSD'), { ...makeChart('XAUUSD'), type: 'line' as const }];
+  workspace.set({ charts, activeChartId: charts[0].id, defaultChartSettings: undefined });
+  const settings = { ...defaultSettings, background: '#ffffff', scaleFontSize: 12 };
+  applyChartSettingsToAll(settings);
+  assert.deepEqual(workspace.get().charts.map((chart) => [chart.type, chart.settings?.background]), [['candles', '#ffffff'], ['line', '#ffffff']]);
+  openChart('GBPUSD');
+  assert.equal(workspace.get().charts.at(-1)?.settings, undefined);
+  applyChartSettingsToAll(settings, 'hollow', true);
+  assert.deepEqual(workspace.get().charts.map((chart) => chart.type), ['hollow', 'hollow', 'hollow']);
+  openChart('USDJPY');
+  const opened = workspace.get().charts.at(-1)!;
+  assert.deepEqual([opened.type, opened.settings], ['candles', settings]);
+  assert.notEqual(opened.settings, workspace.get().defaultChartSettings);
 });

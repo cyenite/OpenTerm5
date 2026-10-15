@@ -30,12 +30,14 @@ function envFor(type: string, anchors: DrawingPoint[], props: Record<string, unk
     theme: { text: '#fff', background: '#000', up: '#0f0', down: '#f00', muted: '#888' },
     formatPrice: (price) => price.toFixed(2),
     formatDuration: (ms) => `${Math.round(ms / MINUTE)}m`,
+    formatTime: (time) => new Date(time).toISOString(),
     timeToX,
     priceToY,
     bars,
     indexOf: (time) => (time - T0) / MINUTE,
     intervalMs: MINUTE,
     isDraft: false,
+    isSelected: false,
   };
 }
 
@@ -212,11 +214,35 @@ test('position labels show the quantity from account size, risk and lot size', (
 test('line tools append price, bars and angle info on request', () => {
   const anchors = [at(5, 100), at(15, 110)];
   assert.deepEqual(texts(build('trend-line', anchors)), []);
-  const info = texts(build('trend-line', anchors, { showPriceRange: true, showBarsRange: true, showAngle: true }));
+  const info = texts(build('trend-line', anchors, { showPriceRange: true, showPercentPriceRange: true, showBarsRange: true, showDateTimeRange: true, showAngle: true }));
   assert.ok(info.includes('+10.00 (+10.00%)'), info.join(' | '));
   assert.ok(info.includes('10 bars, 10m'));
   assert.ok(info.some((text) => text.endsWith('°')));
-  assert.ok(texts(build('ray', anchors, { showBarsRange: true })).includes('10 bars, 10m'));
+  assert.ok(texts(build('ray', anchors, { showBarsRange: true })).includes('10 bars'));
+  assert.ok(texts(build('trend-line', anchors, { showPercentPriceRange: true })).includes('+10.00%'));
+  assert.deepEqual(texts(build('trend-line', anchors, { showPriceRange: true, alwaysShowStats: false })), []);
+});
+
+test('line text follows the line, reads upright, and sits above, on or below it', () => {
+  const rising = build('trend-line', [at(5, 100), at(15, 110)], {}, 'BOS');
+  const label = rising.find((shape): shape is Extract<Shape, { kind: 'text' }> => shape.kind === 'text')!;
+  assert.equal(label.text, 'BOS');
+  assert.ok(label.rotation < 0 && label.rotation > -Math.PI / 2);
+  assert.equal(label.baseline, 'bottom');
+  const falling = build('trend-line', [at(15, 110), at(5, 100)], { textPosition: 'Below line', textAlign: 'Right' }, 'BOS');
+  const right = falling.find((shape): shape is Extract<Shape, { kind: 'text' }> => shape.kind === 'text')!;
+  assert.equal(right.rotation, label.rotation);
+  assert.deepEqual([right.baseline, right.align], ['top', 'right']);
+});
+
+test('a horizontal line hides its price label on request and a rectangle places its text inside', () => {
+  const priced = texts(build('horizontal-line', [at(5, 100)]));
+  assert.equal(priced.length, 1);
+  assert.deepEqual(texts(build('horizontal-line', [at(5, 100)], { showPrice: false })), []);
+  assert.deepEqual(texts(build('horizontal-line', [at(5, 100)], { showPrice: false }, 'POI')), ['POI']);
+  const box = build('rectangle', [at(5, 100), at(15, 110)], { textAlign: 'Right', textPosition: 'Top' }, 'FVG');
+  const text = box.find((shape): shape is Extract<Shape, { kind: 'text' }> => shape.kind === 'text')!;
+  assert.deepEqual([text.text, text.align, text.baseline], ['FVG', 'right', 'top']);
 });
 
 test('text tools stack multi-line text and honour bold', () => {
@@ -259,4 +285,14 @@ test('ghost feed draws one candle per bar between its anchors, ending on the las
   assert.ok(Math.abs(last.x + last.w / 2 - timeToX(at(20, 0).time)) < 1e-9);
   const y = priceToY(104);
   assert.ok(Math.abs(last.y - y) < 1e-6 || Math.abs(last.y + last.h - y) < 1.01, 'the last close sits on the anchor');
+});
+
+test('position handles sit where TradingView puts them: levels on the entry edge, length on the far edge', () => {
+  const handles = toolDefinitions.get('long-position')!.handles!;
+  const anchors = [at(10, 100), at(30, 110), at(30, 95)];
+  assert.deepEqual(handles.at(anchors), [at(10, 100), at(10, 110), at(10, 95), at(30, 100)]);
+  assert.deepEqual(handles.drag(anchors, 1, at(14, 112)), [at(10, 100), at(30, 112), at(30, 95)], 'the target keeps the length');
+  assert.deepEqual(handles.drag(anchors, 2, at(12, 90)), [at(10, 100), at(30, 110), at(30, 90)]);
+  assert.deepEqual(handles.drag(anchors, 3, at(40, 104)), [at(10, 100), at(40, 110), at(40, 95)], 'the far edge keeps the levels');
+  assert.deepEqual(handles.drag(anchors, 0, at(12, 101)), [at(12, 101), at(30, 110), at(30, 95)]);
 });
