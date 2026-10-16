@@ -9,7 +9,7 @@ OpenTerm5 follows MetaTrader 5's shortcuts where they exist. On macOS, use **Cmd
 |---|---|
 | F9 | New order |
 | F11 | Full screen |
-| Ctrl+1 to Ctrl+4 | Switch workspace: Trading, Copy Trading, Signals, Automation |
+| Ctrl+1 to Ctrl+5 | Switch workspace: Trading, Copy Trading, Signals, Automation, Journaling |
 | Ctrl+O | Options (connection) |
 | Ctrl+Shift+A | Switch between trading and analysis mode |
 | Escape | Close the open dialog or menu, cancel the risk planner, or return to the cursor tool |

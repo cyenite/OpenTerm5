@@ -3,6 +3,8 @@ import { ManagePositionDialog } from './components/dialogs/ManagePositionDialog'
 import { AutomationPage } from './components/pages/AutomationPage';
 import { CopyTradingPage } from './components/pages/CopyTradingPage';
 import { SignalsPage } from './components/pages/SignalsPage';
+import { JournalingPage } from './components/pages/JournalingPage';
+import { JournalingNotice } from './components/journaling/JournalingNotice';
 import { PriceAlertNotice } from './components/PriceAlertNotice';
 import { DrawingObjectsDialog } from './components/dialogs/DrawingObjectsDialog';
 import { SymbolSpecificationDialog } from './components/dialogs/SymbolSpecificationDialog';
@@ -82,9 +84,11 @@ export function App() {
     <div className={`app${isAnalysis ? ' is-analysis' : ''}`}>
       <AppBar />
       <PriceAlertNotice />
+      <JournalingNotice />
       {page === 'copier' && <main className="workbench is-page"><CopyTradingPage /></main>}
       {page === 'signals' && <main className="workbench is-page"><SignalsPage /></main>}
       {page === 'automation' && <main className="workbench is-page"><AutomationPage /></main>}
+      {page === 'journaling' && <main className="workbench is-page"><JournalingPage /></main>}
       {page === 'trading' && <Toolbar />}
       {/* Every slot below stays in place across modes, so the charts survive a mode switch. */}
       <main className={`workbench${page !== 'trading' ? ' is-offstage' : ''}`} aria-hidden={page !== 'trading'}>

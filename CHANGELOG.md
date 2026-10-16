@@ -67,6 +67,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   bodies, crosshair width, scale line colour and font size, pane separator colour, last price line
   colour and width, top and bottom margins, bar change and indicator inputs in the status line, and
   the crosshair's price and time labels.
+- Journaling (Ctrl+5): connect a Tradescribe journal and the account you are logged in to sends its
+  MT5 deals there automatically, marked verified. The first sync brings in the last 90 days. The page
+  shows your plan and monthly usage, sync status for each account with Sync now, today's trades with
+  a quick review (rating, tags, mistakes, playbook and notes) and the day note, with links into
+  Tradescribe for the calendar, reports and AI review. A notice offers to review each trade as it
+  closes, and the status bar shows when the journal last synced. Connect from the Journaling page
+  (your browser asks you to allow it), with a code from Tradescribe, or with an `openterm5://` link,
+  which always asks before connecting. Self-hosters set the journaling platform under Tools >
+  Options.
 
 ### Changed
 
@@ -90,6 +99,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Undo and redo on a chart no longer revert or revive drawings changed elsewhere (another chart of the
   same symbol, an import). Changes made to the chart from its menus and dialogs, such as Delete All
   Objects, can now be undone on that chart. The Object Tree follows those changes.
+- The client ID (CID) sent to the broker at login is now kept between connections and restarts, as
+  the official web terminal does. Before, every connection sent a new one, so brokers saw a new device
+  each time. Options: Connection shows the CID and can generate a new one.
 
 ### Removed
 

@@ -7,6 +7,7 @@ import { useStore } from '../../lib/store';
 import { closeDialog } from '../../lib/workspace';
 import { Dialog } from './Dialog';
 import { BrokerServerField } from './BrokerServerField';
+import { JournalingPlatformField } from '../journaling/JournalingPlatformField';
 
 export function SymbolsDialog() {
   const symbols = useStore(session, (state) => state.symbols);
@@ -88,6 +89,7 @@ export function ConnectionDialog() {
           <input value={settings.webEndpoint} disabled={isSaving} onChange={(event) => patch({ webEndpoint: event.target.value })} placeholder="wss://web.metatrader.app/terminal" />
         </label>
         <p className="is-muted">Advanced. The login dialog fills this in from the trade server you pick, so you rarely need to change it.</p>
+        <ClientIdField />
         {error && <p role="alert" className="is-loss">{error}</p>}
         <p className="order-check">
           Status: {link.state}
@@ -99,8 +101,42 @@ export function ConnectionDialog() {
             Apply and reconnect
           </button>
         </div>
+        <JournalingPlatformField />
       </div>
     </Dialog>
+  );
+}
+
+function ClientIdField() {
+  const [cid, setCid] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  useEffect(() => {
+    void terminal.request('device.clientId', {}).then((result) => setCid(result.cid)).catch((reason: Error) => setError(reason.message));
+  }, []);
+
+  const regenerate = async () => {
+    if (!window.confirm('Generate a new client ID? Brokers will see this computer as a new device from the next login.')) return;
+    setIsGenerating(true);
+    setError(null);
+    try { setCid((await terminal.request('device.regenerateClientId', {})).cid); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'A new client ID could not be generated.'); }
+    finally { setIsGenerating(false); }
+  };
+
+  return (
+    <>
+      <label className="field">
+        <span>Client ID (CID)</span>
+        <input value={cid ?? ''} readOnly placeholder="Loading…" className="is-mono" />
+      </label>
+      <p className="is-muted">Sent to the broker at every login so it can recognise this computer. A new ID applies from the next login.</p>
+      {error && <p role="alert" className="is-loss">{error}</p>}
+      <div className="dialog-actions">
+        <button disabled={!cid || isGenerating} onClick={regenerate}>Generate new CID</button>
+      </div>
+    </>
   );
 }
 

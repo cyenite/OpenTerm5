@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type { TerminalEvent, TerminalMethod, ConnectionSettings, TerminalApi } from '../shared/protocol';
 import type { AutomationApi, AutomationEvent, AutomationMethod } from '../shared/automation';
+import type { JournalingApi, JournalingEvent, JournalingMethod } from '../shared/journaling';
 
 class RequestError extends Error {
   constructor(readonly code: number, message: string) {
@@ -31,6 +32,7 @@ async function invoke(name: string, method: string, params: unknown) {
 
 const onTerminal = channel('terminal:event');
 const onAutomation = channel('automation:event');
+const onJournaling = channel('journaling:event');
 
 const api: TerminalApi = {
   request: (method: TerminalMethod, params: unknown) => invoke('terminal:request', method, params),
@@ -46,5 +48,11 @@ const automation: AutomationApi = {
   on: (event: AutomationEvent, listener: (data: never) => void) => onAutomation(event, listener),
 } as AutomationApi;
 
+const journaling: JournalingApi = {
+  request: (method: JournalingMethod, params: unknown) => invoke('journaling:request', method, params),
+  on: (event: JournalingEvent, listener: (data: never) => void) => onJournaling(event, listener),
+} as JournalingApi;
+
 contextBridge.exposeInMainWorld('terminal', api);
 contextBridge.exposeInMainWorld('automation', automation);
+contextBridge.exposeInMainWorld('journaling', journaling);

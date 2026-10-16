@@ -43,3 +43,16 @@ test('read-only client requires login before account, symbol and subscription ac
   await assert.rejects(client.subscribe(['EURUSD']), /login is required/);
   client.close();
 });
+
+test('login sends the device identity the client was given', async () => {
+  const identity = Buffer.alloc(16, 0x5a);
+  const client = new Mt5WebClient('wss://broker.example/terminal', undefined, identity);
+  let sent: Buffer | undefined;
+  client.transport.request = async (_command, payload) => {
+    sent = Buffer.from(payload!);
+    return Buffer.alloc(168);
+  };
+  await client.login({ login: 7n, password: 'demo' });
+  client.close();
+  assert.deepEqual(sent?.subarray(196, 212), identity);
+});

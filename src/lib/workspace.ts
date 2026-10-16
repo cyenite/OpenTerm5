@@ -67,6 +67,7 @@ export const pages = [
   { key: 'copier', label: 'Copy Trading', shortcut: 'Ctrl+2' },
   { key: 'signals', label: 'Signals', shortcut: 'Ctrl+3' },
   { key: 'automation', label: 'Automation', shortcut: 'Ctrl+4' },
+  { key: 'journaling', label: 'Journaling', shortcut: 'Ctrl+5' },
 ] as const;
 
 export type Page = (typeof pages)[number]['key'];

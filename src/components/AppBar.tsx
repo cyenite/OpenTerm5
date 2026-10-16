@@ -1,4 +1,5 @@
 import { automationStore } from '../lib/automation';
+import { journalingStore } from '../lib/journaling';
 import { connectProfile } from '../lib/accounts';
 import { openContextMenu } from '../lib/context-menu';
 import { session } from '../lib/session';
@@ -20,7 +21,8 @@ function useBadges(): Partial<Record<Page, number>> {
     return (webhooks.status.error ? 1 : 0) + state.copier.links.filter((link) => link.state === 'failed' && accounts.has(link.accountId)).length;
   });
   const automation = useStore(automationStore, (state) => state.manager.guardStates.filter((item) => item.trippedAt).length);
-  return { copier, signals, automation };
+  const journaling = useStore(journalingStore, (state) => state.view?.isReconnectNeeded ? 1 : 0);
+  return { copier, signals, automation, journaling };
 }
 
 function WorkspaceTabs() {

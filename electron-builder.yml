@@ -10,6 +10,9 @@ files:
   - dist-electron/**
   - build/icon.png
   - package.json
+protocols:
+  - name: OpenTerm5
+    schemes: [openterm5]
 linux:
   icon: build/icons
   target: [AppImage, deb]
