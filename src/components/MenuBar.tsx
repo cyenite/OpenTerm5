@@ -16,15 +16,17 @@ import { setThemePreference, systemThemeId } from '../lib/theme';
 import { useStore } from '../lib/store';
 import { useWatchedSpecs } from '../lib/watchlists';
 import { drawingsForSymbol, replaceChartObjects, symbolDrawings } from '../lib/symbol-drawings';
-import { windowArrangements } from '../lib/chart-windows';
+import { drawingSyncMenuItems, layoutMenuItems, syncMenuItems, tabTitle } from '../lib/layout-menu';
+import { visibleChartIds } from '../lib/chart-tabs';
 import {
   activeChart,
-  arrangeIcons,
-  arrangeWindows,
-  focusChart,
-  maximizeChart,
-  minimizeChart,
-  restoreWindows,
+  activeTab,
+  closeTab,
+  focusTab,
+  layoutDrawings,
+  openTab,
+  stepChart,
+  toggleMaximized,
   chartTypes,
   tools,
   openChart,
@@ -38,6 +40,7 @@ import {
   workspace,
 } from '../lib/workspace';
 import { chartTimeframes } from '../lib/mt5-timeframes';
+import { useIsReplayingChart } from '../lib/replay-session';
 
 export interface MenuItem {
   label: string;
@@ -56,8 +59,12 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
   const symbols = useWatchedSpecs();
   const chart = activeChart(state);
   const hasChart = chart !== undefined;
+  const isReplaying = useIsReplayingChart(chart?.id);
   const symbolObjectCount = useStore(symbolDrawings, (current) => (chart ? drawingsForSymbol(current, chart.symbol).length : 0));
-  const hasObjects = !!chart?.drawings.length || symbolObjectCount > 0;
+  const tab = activeTab(state);
+  const isMultiChart = !!tab && visibleChartIds(tab).length > 1;
+  const tabObjectCount = chart ? layoutDrawings(state, chart).length : 0;
+  const hasObjects = !!chart?.drawings.length || tabObjectCount > 0 || symbolObjectCount > 0;
   const isAnalysis = state.isAnalysisMode;
   // Analysis mode keeps the menus for charting and drops what places trades or opens terminal panels.
   const unlessAnalysis = (items: MenuItem[]) => isAnalysis ? [] : items;
@@ -159,7 +166,7 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
     {
       label: 'Tools',
       items: [
-        ...unlessAnalysis([{ label: 'New Order', shortcut: 'F9', action: () => newOrder() }]),
+        ...unlessAnalysis([{ label: 'New Order', shortcut: 'F9', isDisabled: isReplaying, action: () => newOrder() }]),
         { label: 'Price Alerts...', action: () => openDialog({ kind: 'alerts' }) },
         ...unlessAnalysis([{ label: 'One Click Trading', isChecked: state.isOneClickEnabled, action: toggleOneClick }]),
         separator,
@@ -169,17 +176,21 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
     {
       label: 'Window',
       items: [
-        ...windowArrangements.map((arrangement) => ({ label: arrangement.label, shortcut: 'shortcut' in arrangement ? arrangement.shortcut : undefined, isDisabled: !hasChart, action: () => arrangeWindows(arrangement.key) })),
-        { label: 'Arrange Icons', isDisabled: !hasChart, action: arrangeIcons },
+        { label: 'New Tab', isDisabled: !hasChart, action: openTab },
+        { label: 'Close Tab', isDisabled: !tab, action: () => tab && closeTab(tab.id) },
         separator,
-        { label: 'Tabbed', isChecked: state.layout === 'tabs', isDisabled: !hasChart, action: () => chart && maximizeChart(chart.id) },
-        { label: 'Floating Windows', isChecked: state.layout === 'windows', isDisabled: !hasChart, action: restoreWindows },
-        { label: 'Minimize', isDisabled: !hasChart, action: () => chart && minimizeChart(chart.id) },
+        { label: 'Layout', isDisabled: !tab, items: tab ? layoutMenuItems(tab) : [] },
+        { label: 'Sync in Layout', isDisabled: !tab, items: tab ? syncMenuItems(tab) : [] },
+        { label: 'Sync Drawings', items: drawingSyncMenuItems() },
         separator,
-        ...state.charts.map((candidate, index) => ({
-          label: `${index + 1} ${candidate.symbol},${candidate.timeframe}${candidate.isMinimized ? ' (minimized)' : ''}`,
-          isChecked: candidate.id === chart?.id,
-          action: () => focusChart(candidate.id),
+        { label: 'Next Chart', shortcut: 'Tab', isDisabled: !isMultiChart, action: () => stepChart(1) },
+        { label: 'Previous Chart', shortcut: 'Shift+Tab', isDisabled: !isMultiChart, action: () => stepChart(-1) },
+        { label: 'Maximize Chart', shortcut: 'Alt+Enter', isChecked: state.isChartMaximized, isDisabled: !isMultiChart, action: toggleMaximized },
+        separator,
+        ...state.tabs.map((candidate, index) => ({
+          label: `${index + 1} ${tabTitle(candidate, state.charts)}${visibleChartIds(candidate).length > 1 ? ` (${visibleChartIds(candidate).length} charts)` : ''}`,
+          isChecked: candidate.id === tab?.id,
+          action: () => focusTab(candidate.id),
         })),
       ],
     },

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyTemplate, captureProfile, captureTemplate, presetName, restoreProfiles, restoreTemplates } from './presets';
+import { applyTemplate, captureProfile, captureTemplate, presetName, restoreProfiles, restoreTemplates, restoreWorkspaceCharts } from './presets';
+import { makeTab } from './chart-tabs';
 import type { ChartConfig, WorkspaceState } from './workspace';
 
 const chart: ChartConfig = {
@@ -25,12 +26,16 @@ test('templates retain destination identity and timeframe with independent indic
 });
 
 test('profiles capture chart state without account credentials or transient dialogs', () => {
-  const state = { charts: [chart], activeChartId: chart.id, layout: 'tile', dialog: { kind: 'login' } } as WorkspaceState;
+  const tab = { ...makeTab('tab', [chart.id], '2h'), syncs: ['symbol' as const] };
+  const state = { charts: [chart], tabs: [tab], activeTabId: tab.id, dialog: { kind: 'login' } } as WorkspaceState;
   const profile = captureProfile(state, 'London');
-  assert.equal(profile.layout, 'tile');
+  assert.equal(profile.tabs[0].layout, '2h');
+  assert.equal(profile.activeTabId, 'tab');
   assert.equal('dialog' in profile, false);
   profile.charts[0].drawings.length = 0;
+  profile.tabs[0].syncs.length = 0;
   assert.equal(chart.drawings.length, 1);
+  assert.deepEqual(tab.syncs, ['symbol']);
 });
 
 test('preset names reject empty, oversized and control characters', () => {
@@ -41,11 +46,9 @@ test('preset names reject empty, oversized and control characters', () => {
 test('persisted presets discard corrupt shapes instead of breaking chart rendering', () => {
   const template = captureTemplate(chart, 'Valid');
   assert.deepEqual(restoreTemplates([null, {}, { ...template, settings: { ...template.settings, indicators: [{ kind: 'rsi' }] } }, template]), [template]);
-  const profile = captureProfile({ charts: [chart], activeChartId: chart.id, layout: 'tile' } as WorkspaceState, 'Valid');
+  const profile = captureProfile({ charts: [chart], tabs: [makeTab('tab', [chart.id])], activeTabId: 'tab' } as WorkspaceState, 'Valid');
   const [restored] = restoreProfiles([{}, { ...profile, charts: [null] }, profile]);
-  assert.equal(restored.layout, 'windows');
-  assert.deepEqual(restored.charts, [{ ...chart, frame: { left: 0, top: 0, width: 1, height: 1 } }]);
-  assert.equal(restoreProfiles([{ ...profile, charts: [{ ...chart, frame: { left: 0, top: 0, width: 4, height: 1 } }] }]).length, 0);
+  assert.deepEqual(restored, profile);
   assert.deepEqual(restoreProfiles('invalid'), []);
 });
 
@@ -75,4 +78,50 @@ test('chart settings and hollow candles survive a save and restore, cleaned of b
   assert.equal('settings' in withoutSettings, false);
   const template = restoreTemplates([captureTemplate({ ...chart, settings: restored.settings }, 'Log scale')])[0];
   assert.equal(template.settings.settings?.scaleMode, 'log');
+});
+
+test('MT5 tabbed charts become a tab each, keeping the active chart in front', () => {
+  const second = { ...chart, id: 'second', symbol: 'GBPUSD' };
+  const restored = restoreWorkspaceCharts({ layout: 'tabs', activeChartId: 'second', charts: [chart, second] });
+  assert.deepEqual(restored.tabs.map((tab) => [tab.layout, tab.chartIds]), [['s', ['first']], ['s', ['second']]]);
+  assert.equal(restored.tabs.find((tab) => tab.id === restored.activeTabId)?.chartIds[0], 'second');
+  assert.deepEqual(restored.tabs[0].syncs, ['crosshair']);
+});
+
+test('MT5 floating windows become one tab in reading order, minimized windows hidden after them', () => {
+  const at = (id: string, top: number, left: number, isMinimized = false) => ({ ...chart, id, frame: { top, left, width: 0.5, height: 0.5 }, isMinimized });
+  const restored = restoreWorkspaceCharts({ layout: 'windows', activeChartId: 'icon', charts: [at('lower', 0.5, 0), at('icon', 0, 0, true), at('right', 0, 0.5), at('left', 0, 0)] });
+  const [tab] = restored.tabs;
+  assert.equal(restored.tabs.length, 1);
+  assert.deepEqual(tab.chartIds, ['left', 'right', 'lower', 'icon']);
+  assert.equal(tab.layout, '3h');
+  assert.equal(tab.activeChartId, 'left', 'a minimized window is hidden, so it cannot stay active');
+  assert.ok(restored.charts.every((restoredChart) => !('frame' in restoredChart) && !('isMinimized' in restoredChart)));
+});
+
+test('saved tabs drop unknown ids and claim each chart once; unclaimed charts get their own tab', () => {
+  const second = { ...chart, id: 'second', linkGroup: 'blue' };
+  const third = { ...chart, id: 'third', linkGroup: 'plaid' };
+  const restored = restoreWorkspaceCharts({
+    activeTabId: 'missing',
+    charts: [chart, second, third],
+    tabs: [
+      { id: 'grid', layout: '4', syncs: ['symbol', 'teleport'], chartIds: ['first', 'ghost', 'second'], activeChartId: 'ghost', sizes: { '2h': [{ fraction: 3 }, { fraction: 1 }], bogus: [] }, drawings: { EURUSD: chart.drawings, broken: [{}] } },
+      { id: 'copy', layout: 's', chartIds: ['first'] },
+      { id: 'future', layout: '11x', chartIds: [] },
+    ],
+  });
+  assert.deepEqual(restored.tabs.map((tab) => [tab.id, tab.layout, tab.chartIds]), [['grid', '2h', ['first', 'second']], ['tab-third', 's', ['third']]]);
+  const [grid] = restored.tabs;
+  assert.deepEqual(grid.syncs, ['symbol']);
+  assert.equal(grid.activeChartId, 'first');
+  assert.deepEqual(grid.sizes, { '2h': [{ fraction: 0.75 }, { fraction: 0.25 }] });
+  assert.deepEqual(Object.keys(grid.drawings), ['EURUSD']);
+  assert.equal(restored.activeTabId, 'grid');
+  assert.deepEqual(restored.charts.map((restoredChart) => restoredChart.linkGroup), [undefined, 'blue', undefined]);
+});
+
+test('templates leave the sync group with the chart', () => {
+  const template = captureTemplate({ ...chart, linkGroup: 'red' }, 'Grouped');
+  assert.equal('linkGroup' in template.settings, false);
 });

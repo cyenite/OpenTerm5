@@ -1,6 +1,6 @@
 # Trading
 
-This guide covers the Trading workspace: quotes, charts, chart windows, orders and trading directly
+This guide covers the Trading workspace: quotes, charts, chart layouts, orders and trading directly
 from the chart.
 
 ## Market Watch
@@ -10,7 +10,8 @@ Market Watch lists live bid and ask prices, the spread and the time of the last 
 - **Add a symbol:** type its name in the **+ click to add** row and press Enter, or open
   **Symbols…** (Ctrl+U) to browse every symbol your broker offers.
 - **Open an order:** double-click a symbol.
-- **Open a chart:** drag a symbol onto the chart area, or right-click it and choose **Chart Window**.
+- **Open a chart:** right-click a symbol and choose **Chart in New Tab**, or drag it onto a chart to
+  show it there.
 - **Symbol details:** select a symbol and switch to the **Details** tab, or choose
   **Specification…** from its context menu. Both show contract size, volume limits, swaps and trading
   hours.
@@ -50,7 +51,8 @@ colours, what the status line shows, the scale mode, the last-price line and lab
 right margin, the background, grid, crosshair and the symbol watermark. Settings are saved with the
 chart and with its templates; colours you leave unchanged follow the theme.
 
-When the pointer is over one chart, the other chart windows show a crosshair at the same time.
+When a tab shows several charts, the others mirror the crosshair at the same time (and price, on the
+same symbol). See [Chart layouts](#chart-layouts) for this and the other sync options.
 
 ### Chart tools
 
@@ -60,8 +62,23 @@ When the pointer is over one chart, the other chart windows show a crosshair at 
   indicators and drawings. Click a drawing to select it, double-click for its settings, and use the
   row's buttons to hide, lock or remove it.
 - **Bar replay** (**Replay** in the top bar, or the chart's context menu) hides the later bars. Click
-  the bar to start from, then play, step one bar at a time or change the speed. The square button ends
-  the replay. Indicators and drawings work as usual while replaying.
+  a bar on any chart to start from, then use the replay bar under the charts to play (Shift+Down),
+  step forward (Shift+Right), change the speed or pick another start (a date, the first available
+  bar or a random one). **Exit Replay** goes back to live charts. Indicators and drawings work as
+  usual while replaying.
+  - In a multi-chart layout every chart replays on one clock by default, so each shows only what had
+    happened by the replay time. The menu beside **Replay** switches to replaying the active chart
+    alone.
+  - Each step moves the clock by the **update interval**, by default the shortest timeframe in the
+    layout. Charts on longer timeframes show their current bar forming step by step, built from bars
+    of the update interval. Where the broker's history at that interval does not reach back far
+    enough, the forming bar stays hidden until it is complete.
+  - A chart with no history at the replay time stays live, and the replay bar says so.
+  - A replaying chart does not trade, because an order would still fill at the live price, not the
+    one on screen. Its One-Click panel, Risk Order tool, position and order line dragging, close
+    buttons and context menu **Trading** submenu are off, and **New Order** (F9) is refused while it
+    is the active chart; each says "Trading is off while this chart replays". Charts outside the
+    replay, Market Watch and the Toolbox still trade.
 ### Indicators
 
 Add an indicator from **Insert → Indicators**, from the chart's context menu, or by clicking it in the
@@ -86,8 +103,11 @@ group.
 ### Drawing objects
 
 The toolbar and **Insert → Objects** provide the common tools: horizontal and vertical lines,
-trendlines, horizontal rays, rectangles and Fibonacci retracements. In analysis mode, every chart also
-shows the drawing toolbar down its left side, with 82 tools in six groups: trend lines, channels and
+trendlines, horizontal rays, rectangles and Fibonacci retracements. In analysis mode (or with
+**Drawing Toolbar** on in trade mode) the drawing toolbar runs down the left of the chart area, with
+one toolbar for all the charts of a layout, as in TradingView. The tool you pick goes on whichever
+chart you click, and the magnet, lock and hide switches apply to every chart; remove and the object
+tree act on the active chart. It has 82 tools in six groups: trend lines, channels and
 pitchforks; Fibonacci and Gann tools; chart patterns, Elliott waves and cycles; long and short
 positions, volume profiles and measurers; brushes, arrows and shapes; and text and notes. Each group
 button shows the tool you last used from it; the arrow beside it opens the full list, where the star
@@ -137,21 +157,51 @@ or **View → Show Positions in Analysis**, to draw them on the charts. They are
 drag or close them until you return to trading. Ctrl+Shift+A, or **Trading** in the top bar,
 switches back. The terminal reopens in whichever mode you left it in.
 
-## Chart windows
+## Chart layouts
 
-Charts can be shown as tabs or as floating windows, as in MetaTrader 5.
+Each tab in the chart bar below the charts holds a layout of 1 to 16 charts, as in TradingView. Click
+the layout button next to the symbol search to choose one: layouts are grouped by how many charts they
+show.
 
 | Action | How |
 |---|---|
-| Switch charts | Click a tab in the chart bar below the charts |
-| Close a chart | The **×** on its tab, middle-click the tab, or Ctrl+F4 |
-| Float the windows | **Window → Floating Windows**, or the restore button at the right of the chart bar |
-| Maximise a window | Double-click its title bar, or its **□** button |
-| Move or resize | Drag the title bar, or any edge or corner |
-| Minimise | The **−** button. Minimised windows line up along the bottom; click one to restore it |
-| Arrange | **Window → Cascade, Tile Windows (Alt+R), Tile Horizontally, Tile Vertically, Arrange Icons** |
+| Switch tabs | Click a tab in the chart bar. **+** opens a new tab with a copy of the active chart |
+| Close a tab | The **×** on its tab, or middle-click it |
+| Choose the active chart | Click it, or press **Tab** and **Shift+Tab** to move between charts in reading order |
+| Resize charts | Drag the line between two charts. **Shift**+drag moves the matching lines too; double-click resets |
+| Maximise a chart | **Alt+Enter**, or **Maximize Chart** in the chart menu. Press it again, or choose any layout, to restore |
+| Swap charts | Right-click a chart and choose **Move Chart → Forward** or **Back** |
+| Close a chart | Right-click it and choose **Close**, or Ctrl+F4. The layout steps down to fit the charts left |
 
-Window positions are saved with your profile and restored when OpenTerm5 starts.
+Switching to a smaller layout hides the extra charts rather than closing them, and a larger layout
+brings them back before adding copies of the active chart. Each layout remembers its own divider
+positions.
+
+### Sync in layout
+
+The switches under **Sync in layout** (in the layout button, the **Window** menu or a chart's menu)
+apply to the current tab:
+
+| Sync | What it does |
+|---|---|
+| Symbol | Changing the symbol of one chart changes the others |
+| Interval | Changing the timeframe of one chart changes the others |
+| Crosshair | The other charts show the crosshair at the same time, and at the same price on the same symbol. On by default |
+| Time | Clicking a chart scrolls the others to that moment |
+| Date Range | The other charts show the same dates as the active chart while it scrolls and zooms |
+
+With symbol or interval sync on, a link button appears in the bottom right corner of each chart. Put
+charts in a coloured **sync group** there to sync only within the group; charts outside any group sync
+with each other.
+
+### Sync drawings
+
+The link button in the chart toolbar sets where new drawings go: **This Layout** (the default) shows
+them on every chart of the same symbol in the tab, **All Layouts** on every chart of the symbol in
+every tab, and **Off** keeps them on the chart they were drawn on.
+
+Tabs, layouts, sizes and sync settings are saved with your profile and restored when OpenTerm5 starts.
+Charts saved by earlier versions open as one tab each, or as one layout if they were floating windows.
 
 ## Placing orders
 

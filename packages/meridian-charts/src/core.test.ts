@@ -41,6 +41,52 @@ test('the time scale maps bars, times and pixels both ways, and extrapolates pas
   assert.equal(scale.count, 111);
 });
 
+test('barContaining maps a time onto the bar whose span holds it, across intervals and closures', () => {
+  const hour = 3_600_000;
+  const empty = new TimeScale();
+  assert.equal(empty.barContaining(0), null);
+  const friday = Date.UTC(2026, 9, 16, 20);
+  const monday = Date.UTC(2026, 9, 18, 21);
+  const hours = new TimeScale();
+  hours.setTimes([friday - hour, friday, monday, monday + hour], hour);
+  assert.equal(hours.barContaining(friday), 1, 'a bar holds its own opening time');
+  assert.equal(hours.barContaining(friday + 35 * 60_000), 1, 'an M5 time lands on the H1 bar it falls in, not the next hour');
+  assert.equal(hours.barContaining(friday + hour - 1), 1);
+  assert.equal(hours.barContaining(friday + hour), 2, 'a time in the weekend closure lands on the first bar after it');
+  assert.equal(hours.barContaining(Date.UTC(2026, 9, 17, 12)), 2);
+  assert.equal(hours.barContaining(monday + hour + 59 * 60_000), 3, 'the last bar spans one interval');
+  assert.equal(hours.barContaining(monday + 2 * hour), null, 'past the end of the last bar');
+  assert.equal(hours.barContaining(friday - hour - 1), null, 'before the first bar');
+  const minutes = new TimeScale();
+  minutes.setTimes(Array.from({ length: 24 }, (_, index) => friday + index * 300_000), 300_000);
+  assert.equal(minutes.barContaining(friday + hour), 12, 'an H1 time lands on the M5 bar opening then');
+  const months = new TimeScale();
+  const january = Date.UTC(2026, 0, 1);
+  const february = Date.UTC(2026, 1, 1);
+  months.setTimes([january, february], 30 * 86_400_000);
+  assert.equal(months.barContaining(Date.UTC(2026, 0, 31, 12)), 0, 'a 31-day month still holds its last day');
+  assert.equal(months.barContaining(Date.UTC(2026, 1, 28, 12)), 1);
+  assert.equal(months.barContaining(Date.UTC(2026, 2, 5)), null);
+});
+
+test('the time scale fits a logical range and centres an index, keeping bars on screen', () => {
+  const scale = new TimeScale();
+  scale.width = 800;
+  scale.setTimes(Array.from({ length: 500 }, (_, index) => index * 60_000), 60_000);
+  scale.fit(100, 300);
+  assert.equal(scale.spacing, 4);
+  assert.equal(scale.rightEdge, 300);
+  assert.equal(scale.xToIndex(0), 100);
+  scale.fit(100, 101);
+  assert.equal(scale.spacing, scale.maxSpacing, 'spacing stays within its limits');
+  scale.fit(10, 10);
+  assert.equal(scale.rightEdge, 101, 'an empty range changes nothing');
+  scale.centerOn(250);
+  assert.ok(Math.abs(scale.xToIndex(400) - 250) < 1e-9);
+  scale.centerOn(-1000);
+  assert.ok(scale.xToIndex(scale.width) >= 4, 'the oldest bars stay in view');
+});
+
 test('the price scale fits data with margins and keeps a manual range once dragged', () => {
   const scale = new PriceScale();
   scale.top = 0;

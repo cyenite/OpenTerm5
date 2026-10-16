@@ -7,6 +7,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- TradingView-style chart layouts. Each tab in the chart bar holds one of 55 layouts of 1 to 16
+  charts, chosen from the new layout button. Dividers resize (Shift moves matching dividers, a
+  double-click evens them out) and sizes are kept per layout. Alt+Enter maximises the active chart,
+  Tab and Shift+Tab move between charts, and Move Chart swaps neighbours.
+- Sync in layout, per tab: symbol, interval, crosshair (on by default), time and date range, with
+  five coloured sync groups for symbol and interval. Sync Drawings sends new drawings to every chart
+  of the symbol in the tab or in every tab.
+- One drawing toolbar for the whole layout, as in TradingView: the tool, magnet, lock and hide apply
+  to every chart, and a drawing goes on whichever chart is clicked.
+- Bar replay runs every chart of a layout on one clock (or only the active chart). It has a replay
+  bar under the charts, an update interval, speeds from 10x to 0.1x, and starts from a bar, a date,
+  the first available bar or a random bar. Shift+Right steps and Shift+Down plays. Longer timeframes
+  show their current bar forming from bars of the update interval.
+
+### Changed
+
+- MT5 floating chart windows, Cascade, Tile and Arrange Icons give way to layout tabs. Saved
+  workspaces and profiles migrate: tabbed charts open as a tab each, floating windows as one layout.
+- New charts (File > New Chart, Market Watch, the + button) open in a tab of their own. Dropping a
+  symbol on a chart changes that chart.
+- Charts in bar replay no longer place or change live orders: One-Click, trade line dragging, the
+  Trading menu, the risk planner and New Order are switched off for them.
+
 ## [0.3.0] - 2026-10-16
 
 ### Added

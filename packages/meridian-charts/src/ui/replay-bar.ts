@@ -70,4 +70,9 @@ export class ReplayBar {
     this.bar.style.display = 'none';
     this.hint.style.display = 'none';
   }
+
+  // A hosted replay has no controls here but still shows the hint while picking a start.
+  showHint(isShown: boolean): void {
+    this.hint.style.display = isShown ? '' : 'none';
+  }
 }

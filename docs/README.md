@@ -4,7 +4,7 @@
 
 - [Getting started](getting-started.md): installation, building from source, first login and a tour
   of the window.
-- [Trading](user-guide/trading.md): Market Watch, charts and chart windows, placing and modifying
+- [Trading](user-guide/trading.md): Market Watch, charts and chart layouts, placing and modifying
   orders, and trading from the chart.
 - [Accounts and brokers](user-guide/accounts-and-brokers.md): logging in, saved accounts, password
   storage and how OpenTerm5 finds your broker.

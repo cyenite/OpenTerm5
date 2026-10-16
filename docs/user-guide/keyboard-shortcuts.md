@@ -38,7 +38,10 @@ OpenTerm5 follows MetaTrader 5's shortcuts where they exist. On macOS, use **Cmd
 | + and − | Zoom in and out |
 | End | Scroll to the latest bar |
 | Ctrl+F4 | Close the active chart |
-| Alt+R | Tile chart windows |
+| Tab and Shift+Tab | Next and previous chart in the layout |
+| Alt+Enter | Maximise the active chart, or restore the layout |
+| Shift+Right | Bar replay: step forward |
+| Shift+Down | Bar replay: play or pause |
 
 These work while a chart has the keyboard focus (click it first):
 
@@ -50,7 +53,7 @@ These work while a chart has the keyboard focus (click it first):
 | Escape | Cancel the current tool or drawing |
 | Alt+T, Alt+H, Alt+J | Trend line, horizontal line, horizontal ray |
 | Alt+V, Alt+C, Alt+F | Vertical line, cross line, Fibonacci retracement |
-| Alt+R | Reset the chart view (instead of tiling windows) |
+| Alt+R | Reset the chart view |
 | Alt+I | Invert the price scale |
 | Alt+L and Alt+P | Logarithmic and percent price scale |
 | Shift-click | Measure |
@@ -62,7 +65,8 @@ These work while a chart has the keyboard focus (click it first):
 | Right-click | Context menu for whatever is under the pointer |
 | Double-click a Market Watch symbol | New order for that symbol |
 | Double-click a position or order | Modify it |
-| Double-click a chart window title | Maximise the window |
-| Middle-click a chart tab | Close the chart |
-| Drag a symbol onto the chart area | Open a chart |
+| Double-click the line between charts | Make every chart in the layout the same size |
+| Shift-drag the line between charts | Move the matching lines of the layout together |
+| Middle-click a chart tab | Close the tab |
+| Drag a symbol onto a chart | Show the symbol on that chart |
 | Drag a trade line | Move the stop loss, take profit or pending price |

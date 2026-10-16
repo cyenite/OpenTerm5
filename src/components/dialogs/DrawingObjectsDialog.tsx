@@ -1,7 +1,7 @@
 import { Component } from 'react';
 import { drawingToolInfo } from '@meridian/charts';
 import { chartObjects, drawingsForSymbol, replaceChartObjects, symbolDrawings } from '../../lib/symbol-drawings';
-import { closeDialog, workspace, type Drawing } from '../../lib/workspace';
+import { closeDialog, layoutDrawings, workspace, type Drawing } from '../../lib/workspace';
 import { Dialog } from './Dialog';
 
 interface ObjectsProps { readonly chartId: string }
@@ -70,11 +70,13 @@ export class DrawingObjectsDialog extends Component<ObjectsProps, ObjectsState> 
     const { error, anchors, selected } = this.state;
     const objects = chart ? chartObjects(chart) : [];
     const symbolIds = new Set(chart ? drawingsForSymbol(symbolDrawings.get(), chart.symbol).map((entry) => entry.id) : []);
+    const tabIds = new Set(chart ? layoutDrawings(workspace.get(), chart).map((entry) => entry.id) : []);
+    const scope = (id: string) => symbolIds.has(id) ? `every ${chart?.symbol} chart` : tabIds.has(id) ? `${chart?.symbol} charts in this tab` : id;
     const drawing = objects.find((entry) => entry.id === selected);
     return (
       <Dialog title={`Objects: ${chart?.symbol ?? 'closed chart'}`} width={560}>
         <div className="order-form">
-          <label className="field"><span>Object</span><select value={selected} onChange={(event) => this.select(event.target.value)}><option value="">Select an object</option>{objects.map((entry) => <option key={entry.id} value={entry.id}>{drawingLabel(entry)} · {symbolIds.has(entry.id) ? `every ${chart?.symbol} chart` : entry.id}</option>)}</select></label>
+          <label className="field"><span>Object</span><select value={selected} onChange={(event) => this.select(event.target.value)}><option value="">Select an object</option>{objects.map((entry) => <option key={entry.id} value={entry.id}>{drawingLabel(entry)} · {scope(entry.id)}</option>)}</select></label>
           {!objects.length && <p>No drawing objects on this chart.</p>}
           {drawing && anchors.map((anchor, index) => {
             const milliseconds = Number(anchor.time) * 1000;

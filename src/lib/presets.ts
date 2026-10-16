@@ -1,30 +1,26 @@
 import { restoreSettings } from '@meridian/charts/settings';
-import { migrateDrawings, migrateIndicators } from './chart-model';
-import { arrangeFrames, isFrame } from './chart-windows';
+import { isLayoutKey, layoutCount, layoutForCount, layoutOf, layoutSyncs, linkGroups, restoreLayoutKey, restoreSizes, type LayoutKey, type SplitSizes } from './chart-layouts';
+import { makeTab, tabActiveChartId, type ChartTab } from './chart-tabs';
+import { migrateDrawings, migrateIndicators, type Drawing } from './chart-model';
 import { isChartTimeframe } from './mt5-timeframes';
-import type { ChartConfig, ChartLayout, WorkspaceState } from './workspace';
+import type { ChartConfig, WorkspaceState } from './workspace';
 
 // Presets saved before Meridian also carry an MT5 colour scheme. The theme is now an
 // application setting, so restoring ignores it.
 
 export interface ChartTemplate {
   name: string;
-  settings: Omit<ChartConfig, 'id' | 'symbol' | 'timeframe' | 'frame' | 'isMinimized'>;
+  settings: Omit<ChartConfig, 'id' | 'symbol' | 'timeframe' | 'linkGroup'>;
 }
 
 export interface ChartProfile {
   name: string;
-  layout: WorkspaceState['layout'];
+  activeTabId: string;
+  tabs: ChartTab[];
   charts: ChartConfig[];
-  activeChartId: string;
 }
 
-// Before floating windows existed the grid layout was stored as 'tile'.
-export function restoreLayout(layout: string | undefined, charts: ChartConfig[]): { layout: ChartLayout; charts: ChartConfig[] } {
-  if (layout !== 'tile') return { layout: layout === 'windows' ? 'windows' : 'tabs', charts };
-  const frames = arrangeFrames(charts.length, 'tile');
-  return { layout: 'windows', charts: charts.map((chart, index) => ({ ...chart, frame: chart.frame ?? frames[index] })) };
-}
+export type WorkspaceCharts = Pick<ChartProfile, 'activeTabId' | 'tabs' | 'charts'>;
 
 export function presetName(raw: string): string {
   const name = raw.trim();
@@ -35,11 +31,11 @@ export function presetName(raw: string): string {
 }
 
 export function captureProfile(state: WorkspaceState, name: string): ChartProfile {
-  return structuredClone({ name: presetName(name), layout: state.layout, charts: state.charts, activeChartId: state.activeChartId });
+  return structuredClone({ name: presetName(name), activeTabId: state.activeTabId, tabs: state.tabs, charts: state.charts });
 }
 
 export function captureTemplate(chart: ChartConfig, name: string): ChartTemplate {
-  const { id, symbol, timeframe, frame, isMinimized, ...settings } = chart;
+  const { id, symbol, timeframe, linkGroup, ...settings } = chart;
   return structuredClone({ name: presetName(name), settings });
 }
 
@@ -63,31 +59,75 @@ function isName(value: unknown): value is string {
 
 const chartTypeKeys = ['bars', 'candles', 'hollow', 'line', 'area', 'baseline', 'heikinashi'];
 
-// A valid saved chart with its studies and drawings in Meridian's form, or null.
+// A valid saved chart with its studies and drawings in Meridian's form, or null. The MT5 window
+// geometry older versions saved (`frame`, `isMinimized`) is dropped.
 export function restoreChart(value: unknown): ChartConfig | null {
   if (!isRecord(value) || typeof value.id !== 'string' || typeof value.symbol !== 'string' || !isChartTimeframe(value.timeframe)) return null;
   if (!chartTypeKeys.includes(String(value.type)) || typeof value.isGridShown !== 'boolean' || typeof value.isVolumeShown !== 'boolean') return null;
-  if (value.frame !== undefined && !isFrame(value.frame) || value.isMinimized !== undefined && typeof value.isMinimized !== 'boolean') return null;
   const drawings = migrateDrawings(value.drawings);
   const indicators = migrateIndicators(value.indicators);
   if (!drawings || !indicators) return null;
-  const chart: ChartConfig = { ...(value as unknown as ChartConfig), drawings, indicators };
+  const { frame, isMinimized, linkGroup, ...rest } = value;
+  const chart: ChartConfig = { ...(rest as unknown as ChartConfig), drawings, indicators };
+  if (linkGroups.some((group) => group.key === linkGroup)) chart.linkGroup = linkGroup as ChartConfig['linkGroup'];
   if (value.settings === undefined) delete chart.settings;
   else chart.settings = restoreSettings(value.settings);
   return chart;
 }
 
-export function restoreCharts(value: unknown): ChartConfig[] {
-  return Array.isArray(value) ? value.map(restoreChart).filter((chart): chart is ChartConfig => chart !== null) : [];
+function restoreTab(value: unknown, claimed: Set<string>): ChartTab | null {
+  if (!isRecord(value) || typeof value.id !== 'string' || !value.id || !Array.isArray(value.chartIds)) return null;
+  const chartIds = value.chartIds.filter((id): id is string => typeof id === 'string' && claimed.has(id));
+  chartIds.forEach((id) => claimed.delete(id));
+  if (!chartIds.length) return null;
+  const saved = restoreLayoutKey(value.layout);
+  const layout = chartIds.length < layoutCount(saved) ? layoutForCount(chartIds.length) : saved;
+  const syncs = layoutSyncs.map((sync) => sync.key).filter((key) => Array.isArray(value.syncs) && value.syncs.includes(key));
+  const sizes = isRecord(value.sizes) ? Object.fromEntries(Object.entries(value.sizes).filter(([key]) => isLayoutKey(key)).map(([key, shares]) => [key, restoreSizes(shares, layoutOf(key as LayoutKey).tree)])) as Partial<Record<LayoutKey, SplitSizes>> : {};
+  const drawings = isRecord(value.drawings) ? Object.fromEntries(Object.entries(value.drawings).flatMap(([key, list]) => { const restored = migrateDrawings(list); return key && restored?.length ? [[key, restored]] : []; })) as Record<string, Drawing[]> : {};
+  const tab = { ...makeTab(value.id, chartIds, layout, syncs), sizes, drawings, activeChartId: typeof value.activeChartId === 'string' ? value.activeChartId : '' };
+  return { ...tab, activeChartId: tabActiveChartId(tab) };
+}
+
+// Profiles and saved workspaces before layout tabs held MT5 chart windows: tabbed charts become a
+// tab each, and floating windows one tab in reading order, its layout fitting the open windows.
+function legacyTabs(saved: Record<string, unknown>, charts: ChartConfig[], raw: unknown[]): { tabs: ChartTab[]; activeTabId: string } {
+  const activeChartId = typeof saved.activeChartId === 'string' ? saved.activeChartId : '';
+  if (saved.layout !== 'windows' && saved.layout !== 'tile') {
+    const tabs = charts.map((chart) => makeTab(`tab-${chart.id}`, [chart.id]));
+    return { tabs, activeTabId: tabs.find((tab) => tab.chartIds[0] === activeChartId)?.id ?? tabs[0]?.id ?? '' };
+  }
+  const windows = new Map(raw.filter(isRecord).map((entry) => [entry.id, entry]));
+  const frameOf = (chart: ChartConfig) => (isRecord(windows.get(chart.id)?.frame) ? windows.get(chart.id)!.frame : {}) as { top?: number; left?: number };
+  const isIcon = (chart: ChartConfig) => windows.get(chart.id)?.isMinimized === true;
+  const byPosition = (left: ChartConfig, right: ChartConfig) => (frameOf(left).top ?? 0) - (frameOf(right).top ?? 0) || (frameOf(left).left ?? 0) - (frameOf(right).left ?? 0);
+  const open = charts.filter((chart) => !isIcon(chart)).sort(byPosition);
+  const ordered = [...open, ...charts.filter(isIcon)];
+  if (!ordered.length) return { tabs: [], activeTabId: '' };
+  const tab = makeTab(`tab-${ordered[0].id}`, ordered.map((chart) => chart.id), layoutForCount(Math.max(1, open.length)));
+  const active = { ...tab, activeChartId: activeChartId || tab.activeChartId };
+  return { tabs: [{ ...active, activeChartId: tabActiveChartId(active) }], activeTabId: tab.id };
+}
+
+// The charts and tabs of a saved workspace or profile. Each chart belongs to one tab; a chart no
+// tab lists gets a tab of its own.
+export function restoreWorkspaceCharts(saved: Record<string, unknown>): WorkspaceCharts {
+  const raw = Array.isArray(saved.charts) ? saved.charts : [];
+  const charts = raw.map(restoreChart).filter((chart): chart is ChartConfig => chart !== null);
+  if (!Array.isArray(saved.tabs)) return { charts, ...legacyTabs(saved, charts, raw) };
+  const claimed = new Set(charts.map((chart) => chart.id));
+  const tabs = saved.tabs.map((tab) => restoreTab(tab, claimed)).filter((tab): tab is ChartTab => tab !== null);
+  for (const chart of charts) if (claimed.has(chart.id)) tabs.push(makeTab(`tab-${chart.id}`, [chart.id]));
+  const activeTabId = tabs.find((tab) => tab.id === saved.activeTabId)?.id ?? tabs[0]?.id ?? '';
+  return { charts, tabs, activeTabId };
 }
 
 export function restoreProfiles(value: unknown): ChartProfile[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((profile): ChartProfile[] => {
-    if (!isRecord(profile) || !isName(profile.name) || !['tabs', 'tile', 'windows'].includes(String(profile.layout)) || typeof profile.activeChartId !== 'string' || !Array.isArray(profile.charts)) return [];
-    const charts = profile.charts.map(restoreChart);
-    if (!charts.every((chart): chart is ChartConfig => chart !== null)) return [];
-    return [{ name: profile.name, activeChartId: profile.activeChartId, ...restoreLayout(String(profile.layout), charts) }];
+    if (!isRecord(profile) || !isName(profile.name) || !Array.isArray(profile.charts)) return [];
+    if (!profile.charts.every((chart) => restoreChart(chart) !== null)) return [];
+    return [{ name: profile.name, ...restoreWorkspaceCharts(profile) }];
   });
 }
 
@@ -97,7 +137,7 @@ export function restoreTemplates(value: unknown): ChartTemplate[] {
     if (!isRecord(template) || !isName(template.name) || !isRecord(template.settings)) return [];
     const chart = restoreChart({ ...template.settings, id: '', symbol: '', timeframe: 'H1' });
     if (!chart) return [];
-    const { id, symbol, timeframe, frame, isMinimized, ...settings } = chart;
+    const { id, symbol, timeframe, linkGroup, ...settings } = chart;
     return [{ name: template.name, settings }];
   });
 }

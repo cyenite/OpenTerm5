@@ -1,6 +1,7 @@
 import type { ChartTimeframe } from './mt5-timeframes';
 import { defaultSymbol } from './broker-symbols';
-import { activeChart, arrangeWindows, closeChart, openChart, openDialog, pages, toggleAnalysisMode, updateActiveChart, workspace, type ChartType, type ToolboxTab, type WorkspaceState } from './workspace';
+import { cancelReplaySelection, replay, stepReplay, toggleReplayPlay } from './replay';
+import { activeChart, closeChart, openChart, openDialog, pages, setChartSymbol, setChartTimeframe, stepChart, toggleAnalysisMode, toggleMaximized, updateActiveChart, workspace, type ChartType, type ToolboxTab, type WorkspaceState } from './workspace';
 
 type PanelFlag = 'isMarketWatchShown' | 'isNavigatorShown' | 'isToolboxShown' | 'isDataWindowShown' | 'isStatusBarShown' | 'isChartBarShown' | 'isTradeDrawingToolbarShown';
 
@@ -12,8 +13,10 @@ export function showToolbox(tab: ToolboxTab): void {
   workspace.set({ isToolboxShown: true, toolboxTab: tab });
 }
 
+// Without a symbol the ticket is for the active chart, so it counts as opened from that chart.
 export function newOrder(symbol?: string): void {
-  openDialog({ kind: 'order', symbol: symbol ?? defaultSymbol() });
+  const chartId = symbol ? undefined : activeChart(workspace.get())?.id;
+  openDialog({ kind: 'order', symbol: symbol ?? defaultSymbol(), ...(chartId ? { chartId } : {}) });
 }
 
 export function setChartType(type: ChartType): void {
@@ -21,7 +24,8 @@ export function setChartType(type: ChartType): void {
 }
 
 export function setTimeframe(timeframe: ChartTimeframe): void {
-  updateActiveChart({ timeframe });
+  const chart = activeChart(workspace.get());
+  if (chart) setChartTimeframe(chart.id, timeframe);
 }
 
 export function zoom(factor: number): void {
@@ -56,7 +60,8 @@ export function toggleOneClick(): void {
 
 // Shows a symbol on the active chart, the way a watchlist click works in charting apps.
 export function showSymbol(symbol: string): void {
-  if (workspace.get().charts.length) updateActiveChart({ symbol });
+  const chart = activeChart(workspace.get());
+  if (chart) setChartSymbol(chart.id, symbol);
   else openChart(symbol);
 }
 
@@ -80,6 +85,14 @@ function pageForKey(key: string) {
   return /^[1-9]$/.test(key) ? pages[Number(key) - 1] : undefined;
 }
 
+function isReplayInFront(): boolean {
+  return replay.get().session?.tabId === workspace.get().activeTabId;
+}
+
+function isChartFocus(target: EventTarget | null): boolean {
+  return target === document.body || target instanceof Element && !!target.closest('.chart-area');
+}
+
 export function handleShortcut(event: KeyboardEvent): boolean {
   // A focused panel that used the key (typing into Market Watch starts a search) has claimed it.
   if (event.defaultPrevented || event.target instanceof Element && event.target.closest('input, textarea, select')) {
@@ -99,7 +112,14 @@ export function handleShortcut(event: KeyboardEvent): boolean {
     if (event.altKey && key === '2') return () => setChartType('candles');
     if (event.altKey && key === '3') return () => setChartType('line');
     if (event.altKey && key === 'b') return () => toggleDepth();
-    if (event.altKey && key === 'r') return () => arrangeWindows('tile');
+    if (event.altKey && key === 'enter') return toggleMaximized;
+    if (isReplayInFront()) {
+      if (event.shiftKey && key === 'arrowright') return stepReplay;
+      if (event.shiftKey && key === 'arrowdown') return toggleReplayPlay;
+      if (key === 'escape' && replay.get().session?.isSelecting) return cancelReplaySelection;
+    }
+    // Tab moves between the layout's charts, unless focus is on a control that tabs to the next one.
+    if (key === 'tab' && !isCtrl && !event.altKey && isChartFocus(event.target)) return () => stepChart(event.shiftKey ? -1 : 1);
     const page = isCtrl ? pageForKey(key) : undefined;
     if (page) return () => workspace.set({ page: page.key });
     if (isCtrl && key === 'm') return () => togglePanel('isMarketWatchShown');

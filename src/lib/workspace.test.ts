@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { defaultSettings } from '@meridian/charts';
-import { applyChartSettingsToAll, closeChart, loadProfile, makeChart, openChart, openDialog, toggleAnalysisMode, removeProfile, saveProfile, updateActiveChart, workspace } from './workspace';
+import { makeTab } from './chart-tabs';
+import { applyChartSettingsToAll, closeChart, loadProfile, makeChart, openChart, openDialog, openTab, toggleAnalysisMode, removeProfile, saveProfile, setChartSymbol, setChartTimeframe, setLinkGroup, setTabLayout, toggleLayoutSync, updateActiveChart, workspace } from './workspace';
 
 test('profile switches retain current edits and persist them without transient UI state', () => {
   const writes = new Map<string, string>();
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { setItem: (key: string, value: string) => writes.set(key, value) } });
   const chart = makeChart('EURUSD');
-  workspace.set({ charts: [chart], activeChartId: chart.id, activeProfile: 'Default', profiles: [] });
+  workspace.set({ charts: [chart], tabs: [makeTab('tab', [chart.id])], activeTabId: 'tab', activeProfile: 'Default', profiles: [] });
   saveProfile('London');
   updateActiveChart({ timeframe: 'M5' });
   loadProfile('London');
@@ -67,7 +68,7 @@ test('entering analysis mode leaves trading state behind but keeps charting stat
 
 test('imported chart settings reach every chart, and new charts when they are the default', () => {
   const charts = [makeChart('EURUSD'), { ...makeChart('XAUUSD'), type: 'line' as const }];
-  workspace.set({ charts, activeChartId: charts[0].id, defaultChartSettings: undefined });
+  workspace.set({ charts, tabs: [makeTab('tab', charts.map((chart) => chart.id), '2h')], activeTabId: 'tab', defaultChartSettings: undefined });
   const settings = { ...defaultSettings, background: '#ffffff', scaleFontSize: 12 };
   applyChartSettingsToAll(settings);
   assert.deepEqual(workspace.get().charts.map((chart) => [chart.type, chart.settings?.background]), [['candles', '#ffffff'], ['line', '#ffffff']]);
@@ -79,4 +80,47 @@ test('imported chart settings reach every chart, and new charts when they are th
   const opened = workspace.get().charts.at(-1)!;
   assert.deepEqual([opened.type, opened.settings], ['candles', settings]);
   assert.notEqual(opened.settings, workspace.get().defaultChartSettings);
+});
+
+test('symbol and interval sync spread within the sync group of the chart that changed', () => {
+  const charts = [makeChart('EURUSD'), { ...makeChart('GBPUSD'), linkGroup: 'red' as const }, { ...makeChart('USDJPY'), linkGroup: 'red' as const }, makeChart('XAUUSD', 'H4')];
+  workspace.set({ charts, tabs: [makeTab('tab', charts.map((chart) => chart.id), '4', [])], activeTabId: 'tab' });
+  setChartSymbol(charts[1].id, 'AUDUSD');
+  assert.deepEqual(workspace.get().charts.map((chart) => chart.symbol), ['EURUSD', 'AUDUSD', 'USDJPY', 'XAUUSD'], 'nothing spreads while symbol sync is off');
+  toggleLayoutSync('tab', 'symbol');
+  assert.deepEqual(workspace.get().charts.map((chart) => chart.symbol), ['EURUSD', 'AUDUSD', 'AUDUSD', 'EURUSD'], 'each group lines up behind its leader');
+  setChartSymbol(charts[2].id, 'NZDUSD');
+  setChartTimeframe(charts[0].id, 'M5');
+  assert.deepEqual(workspace.get().charts.map((chart) => `${chart.symbol},${chart.timeframe}`), ['EURUSD,M5', 'NZDUSD,H1', 'NZDUSD,H1', 'EURUSD,H4'], 'interval sync is separate');
+  setLinkGroup(charts[3].id, 'red');
+  assert.equal(workspace.get().charts[3].symbol, 'NZDUSD', 'joining a group takes its symbol');
+});
+
+test('growing a layout copies the active chart without its own drawings; closing charts steps the layout down', () => {
+  const chart = { ...makeChart('EURUSD', 'M15'), indicators: [{ id: 'ma', kind: 'mt5-ma', params: { period: 20 } }] };
+  workspace.set({ charts: [chart], tabs: [makeTab('tab', [chart.id])], activeTabId: 'tab', isChartMaximized: true });
+  setTabLayout('tab', '3h');
+  const state = workspace.get();
+  const [tab] = state.tabs;
+  assert.equal(state.isChartMaximized, false);
+  assert.equal(tab.chartIds.length, 3);
+  const copy = state.charts.find((candidate) => candidate.id === tab.chartIds[2])!;
+  assert.deepEqual([copy.symbol, copy.timeframe, copy.drawings], ['EURUSD', 'M15', []]);
+  assert.notEqual(copy.indicators[0].id, 'ma');
+  closeChart(tab.chartIds[1]);
+  assert.equal(workspace.get().tabs[0].layout, '2h');
+  closeChart(tab.chartIds[0]);
+  closeChart(tab.chartIds[2]);
+  assert.deepEqual([workspace.get().tabs, workspace.get().charts, workspace.get().activeTabId], [[], [], '']);
+});
+
+test('new tabs follow the last crosshair sync choice', () => {
+  const chart = makeChart('EURUSD');
+  workspace.set({ charts: [chart], tabs: [makeTab('tab', [chart.id])], activeTabId: 'tab', isCrosshairSyncedByDefault: true });
+  toggleLayoutSync('tab', 'crosshair');
+  openTab();
+  const state = workspace.get();
+  assert.equal(state.isCrosshairSyncedByDefault, false);
+  assert.deepEqual(state.tabs.at(-1)?.syncs, []);
+  assert.equal(state.activeTabId, state.tabs.at(-1)?.id);
 });
