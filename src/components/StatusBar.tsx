@@ -4,6 +4,7 @@ import { formatPrice, formatTime } from '../lib/format';
 import { session } from '../lib/session';
 import { useStore } from '../lib/store';
 import { openDialog } from '../lib/workspace';
+import { JournalingStatus } from './journaling/JournalingStatus';
 
 const RESULT_MS = 6000;
 
@@ -64,6 +65,7 @@ export function StatusBar() {
       {isTerminalConnected && <span className="status-cell" title={status?.isTradeAllowed && status.capabilities?.trading ? 'This account can submit orders.' : 'Orders are unavailable for this connection or account.'}>{status?.isTradeAllowed && status.capabilities?.trading ? 'Trading enabled' : 'Read only'}</span>}
       <span className="status-cell">{account ? `${account.login} ${account.server}` : 'Default'}</span>
       <TradeActivity />
+      <JournalingStatus />
       {bar && (
         <span className="status-cell status-ohlc">
           {formatTime(bar.time * 1000, hover.hasSeconds)} O: {formatPrice(bar.open, digits)} H: {formatPrice(bar.high, digits)} L: {formatPrice(bar.low, digits)} C:{' '}

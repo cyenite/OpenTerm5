@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { EventEmitter } from 'node:events';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { unzipSync } from 'node:zlib';
 import { BinaryReader, BinaryWriter } from './mt5-web-codec';
 import { Mt5WebTransport, openNodeSocket, WebCommand, type SocketOpener, type WebSession } from './mt5-web-transport';
@@ -63,9 +63,8 @@ export class Mt5WebClient extends EventEmitter {
   private heartbeat?: NodeJS.Timeout;
   private symbolExtension: Buffer = Buffer.alloc(0);
   private readonly symbols = new Map<number, WebSymbol>();
-  private readonly identity = createHash('sha1').update(`${process.platform};1;en;0x0;${randomBytes(16).toString('hex')}`).digest().subarray(0, 16);
 
-  constructor(readonly endpoint = 'wss://web.metatrader.app/terminal', private readonly openSocket: SocketOpener = openNodeSocket) {
+  constructor(readonly endpoint = 'wss://web.metatrader.app/terminal', private readonly openSocket: SocketOpener = openNodeSocket, private readonly identity: Uint8Array = randomBytes(16)) {
     super();
     this.transport = new Mt5WebTransport(endpoint, undefined, openSocket);
     this.transport.on('disconnected', (error) => {

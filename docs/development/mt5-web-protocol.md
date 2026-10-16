@@ -33,6 +33,20 @@ it. Each statement is backed by a parser or encoder and its tests under `electro
 | 19 | notification | Final result of a trade request |
 | 51 | request | Heartbeat |
 
+## Login (command 28)
+
+The 912-byte login body, in order: version (u32, 0), password (32 characters), one-time code
+(64 characters), client ID (16 bytes), `utm_campaign` and `utm_source` from the page address
+(32 characters each), two fields the official client leaves empty, the length and text of the
+referrer's host name, the account login (u64), a 160-byte remembered credential and the previous
+session ID (u64). OpenTerm5 fills the password, code, client ID and login; the rest are empty or zero.
+
+The official web terminal derives the client ID as the first 16 bytes of the SHA-1 of
+`platform;devicePixelRatio;language;<larger>x<smaller screen side>;<stored random number>`, and keeps
+it in browser storage, so one browser sends the same ID every time. OpenTerm5 computes it the same way
+once, stores it in `device.json` in the profile and sends it from every connection and account
+(`device-identity.ts`).
+
 ## Records
 
 All integers are little-endian. Strings are fixed-size UTF-16LE fields. Prices are 64-bit floats.

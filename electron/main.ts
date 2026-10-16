@@ -1,6 +1,8 @@
-import { app, BrowserWindow, ipcMain, Menu, shell, type MenuItemConstructorOptions } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, screen, session, shell, type MenuItemConstructorOptions } from 'electron';
+import os from 'node:os';
 import path from 'node:path';
-import type { TerminalEvent, TerminalMethod, ConnectionSettings, JournalEntry } from '../shared/protocol';
+import type { Account, TerminalEvent, TerminalMethod, ConnectionSettings, JournalEntry } from '../shared/protocol';
+import type { JournalingEvent, JournalingMethod } from '../shared/journaling';
 import { loadSettings, saveSettings } from './settings';
 import { migrateLegacyProfile } from './legacy-migration';
 import { Mt5WebLink } from './mt5-web-link';
@@ -15,16 +17,28 @@ import type { AutomationEvent, AutomationMethod } from '../shared/automation';
 import { orderType } from '../shared/protocol';
 import { parseSettings } from './connection-settings';
 import { BrokerDirectory } from './broker-directory';
+import { DeviceIdentity, navigatorPlatform } from './device-identity';
 import type { AccountRegistry } from './account-registry';
 import type { TerminalMethods } from '../shared/protocol';
+import { JournalingService } from './journaling';
+import { findConnectLink, protocolScheme } from './journaling-links';
+import { accountKey } from './journaling-store';
 
 migrateLegacyProfile();
 
 const devUrl = process.env.OPENTERM_DEV_URL;
-const createLink = () => new Mt5WebLink((endpoint) => new Mt5WebClient(endpoint, openBrowserSocket));
+const device = new DeviceIdentity(path.join(app.getPath('userData'), 'device.json'), () => {
+  const display = screen.getPrimaryDisplay();
+  return { scale: display.scaleFactor, width: display.size.width, height: display.size.height, platform: navigatorPlatform(process.platform, process.arch), language: app.getLocale() };
+});
+const createLink = () => new Mt5WebLink((endpoint) => new Mt5WebClient(endpoint, openBrowserSocket, device.clientId));
 const direct = createLink();
 let automation: AutomationHost | undefined;
+let journaling: JournalingService | undefined;
 let isChanging = false;
+let isWindowLoaded = false;
+let uiAccount: Account | null = null;
+const pendingLinks: string[] = [];
 let activeAccount: string | null = null;
 let accounts: AccountRegistry | undefined;
 let window: BrowserWindow | undefined;
@@ -36,6 +50,23 @@ function send(event: TerminalEvent, data: unknown): void {
 
 function sendAutomation(event: AutomationEvent, data: unknown): void {
   window?.webContents.send('automation:event', event, data);
+}
+
+function sendJournaling(event: JournalingEvent, data: unknown): void {
+  window?.webContents.send('journaling:event', event, data);
+}
+
+// Protocol links can arrive before the service has loaded or the page can show a prompt.
+function deliverLinks(): void {
+  if (!journaling || !isWindowLoaded) return;
+  for (const link of pendingLinks.splice(0)) void journaling.receiveLink(link);
+}
+
+function receiveLink(link: string): void {
+  pendingLinks.push(link);
+  if (window?.isMinimized()) window.restore();
+  window?.focus();
+  deliverLinks();
 }
 
 const pool = new SessionPool(direct, (accountId) => {
@@ -50,6 +81,8 @@ const pool = new SessionPool(direct, (accountId) => {
 function leaveAccount(): void {
   const previous = activeAccount;
   activeAccount = null;
+  uiAccount = null;
+  journaling?.setActive(null);
   pool.afterUiChange(null, previous);
 }
 
@@ -85,6 +118,10 @@ function createWindow(): void {
     },
   });
   window.once('ready-to-show', () => window?.show());
+  window.webContents.on('did-finish-load', () => {
+    isWindowLoaded = true;
+    deliverLinks();
+  });
   // The renderer draws its own trading menus; text fields and selected text get the native edit menu.
   window.webContents.on('context-menu', (_event, params) => {
     if (!params.isEditable && !params.selectionText.trim()) return;
@@ -179,6 +216,8 @@ async function loginAccount(params: TerminalMethods['account.login'][0]) {
     } catch { journal('Connected, but the account profile could not be saved.', 'Accounts'); }
   }
   send('accountChanged', { id: activeAccount });
+  uiAccount = account;
+  journaling?.setActive(account);
   return account;
 }
 
@@ -186,6 +225,8 @@ ipcMain.handle('terminal:request', async (_event, method: TerminalMethod, params
   try {
     if (method === 'accounts.list') return { result: accountProfiles() };
     if (method === 'accounts.storage') return { result: { canSavePasswords: !!accounts?.canSavePasswords() } };
+    if (method === 'device.clientId') return { result: { cid: device.clientId.toString('hex') } };
+    if (method === 'device.regenerateClientId') return { result: { cid: (await device.regenerate()).toString('hex') } };
     if (method === 'brokers.search') return { result: await brokers().search((params as TerminalMethods['brokers.search'][0]).query, accountProfiles().map((profile) => profile.server)) };
     if (method === 'brokers.resolve') {
       const { server, webUrl } = params as TerminalMethods['brokers.resolve'][0];
@@ -235,6 +276,14 @@ ipcMain.handle('automation:request', async (_event, method: AutomationMethod, pa
     return { error: { code: 0, message: (error as Error).message } };
   }
 });
+ipcMain.handle('journaling:request', async (_event, method: JournalingMethod, params: unknown) => {
+  try {
+    if (!journaling) throw new Error('Journaling is still starting');
+    return { result: await journaling.handle(method, params as never) };
+  } catch (error) {
+    return { error: { code: 0, message: (error as Error).message } };
+  }
+});
 ipcMain.handle('settings:get', () => settings);
 ipcMain.handle('settings:save', async (_event, next: ConnectionSettings) => changeConnection(async () => {
   await saveSettings(next);
@@ -248,20 +297,51 @@ ipcMain.handle('settings:save', async (_event, next: ConnectionSettings) => chan
 direct.on('event', (event: TerminalEvent, data: unknown) => {
   send(event, data);
   pool.forwardUi(event, data);
+  // Mid-switch snapshots can still describe the account being left; login reports the new one.
+  if (!isChanging) journaling?.onTerminal(event, data);
+});
+
+// macOS delivers protocol links as an event, possibly before the app is ready.
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  receiveLink(url);
 });
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  if (app.isPackaged) app.setAsDefaultProtocolClient(protocolScheme);
+  else if (process.argv[1]) app.setAsDefaultProtocolClient(protocolScheme, process.execPath, [path.resolve(process.argv[1])]);
+  const startupLink = findConnectLink(process.argv);
+  if (startupLink) pendingLinks.push(startupLink);
+  app.on('second-instance', (_event, argv) => {
     window?.isMinimized() && window.restore();
     window?.focus();
+    const link = findConnectLink(argv);
+    if (link) receiveLink(link);
   });
   app.whenReady().then(async () => {
     installMenu();
     settings = await loadSettings();
+    await device.load();
     try { accounts = await loadAccounts(); }
     catch { journal('Saved accounts could not be loaded. Log in manually.', 'Accounts'); }
+    const journalingSession = session.fromPartition('journaling');
+    journaling = new JournalingService({
+      file: path.join(app.getPath('userData'), 'journaling.json'),
+      cipher: secretCipher,
+      fetch: (url, init) => journalingSession.fetch(url, init),
+      deviceName: os.hostname(),
+      send: sendJournaling,
+      journal: (message) => journal(message, 'Journaling'),
+      openExternal: (url) => shell.openExternal(url),
+      history: async (key, from, to) => {
+        await settledConnection();
+        if (!uiAccount || accountKey(uiAccount.login, uiAccount.server) !== key) throw new Error('The account changed during the sync.');
+        return direct.request('history.get', { from, to });
+      },
+    });
+    await journaling.init();
     createWindow();
     await applySettings();
     const recent = accounts?.list()[0];
@@ -287,6 +367,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   void automation?.shutdown();
+  journaling?.shutdown();
   pool.shutdown();
   direct.disconnect();
 });

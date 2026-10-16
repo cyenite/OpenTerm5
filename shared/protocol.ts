@@ -261,6 +261,8 @@ export interface TerminalMethods {
   'accounts.connect': [{ id: string; password?: string; otp?: string; isPasswordSaved?: boolean }, Account];
   'accounts.remove': [{ id: string }, boolean];
   'brokers.search': [{ query: string }, BrokerServer[]];
+  'device.clientId': [Record<string, never>, { cid: string }];
+  'device.regenerateClientId': [Record<string, never>, { cid: string }];
   'brokers.resolve': [{ server: string; webUrl?: string }, ResolvedServer];
   'tradingview.account': [Record<string, never>, TradingViewAccount | null];
   'tradingview.signIn': [Record<string, never>, TradingViewAccount | null];

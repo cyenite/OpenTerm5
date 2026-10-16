@@ -75,6 +75,11 @@ export function closeActiveChart(): void {
   }
 }
 
+// Ctrl+1 to Ctrl+9 follow the order of the workspace tabs.
+function pageForKey(key: string) {
+  return /^[1-9]$/.test(key) ? pages[Number(key) - 1] : undefined;
+}
+
 export function handleShortcut(event: KeyboardEvent): boolean {
   // A focused panel that used the key (typing into Market Watch starts a search) has claimed it.
   if (event.defaultPrevented || event.target instanceof Element && event.target.closest('input, textarea, select')) {
@@ -86,7 +91,7 @@ export function handleShortcut(event: KeyboardEvent): boolean {
   const action: (() => void) | undefined = (() => {
     if (isCtrl && event.shiftKey && key === 'a') return toggleAnalysisMode;
     // Analysis mode has no order ticket, depth, pages or terminal panels; their keys stay free.
-    if (isAnalysis && (event.key === 'F9' || event.altKey && key === 'b' || isCtrl && /^[1-4tn]$/.test(key))) return undefined;
+    if (isAnalysis && (event.key === 'F9' || event.altKey && key === 'b' || isCtrl && (key === 't' || key === 'n' || !!pageForKey(key)))) return undefined;
     if (event.key === 'F9') return () => newOrder();
     if (event.key === 'F11') return toggleFullScreen;
     if (event.key === 'F4' && isCtrl) return closeActiveChart;
@@ -95,7 +100,8 @@ export function handleShortcut(event: KeyboardEvent): boolean {
     if (event.altKey && key === '3') return () => setChartType('line');
     if (event.altKey && key === 'b') return () => toggleDepth();
     if (event.altKey && key === 'r') return () => arrangeWindows('tile');
-    if (isCtrl && /^[1-4]$/.test(key)) return () => workspace.set({ page: pages[Number(key) - 1].key });
+    const page = isCtrl ? pageForKey(key) : undefined;
+    if (page) return () => workspace.set({ page: page.key });
     if (isCtrl && key === 'm') return () => togglePanel('isMarketWatchShown');
     if (isCtrl && key === 'n') return () => togglePanel('isNavigatorShown');
     if (isCtrl && key === 't') return () => togglePanel('isToolboxShown');
