@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { defaultSettings, MeridianChart, type ChartSettings, type MeridianHover, type MeridianPriceLine, type SerializedDrawing } from '@meridian/charts';
 import type { MenuItem } from '../MenuBar';
-import { chartInstance, crosshairSync, registerChart } from '../../lib/chart-instances';
+import { chartInstance, registerChart } from '../../lib/chart-instances';
+import { attachDrawingTools } from '../../lib/drawing-tools';
+import { followDateRange, startLayoutSync } from '../../lib/layout-sync';
+import { attachReplay, exitReplay, followReplay, replay, startReplay } from '../../lib/replay';
+import { replayTradingHint, useIsReplayingChart } from '../../lib/replay-session';
 import type { IndicatorConfig } from '../../lib/chart-model';
 import { formatPrice } from '../../lib/format';
 import { priceAlerts, updateAlerts } from '../../lib/price-alerts';
@@ -13,7 +17,7 @@ import { useStore } from '../../lib/store';
 import { drawingTemplateStore } from '../../lib/drawing-templates';
 import { drawingsForSymbol, setSymbolDrawings, symbolDrawings } from '../../lib/symbol-drawings';
 import { themeStore } from '../../lib/theme';
-import { tools, updateChart, workspace, type ChartConfig } from '../../lib/workspace';
+import { focusChart, layoutDrawings, setLayoutDrawings, updateChart, workspace, type ChartConfig } from '../../lib/workspace';
 import { chartMenu } from '../../lib/chart-menu';
 import { openContextMenu } from '../../lib/context-menu';
 import { OneClickPanel } from './OneClickPanel';
@@ -83,7 +87,7 @@ export function chartEngineItems(chartId: string, symbol: string, price: number 
     separator,
     ...(price !== null && hasAccount ? [{ label: `Add Alert at ${formatPrice(price, digits)}`, action: () => addAlert(symbol, price, digits) }, separator] : []),
     { label: 'Object Tree', isChecked: instance.isObjectTreeShown(), action: () => instance.toggleObjectTree() },
-    { label: instance.isReplaying() ? 'Exit Bar Replay' : 'Bar Replay', action: () => (instance.isReplaying() ? instance.exitReplay() : instance.startReplay()) },
+    { label: replay.get().session ? 'Exit Bar Replay' : 'Bar Replay', action: () => (replay.get().session ? exitReplay() : startReplay(chartId)) },
     { label: 'Chart Settings...', action: () => instance.openChartSettings() },
     separator,
   ];
@@ -94,9 +98,9 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
   const [instance, setInstance] = useState<MeridianChart | null>(null);
   const tool = useStore(workspace, (state) => state.tool);
   const theme = useStore(themeStore, (state) => state.theme);
-  const isDrawingToolbarShown = useStore(workspace, (state) => state.isAnalysisMode || state.isTradeDrawingToolbarShown);
   const isOneClickEnabled = useStore(workspace, (state) => state.isOneClickEnabled && !state.isAnalysisMode);
   const isTradeOverlayShown = useStore(workspace, (state) => !state.isAnalysisMode || state.isAnalysisPositionsShown);
+  const isReplaying = useIsReplayingChart(chart.id);
   const isCollectingTicks = useCollectingTicks(chart);
   const isLinked = useStore(session, (state) => state.link.state === 'open' && (state.status?.mode !== 'mt5-web' || !!state.account));
   const signIn = useStore(session, signingIn);
@@ -111,15 +115,30 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
   const shared = useStore(symbolDrawings, (state) => drawingsForSymbol(state, chart.symbol));
   const sharedRef = useRef(shared);
   sharedRef.current = shared;
-  // The symbol's drawings as last handed to the chart, and every id the symbol has had while this
-  // chart showed it: an undo can bring back a symbol drawing, which must return to the symbol.
+  const tabShared = useStore(workspace, (state) => layoutDrawings(state, chart));
+  const tabSharedRef = useRef(tabShared);
+  tabSharedRef.current = tabShared;
+  // The symbol's and the tab's drawings as last handed to the chart, and every id each has had
+  // while this chart showed the symbol: an undo can bring back a shared drawing, which must return
+  // where it came from. Ids the chart has kept as its own stay its own; any other id is a new
+  // drawing, which goes where drawing sync sends it.
   const shownShared = useRef<readonly SerializedDrawing[]>([]);
-  const symbolIds = useRef({ symbol: chart.symbol, ids: new Set<string>() });
+  const shownTabShared = useRef<readonly SerializedDrawing[]>([]);
+  const ownIds = useRef(new Set<string>());
+  const sharedIds = useRef({ symbol: chart.symbol, symbolIds: new Set<string>(), tabIds: new Set<string>() });
+  const currentIds = () => {
+    if (sharedIds.current.symbol !== chartRef.current.symbol) sharedIds.current = { symbol: chartRef.current.symbol, symbolIds: new Set(), tabIds: new Set() };
+    return sharedIds.current;
+  };
   const showShared = (drawings: readonly SerializedDrawing[]) => {
-    if (symbolIds.current.symbol !== chartRef.current.symbol) symbolIds.current = { symbol: chartRef.current.symbol, ids: new Set() };
-    drawings.forEach((drawing) => symbolIds.current.ids.add(drawing.id));
+    drawings.forEach((drawing) => currentIds().symbolIds.add(drawing.id));
     shownShared.current = drawings;
   };
+  const showTabShared = (drawings: readonly SerializedDrawing[]) => {
+    drawings.forEach((drawing) => currentIds().tabIds.add(drawing.id));
+    shownTabShared.current = drawings;
+  };
+  const keepOwn = (drawings: readonly SerializedDrawing[]) => drawings.forEach((drawing) => ownIds.current.add(drawing.id));
   const market = useRef(`${chart.symbol},${chart.timeframe}`);
 
   useEffect(() => {
@@ -133,7 +152,8 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
       priceStyle: current.type,
       isGridShown: current.isGridShown,
       isVolumeShown: current.isVolumeShown,
-      isDrawingToolbarShown: workspace.get().isAnalysisMode || workspace.get().isTradeDrawingToolbarShown,
+      // The layout's one rail (`DrawingRail`) drives every chart; charts show none of their own.
+      isDrawingToolbarShown: false,
       digits: session.get().symbols[current.symbol]?.digits ?? 5,
       settings: current.settings,
       drawingTemplates: drawingTemplateStore,
@@ -150,11 +170,21 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
     };
     const saveDrawings = () => {
       if (isApplying) return;
-      const { ids } = symbolIds.current;
+      const { symbolIds, tabIds } = currentIds();
+      const sync = workspace.get().drawingSync;
       const all = meridian.drawings();
-      const own = all.filter((drawing) => !ids.has(drawing.id));
-      const symbolOwned = all.filter((drawing) => ids.has(drawing.id));
+      for (const { id } of all) {
+        if (symbolIds.has(id) || tabIds.has(id) || ownIds.current.has(id)) continue;
+        (sync === 'global' ? symbolIds : sync === 'layout' ? tabIds : ownIds.current).add(id);
+      }
+      const own = all.filter((drawing) => ownIds.current.has(drawing.id) && !symbolIds.has(drawing.id) && !tabIds.has(drawing.id));
+      const symbolOwned = all.filter((drawing) => symbolIds.has(drawing.id));
+      const tabOwned = all.filter((drawing) => tabIds.has(drawing.id) && !symbolIds.has(drawing.id));
       if (!sameDrawings(own, chartRef.current.drawings)) updateChart(chartRef.current.id, { drawings: own });
+      if (!sameDrawingSet(tabOwned, shownTabShared.current)) {
+        showTabShared(tabOwned);
+        setLayoutDrawings(chartRef.current.id, chartRef.current.symbol, tabOwned);
+      }
       if (!sameDrawingSet(symbolOwned, shownShared.current)) {
         showShared(symbolOwned);
         setSymbolDrawings(chartRef.current.symbol, symbolOwned);
@@ -162,23 +192,16 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
     };
     meridian.onIndicatorsChange(saveIndicators);
     meridian.onDrawingsChange(saveDrawings);
-    meridian.onToolChange((type) => {
-      const selected = tools.find((candidate) => candidate.key === workspace.get().tool);
-      if (type === null && activeRef.current && selected?.drawing) workspace.set({ tool: 'cursor' });
-    });
     meridian.onSettingsChange(() => {
       const settings = meridian.settings();
       if (!sameSettings(settings, chartRef.current.settings)) updateChart(chartRef.current.id, { settings });
     });
     meridian.onHover((hover) => {
       if (activeRef.current) cursor.set(hoverToCursor(hover, chartRef.current.symbol));
-      const sync = crosshairSync.get();
-      if (sync.time !== hover.time || sync.chartId !== chartRef.current.id) crosshairSync.set({ chartId: hover.time === null ? null : chartRef.current.id, time: hover.time });
     });
-    const unsyncCrosshair = crosshairSync.subscribe(() => {
-      const sync = crosshairSync.get();
-      meridian.setCrosshairTime(sync.chartId !== chartRef.current.id ? sync.time : null);
-    });
+    const stopLayoutSync = startLayoutSync(current.id, meridian);
+    const detachReplay = attachReplay(current.id, meridian);
+    const detachDrawingTools = attachDrawingTools(meridian);
     // A right-click on the plot opens the terminal's chart menu with the engine's commands.
     meridian.onContextMenu((info, event) => {
       const current = chartRef.current;
@@ -194,7 +217,9 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
           log(`${chartRef.current.symbol}: the ${indicator.kind} study is no longer available and was removed.`, 'Charts');
         }
       }
-      meridian.setDrawings([...chartRef.current.drawings, ...sharedRef.current]);
+      meridian.setDrawings([...chartRef.current.drawings, ...tabSharedRef.current, ...sharedRef.current]);
+      keepOwn(chartRef.current.drawings);
+      showTabShared(tabSharedRef.current);
       showShared(sharedRef.current);
       // Restoring the saved chart is not something to undo.
       meridian.clearHistory();
@@ -202,10 +227,13 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
       saveIndicators();
       saveDrawings();
       setInstance(meridian);
+      followReplay(chartRef.current.id);
     });
     return () => {
       setInstance(null);
-      unsyncCrosshair();
+      stopLayoutSync();
+      detachReplay();
+      detachDrawingTools();
       unregister();
       meridian.destroy();
     };
@@ -232,22 +260,26 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
   }, [instance, chart.indicators]);
 
   // A change to the chart's own list came from this chart's menus or dialogs and can be undone there;
-  // a change to its symbol's list alone came from another chart or an import.
+  // a change to its tab's or symbol's list alone came from another chart or an import.
   const appliedOwn = useRef(chart.drawings);
   useEffect(() => {
     if (!instance) return;
     const isOwnChange = appliedOwn.current !== chart.drawings;
     appliedOwn.current = chart.drawings;
-    const drawings = [...chart.drawings, ...shared];
+    const drawings = [...chart.drawings, ...tabShared, ...shared];
+    keepOwn(chart.drawings);
+    showTabShared(tabShared);
     showShared(shared);
     if (!sameDrawingSet(instance.drawings(), drawings)) instance.setDrawings(drawings, { isUndoable: isOwnChange });
-  }, [instance, chart.drawings, shared]);
+  }, [instance, chart.drawings, tabShared, shared]);
 
   useEffect(() => {
     const key = `${chart.symbol},${chart.timeframe}`;
     if (!instance || market.current === key) return;
     market.current = key;
-    void instance.setMarket(chart.symbol, toChartTimeframe(chart.timeframe), chartTitle(chart, session.get().symbols[chart.symbol]?.description));
+    const id = chart.id;
+    void instance.setMarket(chart.symbol, toChartTimeframe(chart.timeframe), chartTitle(chart, session.get().symbols[chart.symbol]?.description)).then(() => followReplay(id));
+    followDateRange(id);
   }, [instance, chart.symbol, chart.timeframe]);
 
   // Another account serves other prices; reload once its connection is up.
@@ -255,7 +287,11 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
   useEffect(() => {
     if (!instance || !isLinked) return;
     const account = profileId ?? '';
-    if (loadedFor.current !== null && loadedFor.current !== account) void instance.setMarket(chartRef.current.symbol, toChartTimeframe(chartRef.current.timeframe));
+    if (loadedFor.current !== null && loadedFor.current !== account) {
+      const id = chartRef.current.id;
+      void instance.setMarket(chartRef.current.symbol, toChartTimeframe(chartRef.current.timeframe)).then(() => followReplay(id));
+      followDateRange(id);
+    }
     loadedFor.current = account;
   }, [instance, isLinked, profileId]);
 
@@ -265,7 +301,6 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
   useEffect(() => instance?.setGrid(chart.isGridShown), [instance, chart.isGridShown]);
   useEffect(() => instance?.setVolume(chart.isVolumeShown), [instance, chart.isVolumeShown]);
   useEffect(() => instance?.setDigits(digits), [instance, digits]);
-  useEffect(() => instance?.setDrawingToolbar(isDrawingToolbarShown), [instance, isDrawingToolbarShown]);
   const alerts = useStore(priceAlerts, (state) => state.alerts.filter((alert) => alert.symbol === chart.symbol && alert.profileId === profileId && alert.isEnabled && alert.triggeredAt === null));
   useEffect(() => {
     const lines: MeridianPriceLine[] = alerts.map((alert) => ({ id: `alert-${alert.id}`, price: alert.price, color: theme.ui.warn, style: 'dashed', label: 'Alert' }));
@@ -273,12 +308,6 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
     instance?.setPriceLines(lines);
   }, [instance, ask, theme, alerts]);
   useEffect(() => void requireSymbols([chart.symbol]), [chart.symbol]);
-
-  useEffect(() => {
-    if (!instance) return;
-    const drawing = isActive ? tools.find((candidate) => candidate.key === tool)?.drawing ?? null : null;
-    instance.setTool(drawing);
-  }, [instance, tool, isActive]);
 
   useEffect(() => {
     if (isActive) cursor.set({ digits, symbol: chart.symbol, hasSeconds: isSecondsTimeframe(chart.timeframe) });
@@ -317,11 +346,12 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
   return (
     <div
       className={`chart-window${isActive ? ' is-active' : ''}`}
-      onMouseDown={() => workspace.set({ activeChartId: chart.id })}
+      onMouseDown={() => focusChart(chart.id)}
     >
       <div className="chart-canvas" ref={container} data-tool={tool} />
-      {isTradeOverlayShown && <TradeOverlay chart={instance} symbol={chart.symbol} digits={digits} />}
-      {isOneClickEnabled && <OneClickPanel symbol={chart.symbol} digits={digits} />}
+      {isTradeOverlayShown && <TradeOverlay chart={instance} symbol={chart.symbol} digits={digits} isReplaying={isReplaying} />}
+      {isOneClickEnabled && !isReplaying && <OneClickPanel symbol={chart.symbol} digits={digits} />}
+      {isOneClickEnabled && isReplaying && <div className="one-click-off" role="status">{replayTradingHint}</div>}
       {signIn && <div className="chart-status"><SigningIn signIn={signIn} /></div>}
       {!signIn && !isLinked && <div className="chart-status">Waiting for connection</div>}
       {!signIn && isLinked && isCollectingTicks && <div className="chart-status">Building {chart.timeframe} bars from live quotes. Seconds charts start when OpenTerm5 receives the symbol's first quotes.</div>}

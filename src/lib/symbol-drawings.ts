@@ -2,7 +2,7 @@ import { instrumentKey } from '../../shared/symbol-match';
 import { migrateDrawing, type Drawing } from './chart-model';
 import { log } from './session';
 import { Store } from './store';
-import { updateChart, type ChartConfig } from './workspace';
+import { layoutDrawings, setLayoutDrawings, updateChart, workspace, type ChartConfig } from './workspace';
 
 // Drawings that belong to an instrument rather than to one chart window, as TradingView keeps them:
 // every chart of the symbol shows them, and editing one on any chart edits it everywhere. They are
@@ -80,14 +80,16 @@ export function startSymbolDrawings(): void {
   });
 }
 
-// Everything a chart shows: its own drawings, then its symbol's.
+// Everything a chart shows: its own drawings, then its tab's and its symbol's.
 export function chartObjects(chart: ChartConfig): Drawing[] {
-  return [...chart.drawings, ...drawingsForSymbol(symbolDrawings.get(), chart.symbol)];
+  return [...chart.drawings, ...layoutDrawings(workspace.get(), chart), ...drawingsForSymbol(symbolDrawings.get(), chart.symbol)];
 }
 
-// Writes an edited list from `chartObjects` back to the chart and to its symbol.
+// Writes an edited list from `chartObjects` back to the chart, its tab and its symbol.
 export function replaceChartObjects(chart: ChartConfig, drawings: readonly Drawing[]): void {
   const symbolIds = new Set(drawingsForSymbol(symbolDrawings.get(), chart.symbol).map((drawing) => drawing.id));
-  updateChart(chart.id, { drawings: drawings.filter((drawing) => !symbolIds.has(drawing.id)) });
+  const tabIds = new Set(layoutDrawings(workspace.get(), chart).map((drawing) => drawing.id));
+  updateChart(chart.id, { drawings: drawings.filter((drawing) => !symbolIds.has(drawing.id) && !tabIds.has(drawing.id)) });
+  setLayoutDrawings(chart.id, chart.symbol, drawings.filter((drawing) => tabIds.has(drawing.id)));
   setSymbolDrawings(chart.symbol, drawings.filter((drawing) => symbolIds.has(drawing.id)));
 }

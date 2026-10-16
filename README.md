@@ -29,7 +29,7 @@ already know: Market Watch, charts, the Toolbox, one-click trading. Then it keep
 usually pay for as Expert Advisors, VPS add-ons or monthly subscriptions come built in:
 
 - 📈 **Charts that feel like TradingView**, drawn by Meridian, OpenTerm5's own chart engine: 86 studies,
-  82 drawing tools, bar replay, undo and redo.
+  82 drawing tools, layouts of up to 16 synced charts, bar replay, undo and redo.
 - 🎯 **Risk-based orders.** Say "1% of balance, stop under that low", and OpenTerm5 works out the lots,
   commission included.
 - 🔁 **A trade copier** between any of your accounts, across brokers, with six sizing modes.
@@ -77,12 +77,26 @@ down to custom colours, editable levels, templates and visibility per timeframe.
   </tr>
 </table>
 
-### Lots of charts? Tile them
+### Lots of charts? Lay them out like TradingView
 
-Floating or tabbed chart windows with cascade, tile and minimise, as in MT5. Every timeframe from
-S1 seconds charts up to MN1, and crosshairs that follow each other across windows.
+Every tab in the chart bar is a layout of 1 to 16 charts: pick one of 55 layouts from the layout button,
+drag the lines between charts to resize them (Shift moves matching lines together, a double-click
+evens them out), and maximise the active chart with <kbd>Alt</kbd>+<kbd>Enter</kbd>.
+<kbd>Tab</kbd> moves between charts.
 
-![Four tiled chart windows: EURUSD with Bollinger Bands, XAUUSD with SuperTrend and RSI, GBPUSD with Ichimoku Cloud and NAS100 with MACD](docs/images/screenshots/multi-chart.png)
+- **Sync in layout:** symbol, interval, crosshair, time and date range, each switched per tab, with
+  coloured sync groups for symbol and interval.
+- **Sync drawings:** new drawings show on every chart of the same symbol in the tab, or in every tab.
+- **One drawing toolbar** down the left for the whole layout. Pick a tool and draw on any chart.
+
+![A four-chart layout with the layout picker open: 55 layouts grouped by chart count, and the Sync in layout switches](docs/images/screenshots/multi-chart.png)
+
+**Bar replay runs the whole layout on one clock.** Pick a start on any chart, then play, step
+(<kbd>Shift</kbd>+<kbd>→</kbd>) or change the speed, and every chart moves together. Each shows only
+what had happened by then: a chart on a longer timeframe builds its current bar step by step, so H4
+and daily candles never give away their own future. Trading from a replaying chart is switched off.
+
+![Bar replay across four charts at 08:30: EURUSD H1, H4 and M15 and XAUUSD D1, each cut at the same moment, with the replay bar below](docs/images/screenshots/bar-replay.png)
 
 ### Size every trade by risk, not by guesswork
 
@@ -186,7 +200,9 @@ TradingView theme.
   Transform and many more) next to MetaTrader's own indicator formulas.
 - 82 drawing tools in six groups, with favourites, a magnet, text on lines, templates and per-timeframe
   visibility.
-- Undo and redo, copy and paste between charts, an object tree and bar replay.
+- Layouts of 1 to 16 charts per tab with symbol, interval, crosshair, time, date range and drawing
+  sync, and bar replay that runs every chart of a layout on one clock.
+- Undo and redo, copy and paste between charts and an object tree.
 - Price alerts drawn on the chart, and Chart Settings saved with each chart and its templates.
 - Older history loads as you scroll, panes resize and axes drag.
 - Profiles and templates, plus Alt shortcuts for the common tools (<kbd>Alt</kbd>+<kbd>T</kbd> trend
@@ -257,7 +273,7 @@ The full list is in [Keyboard shortcuts](docs/user-guide/keyboard-shortcuts.md).
 | Guide | Contents |
 |---|---|
 | [Getting started](docs/getting-started.md) | Install, build, log in and find your way around |
-| [Trading](docs/user-guide/trading.md) | Charts, windows, orders and trading from the chart |
+| [Trading](docs/user-guide/trading.md) | Charts, layouts, orders and trading from the chart |
 | [Accounts and brokers](docs/user-guide/accounts-and-brokers.md) | Logging in, saved accounts and broker detection |
 | [Risk and automation](docs/user-guide/risk-and-automation.md) | Risk-based orders, position management and equity guards |
 | [Trade Copier](docs/user-guide/trade-copier.md) | Copying trades between accounts |

@@ -8,7 +8,14 @@ import { chartTimeframes } from '../lib/mt5-timeframes';
 import { session, signingIn } from '../lib/session';
 import { useStore } from '../lib/store';
 import { useWatchedSpecs } from '../lib/watchlists';
-import { activeChart, chartTypes, openChart, openDialog, toggleAnalysisPositions, workspace, type ChartType } from '../lib/workspace';
+import { drawingSyncs } from '../lib/chart-layouts';
+import { visibleChartIds } from '../lib/chart-tabs';
+import { exitReplay, replay, setReplayMode, startReplay } from '../lib/replay';
+import { replayModes } from '../lib/replay-model';
+import { replayTradingHint, useIsReplayingChart } from '../lib/replay-session';
+import { drawingSyncMenuItems } from '../lib/layout-menu';
+import { activeChart, activeTab, chartTypes, openChart, openDialog, openTab, toggleAnalysisPositions, workspace, type ChartType } from '../lib/workspace';
+import { LayoutPicker } from './chart/LayoutPicker';
 import type { MenuItem } from './MenuBar';
 import { SymbolSearch } from './SymbolSearch';
 import { hintProps, type HintContent } from './ui/Hint';
@@ -156,14 +163,46 @@ function PanelsMenu({ isAnalysis }: PanelsMenuProps) {
   return <ToolButton icon="panels" hasMenu hint={{ title: 'Panels', description: 'Show or hide the watchlist, data window, toolbox and other panels.' }} onClick={(event) => menuBelow(event, items)} />;
 }
 
+interface ReplayButtonProps {
+  isDisabled: boolean;
+}
+
+// In a multi-chart tab the mode menu beside it chooses between replaying every chart on one clock
+// and replaying the active chart alone.
+function ReplayButton({ isDisabled }: ReplayButtonProps) {
+  const tab = useStore(workspace, activeTab);
+  const mode = useStore(workspace, (state) => state.replayMode);
+  const isReplaying = useStore(replay, (state) => !!state.session && state.session.tabId === tab?.id);
+  const isMultiChart = !!tab && visibleChartIds(tab).length > 1;
+  const modes: MenuItem[] = replayModes.map((candidate) => ({ label: candidate.label, isChecked: candidate.key === mode, action: () => setReplayMode(candidate.key) }));
+  const current = replayModes.find((candidate) => candidate.key === mode) ?? replayModes[0];
+  return (
+    <>
+      <ToolButton icon="replay" text="Replay" textLevel={1} isActive={isReplaying} isDisabled={isDisabled} hint={{ title: 'Bar Replay', description: isMultiChart ? `Hide the later bars and play forward from a bar you pick. ${current.description}` : 'Hide the later bars and play the chart forward from a bar you pick.' }} onClick={() => (isReplaying ? exitReplay() : startReplay())} />
+      {isMultiChart && <ToolButton hasMenu hint={{ title: `Replay: ${current.label}`, description: 'Replay every chart of the layout together, or only the active chart.' }} onClick={(event) => menuBelow(event, modes)} />}
+    </>
+  );
+}
+
+// TradingView shows drawing sync only where there is another chart to sync with.
+function DrawingSyncMenu() {
+  const isMultiChart = useStore(workspace, (state) => { const tab = activeTab(state); return !!tab && visibleChartIds(tab).length > 1; });
+  const drawingSync = useStore(workspace, (state) => state.drawingSync);
+  const current = drawingSyncs.find((candidate) => candidate.key === drawingSync) ?? drawingSyncs[0];
+  if (!isMultiChart) return null;
+  return <ToolButton icon="link" hasMenu isActive={drawingSync !== 'off'} hint={{ title: `Sync Drawings: ${current.label}`, description: current.description }} onClick={(event) => menuBelow(event, drawingSyncMenuItems())} />;
+}
+
 function TradingActions() {
   const tool = useStore(workspace, (state) => state.tool);
+  const chartId = useStore(workspace, (state) => activeChart(state)?.id);
   const isOneClickEnabled = useStore(workspace, (state) => state.isOneClickEnabled);
+  const isReplaying = useIsReplayingChart(chartId);
   return (
     <ToolGroup label="Trading">
       <ToolButton icon="riskOrder" isActive={tool === 'riskOrder'} hint={{ title: 'Risk Order', description: 'Drag the entry, then the stop loss and take profit on the chart; the volume follows your risk setting.' }} onClick={() => workspace.set({ tool: tool === 'riskOrder' ? 'cursor' : 'riskOrder' })} />
       <ToolButton icon="oneClick" text="One-Click" textLevel={1} isActive={isOneClickEnabled} hint={{ title: 'One-Click Trading', description: 'Buy and sell from the chart immediately, without a confirmation ticket.' }} onClick={toggleOneClick} />
-      <ToolButton text="New Order" isPrimary hint={{ title: 'New Order', shortcut: 'F9', description: 'Open the order ticket for the active symbol.' }} onClick={() => newOrder()} />
+      <ToolButton text="New Order" isPrimary isDisabled={isReplaying} hint={{ title: 'New Order', shortcut: 'F9', description: isReplaying ? `${replayTradingHint}.` : 'Open the order ticket for the active symbol.' }} onClick={() => newOrder()} />
     </ToolGroup>
   );
 }
@@ -183,7 +222,8 @@ export function Toolbar() {
   return (
     <div ref={toolbar} className="toolbar chart-toolbar" data-level={level} role="toolbar" aria-label="Chart">
       <SymbolPicker />
-      <ToolButton icon="plus" hint={{ title: 'New Chart', description: 'Open another chart of the current symbol.' }} onClick={() => openChart(chart?.symbol ?? defaultSymbol())} />
+      <ToolButton icon="plus" hint={{ title: 'New Tab', description: 'Open a tab with a copy of the active chart.' }} onClick={() => (chart ? openTab() : openChart(defaultSymbol()))} />
+      <LayoutPicker />
       <span className="toolbar-divider" />
       <TimeframePicker />
       <span className="toolbar-divider" />
@@ -191,11 +231,12 @@ export function Toolbar() {
         <ChartTypePicker />
         <ToolButton icon="indicators" text="Indicators" textLevel={2} hasMenu isDisabled={!hasChart} hint={{ title: 'Indicators', description: 'Add a study to the active chart.' }} onClick={(event) => chart && menuBelow(event, indicatorMenuItems(chart.id))} />
         <ToolButton icon="alert" text="Alert" textLevel={1} hint={{ title: 'Price Alerts', description: 'Get notified when price reaches a level.' }} onClick={() => openDialog({ kind: 'alerts' })} />
-        <ToolButton icon="replay" text="Replay" textLevel={1} isActive={!!ui?.isReplaying} isDisabled={!ui} hint={{ title: 'Bar Replay', description: 'Hide the later bars and play the chart forward from a bar you pick.' }} onClick={() => (ui?.isReplaying ? engine()?.exitReplay() : engine()?.startReplay())} />
+        <ReplayButton isDisabled={!ui} />
       </ToolGroup>
       <span className="toolbar-divider" />
       <ToolGroup label="Edit">
-        {!isAnalysis && <ToolButton icon="trend" isActive={state.isTradeDrawingToolbarShown} hint={{ title: 'Drawing Toolbar', description: 'Show or hide the drawing tools on the left of each chart.' }} onClick={() => togglePanel('isTradeDrawingToolbarShown')} />}
+        {!isAnalysis && <ToolButton icon="trend" isActive={state.isTradeDrawingToolbarShown} hint={{ title: 'Drawing Toolbar', description: 'Show or hide the drawing tools on the left of the charts.' }} onClick={() => togglePanel('isTradeDrawingToolbarShown')} />}
+        <DrawingSyncMenu />
         <ToolButton icon="undo" isDisabled={!ui?.canUndo} hint={{ title: 'Undo', shortcut: 'Ctrl+Z', description: 'Undo the last change to drawings or indicators.' }} onClick={() => engine()?.undo()} />
         <ToolButton icon="redo" isDisabled={!ui?.canRedo} hint={{ title: 'Redo', shortcut: 'Ctrl+Y' }} onClick={() => engine()?.redo()} />
       </ToolGroup>

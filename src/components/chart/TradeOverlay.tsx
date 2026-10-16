@@ -4,6 +4,7 @@ import { decidePlan, validateDrag, type PlanLines } from '../../../shared/order-
 import { orderType, type Order, type Position } from '../../../shared/protocol';
 import { placeRiskOrder } from '../../lib/automation';
 import { formatMoney, formatPrice, formatVolume } from '../../lib/format';
+import { replayTradingHint } from '../../lib/replay-session';
 import { riskPreferences, setRiskPreferences } from '../../lib/risk-preferences';
 import { closePosition, log, sendOrder, session, signingIn, signInName } from '../../lib/session';
 import { moneyAt, useMoneyPerUnit } from '../../lib/valuation';
@@ -139,14 +140,16 @@ interface TradeOverlayProps {
   chart: MeridianChart | null;
   symbol: string;
   digits: number;
+  isReplaying: boolean;
 }
 
-export function TradeOverlay({ chart: controller, symbol, digits }: TradeOverlayProps) {
+export function TradeOverlay({ chart: controller, symbol, digits, isReplaying }: TradeOverlayProps) {
   const tool = useStore(workspace, (state) => state.tool);
   const tick = useStore(session, (state) => state.ticks[symbol]);
   const spec = useStore(session, (state) => state.symbols[symbol]);
-  // In analysis mode the overlay only shows positions and orders: no dragging, closing or planning.
-  const isReadOnly = useStore(workspace, (state) => state.isAnalysisMode);
+  // In analysis mode, and on a replaying chart, the overlay only shows positions and orders: no
+  // dragging, closing or planning.
+  const isReadOnly = useStore(workspace, (state) => state.isAnalysisMode) || isReplaying;
   const canTrade = useStore(session, (state) => !!state.account && state.status?.capabilities?.trading === true && state.link.state === 'open') && !isReadOnly;
   const signIn = useStore(session, signingIn);
   const positions = useStore(session, (state) => state.positions);
@@ -364,6 +367,7 @@ export function TradeOverlay({ chart: controller, symbol, digits }: TradeOverlay
         if (y === null || y === undefined || y < 0 || y > geometry.height) return null;
         return <LineHandle key={line.id} line={line} y={y} width={geometry.width} digits={digits} currency={currency} edit={edit?.id === line.id && !drag.current ? edit : undefined} onStartDrag={startDrag} onApply={() => { const current = edit!; setEdit(null); void current.apply(current.price); }} onDiscard={() => setEdit(null)} />;
       })}
+      {isReplaying && tool === 'riskOrder' && <span className="overlay-prompt" role="status">{replayTradingHint}</span>}
       {hasPlan && plan.stop !== undefined && (
         <PlannerPanel symbol={symbol} lines={plan as PlanLines} digits={digits} error={panelError} title={title} preview={preview} isBusy={isBusy} isMarketForced={isMarketForced} onMarket={setIsMarketForced} onPlace={() => void submit()} onCancel={() => { setPlan({}); setIsMarketForced(false); if (workspace.get().tool === 'riskOrder') workspace.set({ tool: 'cursor' }); }} />
       )}

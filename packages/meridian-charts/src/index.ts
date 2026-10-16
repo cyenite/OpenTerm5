@@ -1,4 +1,4 @@
-export { MeridianChart, type MeridianChartOptions, type MeridianContextInfo, type MeridianHover, type MeridianIndicator, type MeridianPriceLine, type PlotBox, type ReadoutRow } from './chart';
+export { MeridianChart, drawingFavorites, meridianUiVariables, saveDrawingFavorites, type MeridianChartOptions, type MeridianDrawingTools, type MeridianContextInfo, type MeridianCrosshair, type MeridianHover, type MeridianIndicator, type MeridianPriceLine, type MeridianReplayRequest, type MeridianReplayState, type MeridianTimeRange, type PlotBox, type ReadoutRow } from './chart';
 export type { ScaleMode } from './core/price-scale';
 export { defaultSettings, restoreSettings, type ChartSettings } from './settings';
 export { isTimeframe, timeframeMs } from './core/timeframes';
@@ -25,4 +25,6 @@ export {
   type ThemePatch,
 } from './themes';
 export { iconSvg } from './ui/icons';
+export { DrawingToolbar, type CursorMode, type MagnetMode, type ToolbarActions, type ToolbarState } from './ui/toolbar';
+export { ensureStyles } from './ui/styles';
 export type { Bar, BarRange, DataProvider, DrawingPoint, DrawingStyle, DrawingTemplate, DrawingTemplateStore, InputValue, LineStyle, PriceStyle, SerializedDrawing, StudyBand, StudyDefinition, StudyInput, StudyLevel, StudyOutput, StudyPlot, SymbolInfo } from './types';

@@ -3,50 +3,67 @@ import { formatPrice } from './format';
 import { indicatorMenuItems, studyTitle } from './indicator-menu';
 import { session } from './session';
 import { setChartType, setTimeframe, toggleDepth, zoom } from './commands';
+import { visibleChartIds } from './chart-tabs';
+import { isLinkGroupShown, layoutMenuItems, linkGroupMenuItems, syncMenuItems } from './layout-menu';
 import {
+  applyIndicatorsToLayout,
   chartTypes,
   closeChart,
   focusChart,
-  maximizeChart,
-  minimizeChart,
+  moveChart,
   openDialog,
-  restoreWindows,
+  tabOfChart,
+  toggleMaximized,
   updateChart,
   workspace,
 } from './workspace';
 import { chartTimeframes } from './mt5-timeframes';
+import { isReplayingChart, replay, replayTradingHint } from './replay-session';
 
 const separator: MenuItem = { label: '', isSeparator: true };
 
-function tradingItems(symbol: string, price: number | undefined, digits: number): MenuItem[] {
+function tradingItems(chartId: string, symbol: string, price: number | undefined, digits: number): MenuItem[] {
   const tick = session.get().ticks[symbol];
   const items: MenuItem[] = [
-    { label: 'New Order', shortcut: 'F9', action: () => openDialog({ kind: 'order', symbol }) },
-    { label: 'Buy by Market', action: () => openDialog({ kind: 'order', symbol, type: 'buy' }) },
-    { label: 'Sell by Market', action: () => openDialog({ kind: 'order', symbol, type: 'sell' }) },
+    { label: 'New Order', shortcut: 'F9', action: () => openDialog({ kind: 'order', symbol, chartId }) },
+    { label: 'Buy by Market', action: () => openDialog({ kind: 'order', symbol, chartId, type: 'buy' }) },
+    { label: 'Sell by Market', action: () => openDialog({ kind: 'order', symbol, chartId, type: 'sell' }) },
   ];
   if (price === undefined || !tick) return items;
   const level = Number(price.toFixed(digits));
   const label = formatPrice(level, digits);
   const pending: MenuItem[] = level < tick.bid
-    ? [{ label: `Buy Limit at ${label}`, action: () => openDialog({ kind: 'order', symbol, type: 'buyLimit', price: level }) }, { label: `Sell Stop at ${label}`, action: () => openDialog({ kind: 'order', symbol, type: 'sellStop', price: level }) }]
+    ? [{ label: `Buy Limit at ${label}`, action: () => openDialog({ kind: 'order', symbol, chartId, type: 'buyLimit', price: level }) }, { label: `Sell Stop at ${label}`, action: () => openDialog({ kind: 'order', symbol, chartId, type: 'sellStop', price: level }) }]
     : level > tick.ask
-      ? [{ label: `Sell Limit at ${label}`, action: () => openDialog({ kind: 'order', symbol, type: 'sellLimit', price: level }) }, { label: `Buy Stop at ${label}`, action: () => openDialog({ kind: 'order', symbol, type: 'buyStop', price: level }) }]
+      ? [{ label: `Sell Limit at ${label}`, action: () => openDialog({ kind: 'order', symbol, chartId, type: 'sellLimit', price: level }) }, { label: `Buy Stop at ${label}`, action: () => openDialog({ kind: 'order', symbol, chartId, type: 'buyStop', price: level }) }]
       : [];
   return pending.length ? [...items, separator, ...pending] : items;
 }
 
-// Mirrors MT5's chart context menu; window commands are included because the same menu serves the
-// chart canvas, its title bar and its tab.
+// Mirrors MT5's chart context menu, with TradingView's layout commands in place of MT5's window
+// commands.
 export function chartMenu(chartId: string, price?: number): MenuItem[] {
   focusChart(chartId);
   const state = workspace.get();
   const chart = state.charts.find((candidate) => candidate.id === chartId);
   if (!chart) return [];
   const digits = session.get().symbols[chart.symbol]?.digits ?? 5;
-  const others = state.charts.filter((candidate) => candidate.id !== chartId);
+  const tab = tabOfChart(state, chartId);
+  const others = tab ? tab.chartIds.filter((id) => id !== chartId) : [];
+  const isMultiChart = !!tab && visibleChartIds(tab).length > 1;
+  const layout: MenuItem[] = tab ? [
+    { label: 'Layout', items: layoutMenuItems(tab) },
+    { label: 'Sync in Layout', items: syncMenuItems(tab) },
+    ...(isLinkGroupShown(tab) ? [{ label: 'Sync Group', items: linkGroupMenuItems(chart) }] : []),
+    { label: 'Move Chart', isDisabled: !isMultiChart, items: [{ label: 'Forward', action: () => moveChart(chartId, 1) }, { label: 'Back', action: () => moveChart(chartId, -1) }] },
+    { label: state.isChartMaximized ? 'Restore Layout' : 'Maximize Chart', shortcut: 'Alt+Enter', isDisabled: !isMultiChart, action: toggleMaximized },
+    { label: 'Apply Indicators to All Charts', isDisabled: !others.length, action: () => applyIndicatorsToLayout(chartId) },
+  ] : [];
+  // A replaying chart keeps the submenu's place, disabled, so the reason is where trading was.
   const trading: MenuItem[] = state.isAnalysisMode ? [] : [
-    { label: 'Trading', items: tradingItems(chart.symbol, price, digits) },
+    isReplayingChart(replay.get().session, chartId)
+      ? { label: replayTradingHint, isDisabled: true }
+      : { label: 'Trading', items: tradingItems(chartId, chart.symbol, price, digits) },
     { label: 'Depth of Market', shortcut: 'Alt+B', action: () => toggleDepth(chart.symbol) },
     separator,
   ];
@@ -73,11 +90,9 @@ export function chartMenu(chartId: string, price?: number): MenuItem[] {
     { label: 'Zoom Out', shortcut: '-', action: () => zoom(0.8) },
     { label: 'Save As Picture...', action: () => window.dispatchEvent(new Event('openterm:chart-image')) },
     separator,
-    state.layout === 'tabs'
-      ? { label: 'Floating Windows', action: restoreWindows }
-      : { label: 'Maximize', action: () => maximizeChart(chartId) },
-    { label: 'Minimize', action: () => minimizeChart(chartId) },
+    ...layout,
+    separator,
     { label: 'Close', shortcut: 'Ctrl+F4', action: () => closeChart(chartId) },
-    { label: 'Close Other Charts', isDisabled: !others.length, action: () => others.forEach((other) => closeChart(other.id)) },
+    { label: 'Close Other Charts', isDisabled: !others.length, action: () => others.forEach((other) => closeChart(other)) },
   ];
 }

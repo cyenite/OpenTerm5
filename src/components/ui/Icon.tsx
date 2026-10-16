@@ -42,6 +42,11 @@ const paths = {
   trade: <><path d="M4 17 9 11l4 3 7-8" /><path d="M15 6h5v5" /></>,
   exit: <><path d="M14 4h6v16h-6" /><path d="M10 8l-4 4 4 4M6 12h10" /></>,
   info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5.5M12 7.5v.5" /></>,
+  link: <><path d="M10 14a4 4 0 0 0 5.7 0l3.6-3.6a4 4 0 0 0-5.7-5.7L12 6.3" /><path d="M14 10a4 4 0 0 0-5.7 0l-3.6 3.6a4 4 0 0 0 5.7 5.7l1.6-1.6" /></>,
+  play: <path d="M7 4.5v15l12-7.5z" />,
+  pause: <path d="M8 5v14M16 5v14" />,
+  stepForward: <><path d="M5 5v14l10-7z" /><path d="M19 5v14" /></>,
+  close: <path d="M6 6l12 12M18 6 6 18" />,
 } as const;
 
 export type IconName = keyof typeof paths;

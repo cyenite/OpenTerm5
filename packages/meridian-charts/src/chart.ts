@@ -2,7 +2,8 @@ import { formatCountdown, formatCrosshairTime, formatDuration, formatPrice, form
 import { PriceScale, type ScaleMode } from './core/price-scale';
 import { TimeScale } from './core/time-scale';
 import { timeTicks } from './core/time-ticks';
-import { timeframeMs, timeUnits } from './core/timeframes';
+import { barEnd, mergeDetail, nextReplayTime as replayTimeAfter, replayOpening, revealReplay } from './core/replay';
+import { isTimeframe, timeframeMs, timeUnits } from './core/timeframes';
 import { drawingToolInfo } from './drawings/catalogue';
 import { rebaseDrawings } from './drawings/history';
 import { applyDrawingFields, drawingFields, isShownOn, lookOf, templateOf, visibilityForInterval, withTemplate, type IntervalChoice } from './drawings/settings';
@@ -69,15 +70,32 @@ interface Snapshot {
 }
 
 interface Replay {
-  // Bars from the first one up to `cutoff` are shown.
-  cutoff: number;
-  isSelecting: boolean;
-  isPlaying: boolean;
-  speed: number;
-  timer: ReturnType<typeof setInterval> | null;
   // The full series, kept while the replay hides the later bars.
   bars: Bar[];
+  // Bars at `step`, oldest first, that the bar in progress is built from.
+  detail: Bar[];
+  // Data that ended by this time (epoch ms) is shown; null until a start is picked.
+  time: number | null;
+  speed: number;
+  step: string | null;
+  timer: ReturnType<typeof setInterval> | null;
+  // The last detail window asked for, so a window the source cannot fill is not asked for again.
+  requested: { from: number; to: number } | null;
+  isPlaying: boolean;
+  isSelecting: boolean;
+  isDetailLoading: boolean;
+  // The next time shown puts the newest bar a third of the plot from the right edge.
+  isPositionPending: boolean;
 }
+
+// The replay a host sets: the time up to which data is shown, and the finer timeframe the bar in
+// progress is built from (null for whole bars only).
+export interface MeridianReplayState {
+  time: number;
+  step: string | null;
+}
+
+export type MeridianReplayRequest = 'start' | 'exit' | 'cancel';
 
 export interface MeridianIndicator {
   id: string;
@@ -92,11 +110,53 @@ export interface ReadoutRow {
   color: string;
 }
 
+// The CSS variables Meridian's controls read, for hosting them outside a chart (a shared rail).
+export function meridianUiVariables(theme: MeridianTheme): Record<string, string> {
+  const { ui, chart } = theme;
+  return {
+    '--mc-font': chart.fontFamily,
+    '--mc-text': ui.text,
+    '--mc-muted': ui.muted,
+    '--mc-icon': ui.text,
+    '--mc-surface': ui.surfaceRaised,
+    '--mc-input': ui.surface,
+    '--mc-border': ui.border,
+    '--mc-hover': ui.hover,
+    '--mc-accent': ui.accent,
+    '--mc-active-bg': ui.accentSoft,
+    '--mc-legend-hover': ui.hover,
+  };
+}
+
+// The drawing rail's choices, shared by every chart of a layout when one rail drives them.
+export interface MeridianDrawingTools {
+  tool: string | null;
+  cursor: CursorMode;
+  magnet: MagnetMode;
+  isStayMode: boolean;
+  isLocked: boolean;
+  isHidden: boolean;
+}
+
 export interface MeridianHover {
   // Opening time of the bar under the pointer (epoch ms), or null off the bars.
   time: number | null;
+  // Price under the pointer, only while it is on the main price pane.
+  price: number | null;
   ohlc: Bar | null;
   readout: { groups: { name: string; rows: ReadoutRow[] }[] } | null;
+}
+
+// Another chart's crosshair: its time, and its price when the pointer is on its price pane.
+export interface MeridianCrosshair {
+  time: number;
+  price: number | null;
+}
+
+// Times (epoch ms) at the left and right edges of the plot.
+export interface MeridianTimeRange {
+  from: number;
+  to: number;
 }
 
 export interface PlotBox {
@@ -141,6 +201,9 @@ type Drag =
   | { kind: 'freehand' }
   | { kind: 'zoom'; start: Pt; current: Pt };
 
+// A view the host asked for, applied again as older history arrives until it is reached.
+type ViewRequest = { kind: 'range'; from: number; to: number } | { kind: 'time'; time: number };
+
 const TIME_AXIS_HEIGHT = 28;
 const RAIL_WIDTH = 52;
 const HANDLE_RADIUS = 5;
@@ -183,12 +246,20 @@ const scaleModeLabels: readonly { mode: ScaleMode; label: string; shortcut?: str
   { mode: 'log', label: 'Logarithmic', shortcut: 'Alt+L' },
 ];
 
-function loadFavorites(): string[] {
+export function drawingFavorites(): string[] {
   try {
     const stored = JSON.parse(localStorage.getItem(FAVORITES_KEY) ?? '[]') as unknown;
     return Array.isArray(stored) ? stored.filter((type): type is string => typeof type === 'string' && drawingToolInfo.has(type)) : [];
   } catch {
     return [];
+  }
+}
+
+export function saveDrawingFavorites(favorites: readonly string[]): void {
+  try {
+    localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
+  } catch {
+    // Favourites then last for this session.
   }
 }
 
@@ -244,7 +315,8 @@ export class MeridianChart {
   private isStayMode = false;
   private isLocked = false;
   private isHidden = false;
-  private favorites = loadFavorites();
+  private isApplyingTools = false;
+  private favorites = drawingFavorites();
   private draft: Draft | null = null;
   private drag: Drag | null = null;
   private hover: Pt | null = null;
@@ -272,20 +344,28 @@ export class MeridianChart {
   private redoStack: Snapshot[] = [];
   private dragBefore: Snapshot | null = null;
   private replay: Replay | null = null;
+  private isReplayHosted = false;
   private readonly replayBar: ReplayBar;
   private objectTree: ObjectTree | null = null;
   private textEditor: HTMLTextAreaElement | null = null;
-  private externalTime: number | null = null;
+  private externalCrosshair: MeridianCrosshair | null = null;
+  private requestedView: ViewRequest | null = null;
+  private emittedRange: MeridianTimeRange | null = null;
   private contextHandlers = new Set<(info: MeridianContextInfo, event: MouseEvent) => boolean>();
   private readonly listeners = {
     hover: new Set<(hover: MeridianHover) => void>(),
     indicators: new Set<() => void>(),
     drawings: new Set<() => void>(),
     tool: new Set<(type: string | null) => void>(),
+    drawingTools: new Set<(tools: MeridianDrawingTools) => void>(),
     settings: new Set<() => void>(),
     history: new Set<() => void>(),
     replay: new Set<() => void>(),
+    replayPick: new Set<(time: number) => void>(),
+    replayRequest: new Set<(request: MeridianReplayRequest) => void>(),
     objectTree: new Set<() => void>(),
+    timeClick: new Set<(time: number) => void>(),
+    visibleRange: new Set<(range: MeridianTimeRange) => void>(),
   };
 
   constructor(container: HTMLElement, options: MeridianChartOptions) {
@@ -327,7 +407,7 @@ export class MeridianChart {
       toggleHidden: () => { this.isHidden = !this.isHidden; this.select(null); this.syncToolbar(); this.invalidate(); },
       toggleFavorite: (type) => {
         this.favorites = this.favorites.includes(type) ? this.favorites.filter((candidate) => candidate !== type) : [...this.favorites, type];
-        try { localStorage.setItem(FAVORITES_KEY, JSON.stringify(this.favorites)); } catch { /* Favourites then last for this session. */ }
+        saveDrawingFavorites(this.favorites);
         this.syncToolbar();
       },
       removeDrawings: () => this.removeAllDrawings(),
@@ -407,6 +487,7 @@ export class MeridianChart {
     if (title) this.title = title;
     this.depth = this.pageBars;
     this.isHistoryExhausted = false;
+    this.requestedView = null;
     this.barList = [];
     this.displayBars = [];
     this.timeScale.setTimes([], this.interval);
@@ -454,11 +535,13 @@ export class MeridianChart {
   }
 
   zoom(factor: number): void {
+    this.requestedView = null;
     if (factor > 0) this.timeScale.zoom(factor);
     this.invalidate();
   }
 
   scrollToEnd(): void {
+    this.requestedView = null;
     this.timeScale.scrollToEnd();
     for (const pane of this.panes) pane.scale.reset();
     this.invalidate();
@@ -515,13 +598,52 @@ export class MeridianChart {
     this.scrollToEnd();
   }
 
-  // ── Crosshair sync ──────────────────────────────────────────────────────
+  // ── Linked charts ───────────────────────────────────────────────────────
 
-  // Shows a vertical crosshair at `time` while the pointer is elsewhere, so linked charts follow
-  // each other. Null clears it.
-  setCrosshairTime(time: number | null): void {
-    if (time === this.externalTime) return;
-    this.externalTime = time;
+  // Shows another chart's crosshair while the pointer is elsewhere, so linked charts follow each
+  // other: a vertical line on this chart's bar holding `time`, and a horizontal one at `price`
+  // when it is set. Null clears it.
+  setExternalCrosshair(point: MeridianCrosshair | null): void {
+    const current = this.externalCrosshair;
+    if (point?.time === current?.time && point?.price === current?.price) return;
+    this.externalCrosshair = point && { time: point.time, price: point.price ?? null };
+    this.invalidate();
+  }
+
+  // Fires when a click or a pan of the plot ends, with the opening time of the bar under the
+  // pointer, for linked charts to scroll to.
+  onTimeClick(listener: (time: number) => void): () => void {
+    this.listeners.timeClick.add(listener);
+    return () => this.listeners.timeClick.delete(listener);
+  }
+
+  visibleRange(): MeridianTimeRange | null {
+    if (!this.barList.length) return null;
+    const scale = this.timeScale;
+    return { from: scale.timeAt(scale.xToIndex(0)), to: scale.timeAt(scale.rightEdge) };
+  }
+
+  onVisibleRangeChange(listener: (range: MeridianTimeRange) => void): () => void {
+    this.listeners.visibleRange.add(listener);
+    return () => this.listeners.visibleRange.delete(listener);
+  }
+
+  // Fits the range into the plot. One older than the loaded bars pages in history and is fitted
+  // again as each page arrives, until it is reached or the user moves the view. One set before
+  // the first bars waits for them.
+  setVisibleRange(range: MeridianTimeRange): void {
+    if (!(range.to > range.from)) return;
+    this.requestedView = { kind: 'range', from: range.from, to: range.to };
+    this.applyRequestedView();
+    this.invalidate();
+  }
+
+  // Centres the bar holding `time` at the current zoom, unless it is already on screen. Older
+  // times page in history as `setVisibleRange` does.
+  scrollToTime(time: number): void {
+    if (!Number.isFinite(time)) return;
+    this.requestedView = { kind: 'time', time };
+    this.applyRequestedView();
     this.invalidate();
   }
 
@@ -643,27 +765,121 @@ export class MeridianChart {
     return this.replay !== null;
   }
 
-  // Enters replay and waits for a click on the bar to start from; while replaying this starts
-  // over from a new bar.
-  startReplay(): void {
-    if (!this.barList.length && !this.replay) return;
-    this.stopReplayTimer();
-    if (this.replay) {
-      this.replay.isSelecting = true;
+  isReplaySelecting(): boolean {
+    return this.replay?.isSelecting ?? false;
+  }
+
+  replayTime(): number | null {
+    return this.replay?.time ?? null;
+  }
+
+  // The earliest replay time: the end of the first loaded bar.
+  earliestReplayTime(): number | null {
+    const bars = this.replay?.bars ?? this.barList;
+    return bars.length ? barEnd(bars, 0, this.interval) : null;
+  }
+
+  // The next time after `after` at which a bar ends, at the replay step where its detail is
+  // loaded and in whole bars elsewhere; null at the end of the data. A host replaying several
+  // charts steps them all to the earliest of these.
+  nextReplayTime(after: number): number | null {
+    const replay = this.replay;
+    if (!replay) return replayTimeAfter(this.barList, this.interval, [], null, after);
+    return replayTimeAfter(replay.bars, this.interval, replay.detail, this.replayStepMs(replay), after);
+  }
+
+  // A hosted replay is driven by the host: the chart shows no replay controls of its own, and its
+  // replay menu item and Escape during start selection become requests to the host.
+  setReplayHosted(isHosted: boolean): void {
+    this.isReplayHosted = isHosted;
+    if (isHosted && this.replay) {
+      this.stopReplayTimer();
       this.replay.isPlaying = false;
-    } else {
-      this.replay = { cutoff: this.barList.length, isSelecting: true, isPlaying: false, speed: 1, timer: null, bars: this.barList };
-      this.applyTool(null, true);
-      this.listeners.replay.forEach((listener) => listener());
     }
     this.syncReplayBar();
-    this.invalidate();
+  }
+
+  onReplayRequest(listener: (request: MeridianReplayRequest) => void): () => void {
+    this.listeners.replayRequest.add(listener);
+    return () => this.listeners.replayRequest.delete(listener);
+  }
+
+  // Fires when a start bar is picked, with the time that bar ends, so it is shown complete.
+  onReplayPick(listener: (time: number) => void): () => void {
+    this.listeners.replayPick.add(listener);
+    return () => this.listeners.replayPick.delete(listener);
+  }
+
+  // Enters replay and waits for a click on the bar to start from; while replaying this picks a
+  // new start. Hosted, it asks the host instead.
+  startReplay(): void {
+    if (this.isReplayHosted) this.requestReplay('start');
+    else this.selectReplayStart();
   }
 
   exitReplay(): void {
     if (!this.replay) return;
-    this.endReplay();
-    this.scrollToEnd();
+    if (this.isReplayHosted) this.requestReplay('exit');
+    else this.setReplay(null);
+  }
+
+  // Waits for a click on the bar to start from. A running replay keeps its bars until a new
+  // time is set.
+  selectReplayStart(): void {
+    const replay = this.replay;
+    if (replay?.isSelecting || !this.barList.length) return;
+    if (replay) {
+      this.stopReplayTimer();
+      replay.isPlaying = false;
+      replay.isSelecting = true;
+    } else {
+      this.replay = this.newReplay(true);
+      this.applyTool(null, true);
+    }
+    this.emitReplayChange();
+    this.syncReplayBar();
+    this.invalidate();
+  }
+
+  // Leaves start selection; without a replay time yet that leaves the replay too.
+  cancelReplaySelection(): void {
+    const replay = this.replay;
+    if (!replay?.isSelecting) return;
+    if (replay.time === null) {
+      this.setReplay(null);
+      return;
+    }
+    replay.isSelecting = false;
+    this.emitReplayChange();
+    this.syncReplayBar();
+    this.invalidate();
+  }
+
+  // Shows the data that ended by `state.time`, entering replay if needed; null leaves replay.
+  // Start selection, if any, carries on.
+  setReplay(state: MeridianReplayState | null): void {
+    if (!state) {
+      if (!this.replay) return;
+      this.endReplay();
+      this.scrollToEnd();
+      return;
+    }
+    let replay = this.replay;
+    if (!replay) {
+      replay = this.replay = this.newReplay(false);
+      this.applyTool(null, true);
+      this.emitReplayChange();
+    }
+    if (replay.step !== state.step) {
+      replay.step = state.step;
+      replay.detail = [];
+      replay.requested = null;
+      replay.isDetailLoading = false;
+    }
+    replay.time = state.time;
+    this.showReplay();
+    this.loadReplayDetail();
+    this.syncReplayBar();
   }
 
   onReplayChange(listener: () => void): () => void {
@@ -761,7 +977,7 @@ export class MeridianChart {
     }
   }
 
-  private removeAllStudies(): void {
+  removeAllStudies(): void {
     if (!this.studies.length) return;
     this.checkpoint();
     for (const study of [...this.studies]) this.removeStudy(study.id);
@@ -851,6 +1067,37 @@ export class MeridianChart {
     return () => this.listeners.drawings.delete(listener);
   }
 
+  drawingTools(): MeridianDrawingTools {
+    return { tool: this.tool, cursor: this.cursorMode, magnet: this.magnet, isStayMode: this.isStayMode, isLocked: this.isLocked, isHidden: this.isHidden };
+  }
+
+  // Applies a shared rail's choices without echoing them back through `onDrawingToolsChange`.
+  setDrawingTools(patch: Partial<MeridianDrawingTools>): void {
+    this.isApplyingTools = true;
+    try {
+      if (patch.magnet !== undefined) this.magnet = patch.magnet;
+      if (patch.isStayMode !== undefined) this.isStayMode = patch.isStayMode;
+      if (patch.isLocked !== undefined) this.isLocked = patch.isLocked;
+      if (patch.isHidden !== undefined && patch.isHidden !== this.isHidden) {
+        this.isHidden = patch.isHidden;
+        this.select(null);
+      }
+      if (patch.cursor !== undefined) this.cursorMode = patch.cursor;
+      if (patch.tool !== undefined) this.applyTool(patch.tool, false);
+      this.syncToolbar();
+      this.updateCursor();
+      this.invalidate();
+    } finally {
+      this.isApplyingTools = false;
+    }
+  }
+
+  // Changes made on this chart: its keyboard shortcuts, its own rail, or a drawing finishing.
+  onDrawingToolsChange(listener: (tools: MeridianDrawingTools) => void): () => void {
+    this.listeners.drawingTools.add(listener);
+    return () => this.listeners.drawingTools.delete(listener);
+  }
+
   setTool(type: string | null): void {
     this.applyTool(type, false);
   }
@@ -889,6 +1136,13 @@ export class MeridianChart {
 
   private replaceBars(bars: readonly Bar[]): void {
     const sorted = [...bars].sort((left, right) => left.time - right.time).filter((bar, index, list) => index === 0 || bar.time !== list[index - 1].time);
+    const replay = this.replay;
+    if (replay) replay.bars = sorted;
+    if (replay && replay.time !== null) {
+      this.showReplay();
+      this.loadReplayDetail();
+      return;
+    }
     this.barList = sorted;
     this.timeScale.setTimes(sorted.map((bar) => bar.time), this.interval);
     this.updateDisplayBars();
@@ -897,7 +1151,7 @@ export class MeridianChart {
   }
 
   private onLiveBar(bar: Bar): void {
-    if (this.replay) {
+    if (this.replay && this.replay.time !== null) {
       // Live bars wait in the full series until the replay ends.
       const bars = this.replay.bars;
       const last = bars[bars.length - 1];
@@ -924,8 +1178,7 @@ export class MeridianChart {
   // Fetches older bars once the oldest loaded bar is on screen. A page that brings nothing
   // older means the source has no more history.
   private pageHistory(): void {
-    if (this.replay || this.isPaging || this.isHistoryExhausted || !this.barList.length || this.barList.length >= this.maxBars) return;
-    if (this.timeScale.xToIndex(0) > 3) return;
+    if (this.isPaging || !this.barList.length || !this.wantsOlderBars()) return;
     this.isPaging = true;
     const generation = this.generation;
     const oldest = this.barList[0].time;
@@ -942,6 +1195,34 @@ export class MeridianChart {
       })
       .catch(() => { this.isHistoryExhausted = true; })
       .finally(() => { this.isPaging = false; });
+  }
+
+  // The oldest loaded bar is on screen and the source may have older ones.
+  private wantsOlderBars(): boolean {
+    return !this.replay && !this.isHistoryExhausted && this.barList.length < this.maxBars && this.timeScale.xToIndex(0) <= 3;
+  }
+
+  // Runs on every render while a request is open, so it lands once the bars (or older ones) do.
+  private applyRequestedView(): void {
+    const request = this.requestedView;
+    if (!request || !this.barList.length || !this.plotWidth) return;
+    const scale = this.timeScale;
+    if (request.kind === 'range') {
+      scale.fit(scale.indexOf(request.from), scale.indexOf(request.to));
+    } else {
+      const index = scale.barContaining(request.time) ?? Math.round(scale.indexOf(request.time));
+      const x = scale.indexToX(index);
+      if (x < 0 || x > this.plotWidth) scale.centerOn(index);
+    }
+  }
+
+  // Called once a render has settled the layout: the request is done when its time is loaded or
+  // no older bars will come.
+  private settleRequestedView(): void {
+    const request = this.requestedView;
+    if (!request || !this.barList.length || !this.plotWidth) return;
+    const earliest = request.kind === 'range' ? request.from : request.time;
+    if (earliest >= this.barList[0].time || !this.wantsOlderBars()) this.requestedView = null;
   }
 
   private updateDisplayBars(): void {
@@ -1017,21 +1298,10 @@ export class MeridianChart {
   }
 
   private applyThemeVariables(): void {
-    const { ui, chart } = this.theme;
     const variables: Record<string, string> = {
-      '--mc-font': chart.fontFamily,
-      '--mc-text': ui.text,
-      '--mc-muted': ui.muted,
-      '--mc-icon': ui.text,
-      '--mc-surface': ui.surfaceRaised,
-      '--mc-input': ui.surface,
-      '--mc-border': ui.border,
-      '--mc-hover': ui.hover,
-      '--mc-accent': ui.accent,
-      '--mc-active-bg': ui.accentSoft,
-      '--mc-legend-hover': ui.hover,
+      ...meridianUiVariables(this.theme),
       // The legend sits on the chart, so a chart text colour from Chart Settings applies to it too.
-      '--mc-legend-text': this.chartSettings.textColor ?? ui.text,
+      '--mc-legend-text': this.chartSettings.textColor ?? this.theme.ui.text,
     };
     for (const [name, value] of Object.entries(variables)) this.root.style.setProperty(name, value);
     this.canvas.style.background = this.colors().background;
@@ -1147,10 +1417,29 @@ export class MeridianChart {
     if (!this.listeners.hover.size) return;
     const index = this.hover && this.hover.x < this.plotWidth && this.barList.length ? this.timeScale.barAt(this.hover.x) : null;
     const bar = index === null ? null : this.barList[index];
+    const point = this.hover;
+    const isOnPricePane = point && point.x >= 0 && point.x < this.plotWidth && this.barList.length && this.paneAt(point.y) === this.panes[0];
+    const price = isOnPricePane ? this.panes[0].scale.yToPrice(point.y) : null;
     const hover: MeridianHover = bar
-      ? { time: bar.time, ohlc: bar, readout: { groups: this.studies.filter((study) => study.isVisible).map((study) => ({ name: studyCaption(study.definition, study.inputs), rows: this.studyValues(study, index!).map((value, position) => ({ label: study.output!.plots[position]?.title ?? '', value: value.text, color: value.color })) })) } }
-      : { time: null, ohlc: null, readout: null };
+      ? { time: bar.time, price, ohlc: bar, readout: { groups: this.studies.filter((study) => study.isVisible).map((study) => ({ name: studyCaption(study.definition, study.inputs), rows: this.studyValues(study, index!).map((value, position) => ({ label: study.output!.plots[position]?.title ?? '', value: value.text, color: value.color })) })) } }
+      : { time: null, price, ohlc: null, readout: null };
     for (const listener of this.listeners.hover) listener(hover);
+  }
+
+  private emitTimeClick(p: Pt): void {
+    const isOnPlot = p.x >= 0 && p.x < this.plotWidth && p.y < this.height - TIME_AXIS_HEIGHT && this.paneAt(p.y);
+    if (!this.listeners.timeClick.size || !isOnPlot || !this.barList.length || this.replay?.isSelecting) return;
+    const time = this.barList[this.timeScale.barAt(p.x)].time;
+    for (const listener of this.listeners.timeClick) listener(time);
+  }
+
+  private emitVisibleRange(): void {
+    if (!this.listeners.visibleRange.size) return;
+    const range = this.visibleRange();
+    const last = this.emittedRange;
+    if (!range || (last && range.from === last.from && range.to === last.to)) return;
+    this.emittedRange = range;
+    for (const listener of this.listeners.visibleRange) listener({ ...range });
   }
 
   private toolbarState() {
@@ -1159,6 +1448,9 @@ export class MeridianChart {
 
   private syncToolbar(): void {
     this.toolbar.update(this.toolbarState());
+    if (this.isApplyingTools) return;
+    const tools = this.drawingTools();
+    this.listeners.drawingTools.forEach((listener) => listener(tools));
   }
 
   private applyTool(type: string | null, isFromChart: boolean): void {
@@ -1207,7 +1499,7 @@ export class MeridianChart {
     }
     const pane = this.paneAt(p.y)!;
     if (this.replay?.isSelecting) {
-      this.setReplayStart(this.timeScale.barAt(p.x));
+      if (this.barList.length) this.pickReplayStart(this.timeScale.barAt(p.x));
       return;
     }
     if (this.tool === ZOOM) { this.drag = { kind: 'zoom', start: p, current: p }; return; }
@@ -1276,6 +1568,8 @@ export class MeridianChart {
       this.dragBefore = null;
     } else if (drag.kind === 'zoom') {
       this.zoomToBox(drag.start, drag.current);
+    } else if (drag.kind === 'pan' && event.type === 'pointerup' && !this.tool && !this.draft) {
+      this.emitTimeClick(p);
     }
     this.invalidate();
   };
@@ -1296,7 +1590,7 @@ export class MeridianChart {
       this.invalidate();
       return;
     }
-    if (p.y >= this.height - TIME_AXIS_HEIGHT) { this.timeScale.spacing = 8; this.timeScale.scrollToEnd(); this.invalidate(); return; }
+    if (p.y >= this.height - TIME_AXIS_HEIGHT) { this.resetTimeScale(); return; }
     if (p.x >= this.plotWidth) { this.paneAt(p.y)?.scale.reset(); this.invalidate(); return; }
     const hit = this.hitDrawing(p);
     if (!hit) return;
@@ -1312,7 +1606,7 @@ export class MeridianChart {
     const pane = this.paneAt(p.y);
     let entries: MenuEntry[];
     if (p.y >= this.height - TIME_AXIS_HEIGHT) {
-      entries = [{ label: 'Reset time scale', icon: 'reset', action: () => { this.timeScale.spacing = 8; this.timeScale.scrollToEnd(); this.invalidate(); } }];
+      entries = [{ label: 'Reset time scale', icon: 'reset', action: () => this.resetTimeScale() }];
     } else if (p.x >= this.plotWidth) {
       entries = this.scaleMenu(pane ?? this.panes[0]);
     } else {
@@ -1437,8 +1731,16 @@ export class MeridianChart {
     ];
   }
 
+  private resetTimeScale(): void {
+    this.requestedView = null;
+    this.timeScale.spacing = 8;
+    this.timeScale.scrollToEnd();
+    this.invalidate();
+  }
+
   private onWheel = (event: WheelEvent): void => {
     event.preventDefault();
+    this.requestedView = null;
     const p = this.point(event);
     if (Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.shiftKey) {
       this.timeScale.pan(-(event.deltaX || event.deltaY));
@@ -1451,6 +1753,8 @@ export class MeridianChart {
 
   private onKeyDown = (event: KeyboardEvent): void => {
     if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement) return;
+    // The host steps (Shift+Right) and plays (Shift+Down) a hosted replay from its own listener.
+    if (this.replay && this.isReplayHosted && event.shiftKey && (event.key === 'ArrowRight' || event.key === 'ArrowDown')) return;
     const isMod = event.ctrlKey || event.metaKey;
     const key = event.key.toLowerCase();
     if (isMod && !event.altKey && (key === 'z' || key === 'y')) {
@@ -1464,8 +1768,8 @@ export class MeridianChart {
     } else if (event.altKey && !isMod && this.altShortcut(event)) {
       // Handled.
     } else if (event.key === 'Escape') {
-      if (this.replay?.isSelecting && this.replay.cutoff >= this.replay.bars.length) this.exitReplay();
-      else if (this.replay?.isSelecting) { this.replay.isSelecting = false; this.syncReplayBar(); }
+      if (this.replay?.isSelecting && this.isReplayHosted) this.requestReplay('cancel');
+      else this.cancelReplaySelection();
       if (this.draft?.definition.anchors === 'multi' && this.draft.anchors.length > 2) this.commit(this.draft.type, this.draft.anchors.slice(0, -1), true);
       this.draft = null;
       if (this.tool) this.applyTool(null, true);
@@ -1478,8 +1782,10 @@ export class MeridianChart {
       if (anchors.length >= 2) this.commit(this.draft.type, anchors, true);
       this.draft = null;
     } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      this.requestedView = null;
       this.timeScale.pan((event.key === 'ArrowLeft' ? 1 : -1) * this.timeScale.spacing * (event.shiftKey ? 10 : 1));
     } else if (event.key === 'Home') {
+      this.requestedView = null;
       this.timeScale.rightEdge = Math.min(this.timeScale.lastIndex, this.plotWidth / this.timeScale.spacing);
     } else if (event.key === 'End') {
       this.scrollToEnd();
@@ -1527,6 +1833,7 @@ export class MeridianChart {
   private continueDrag(drag: Drag, p: Pt): void {
     switch (drag.kind) {
       case 'pan': {
+        if (p.x !== drag.lastX) this.requestedView = null;
         this.timeScale.pan(p.x - drag.lastX);
         if (!drag.pane.scale.isAuto) drag.pane.scale.shift(p.y - drag.lastY);
         drag.lastX = p.x;
@@ -1538,6 +1845,7 @@ export class MeridianChart {
         drag.lastY = p.y;
         break;
       case 'time-axis':
+        this.requestedView = null;
         this.timeScale.zoom(Math.exp((p.x - drag.lastX) * 0.01), this.plotWidth);
         drag.lastX = p.x;
         break;
@@ -1719,6 +2027,7 @@ export class MeridianChart {
     const from = this.timeScale.xToIndex(Math.min(start.x, end.x));
     const to = this.timeScale.xToIndex(Math.max(start.x, end.x));
     if (to - from >= 2 && Math.abs(end.y - start.y) > 8) {
+      this.requestedView = null;
       this.timeScale.spacing = Math.max(this.timeScale.minSpacing, Math.min(this.timeScale.maxSpacing, this.plotWidth / (to - from)));
       this.timeScale.rightEdge = to;
       const scale = this.panes[0].scale;
@@ -1765,7 +2074,7 @@ export class MeridianChart {
     if (drawing && !drawing.locked) this.removeDrawing(drawing.id);
   }
 
-  private removeAllDrawings(): void {
+  removeAllDrawings(): void {
     if (!this.drawingList.length) return;
     this.checkpoint();
     this.select(null);
@@ -1974,52 +2283,113 @@ export class MeridianChart {
 
   // ── Replay internals ────────────────────────────────────────────────────
 
-  private setReplayStart(index: number): void {
-    const replay = this.replay;
-    if (!replay) return;
-    replay.cutoff = Math.max(1, Math.min(replay.bars.length, index + 1));
-    replay.isSelecting = false;
-    this.showReplayBars();
-    this.timeScale.rightEdge = replay.cutoff - 1 + Math.max(this.timeScale.rightMarginBars, Math.round(this.plotWidth / this.timeScale.spacing / 3));
-    this.syncReplayBar();
+  private newReplay(isSelecting: boolean): Replay {
+    return { bars: this.barList, detail: [], time: null, speed: 1, step: null, timer: null, requested: null, isPlaying: false, isSelecting, isDetailLoading: false, isPositionPending: true };
   }
 
-  private showReplayBars(): void {
+  private emitReplayChange(): void {
+    this.listeners.replay.forEach((listener) => listener());
+  }
+
+  private requestReplay(request: MeridianReplayRequest): void {
+    for (const listener of this.listeners.replayRequest) listener(request);
+  }
+
+  // The step as an interval when it is finer than the chart's, otherwise null.
+  private replayStepMs(replay: Replay): number | null {
+    if (!replay.step || !isTimeframe(replay.step)) return null;
+    const step = timeframeMs(replay.step);
+    return step < this.interval ? step : null;
+  }
+
+  // Selection ends on the clicked bar, which is shown complete: the replay starts where it ends.
+  private pickReplayStart(index: number): void {
     const replay = this.replay!;
-    const rightEdge = this.timeScale.rightEdge;
-    this.barList = replay.bars.slice(0, replay.cutoff);
-    this.timeScale.setTimes(this.barList.map((bar) => bar.time), this.interval);
-    this.timeScale.rightEdge = rightEdge;
+    const time = barEnd(replay.bars, index, this.interval);
+    replay.isSelecting = false;
+    replay.isPositionPending = true;
+    for (const listener of this.listeners.replayPick) listener(time);
+    if (this.replay !== replay) return;
+    if (!this.isReplayHosted) this.setReplay({ time, step: null });
+    this.emitReplayChange();
+    this.syncReplayBar();
+    this.invalidate();
+  }
+
+  private showReplay(): void {
+    const replay = this.replay!;
+    if (replay.time === null) return;
+    const scale = this.timeScale;
+    const before = scale.lastIndex;
+    const beforeX = scale.indexToX(before);
+    const rightEdge = scale.rightEdge;
+    this.barList = revealReplay(replay.bars, this.interval, replay.detail, this.replayStepMs(replay), replay.time);
+    scale.setTimes(this.barList.map((bar) => bar.time), this.interval);
+    scale.rightEdge = rightEdge;
+    const last = scale.lastIndex;
+    if (last >= 0 && (replay.isPositionPending || before < 0)) {
+      scale.rightEdge = last + Math.max(scale.rightMarginBars, Math.round(this.plotWidth / scale.spacing / 3));
+      replay.isPositionPending = false;
+    } else if (last >= 0 && beforeX >= 0 && beforeX <= this.plotWidth) {
+      // The newest bar was in view: keep it there.
+      const x = scale.indexToX(last);
+      if (x < 0 || x > this.plotWidth - scale.spacing * 2) scale.rightEdge += last - before;
+    }
     this.updateDisplayBars();
     this.recomputeStudies();
     this.invalidate();
   }
 
+  // Loads the detail bars at the replay step: from the opening of the bar in progress to a few
+  // hundred steps ahead, and again as the time nears the end of what is loaded. A window the
+  // source has no detail for is not asked for again, so the replay falls back to whole bars.
+  private loadReplayDetail(): void {
+    const replay = this.replay;
+    const step = replay && this.replayStepMs(replay);
+    if (!replay || !step || replay.time === null || replay.isDetailLoading) return;
+    const now = Date.now();
+    const detail = replay.detail;
+    const from = replayOpening(replay.bars, this.interval, replay.time);
+    const ahead = Math.min(now, replay.time + 100 * step);
+    const isLoaded = detail.length > 0 && detail[0].time <= from && detail[detail.length - 1].time + step >= ahead;
+    const asked = replay.requested;
+    if (isLoaded || (asked && asked.from <= from && asked.to >= ahead)) return;
+    const to = Math.min(now + step, replay.time + 300 * step);
+    if (to <= from) return;
+    const request = { from, to };
+    const generation = this.generation;
+    replay.requested = request;
+    replay.isDetailLoading = true;
+    this.provider.getBars(this.symbol, replay.step!, { to, limit: Math.min(5000, Math.ceil((to - from) / step) + 1) })
+      .catch((): Bar[] => [])
+      .then((page) => {
+        if (generation !== this.generation || this.replay !== replay || replay.requested !== request) return;
+        replay.isDetailLoading = false;
+        replay.detail = mergeDetail(replay.detail, page, step);
+        this.showReplay();
+        this.syncReplayBar();
+        this.loadReplayDetail();
+      });
+  }
+
   private stepReplay(): void {
     const replay = this.replay;
-    if (!replay || replay.isSelecting) return;
-    if (replay.cutoff >= replay.bars.length) {
+    if (!replay || replay.isSelecting || replay.time === null) return;
+    const time = this.nextReplayTime(replay.time);
+    if (time === null) {
       this.stopReplayTimer();
       replay.isPlaying = false;
       this.syncReplayBar();
       return;
     }
-    const bar = replay.bars[replay.cutoff++];
-    this.barList.push(bar);
-    this.timeScale.append(bar.time);
-    // Keep the newest bar in view.
-    if (this.timeScale.indexToX(this.timeScale.lastIndex) > this.plotWidth - this.timeScale.spacing * 2) this.timeScale.rightEdge += 1;
-    this.updateDisplayBars();
-    this.recomputeStudies();
-    this.syncReplayBar();
-    this.invalidate();
+    this.setReplay({ time, step: null });
   }
 
   private toggleReplayPlay(): void {
     const replay = this.replay;
-    if (!replay || replay.isSelecting) return;
+    if (!replay || replay.isSelecting || this.isReplayHosted) return;
     replay.isPlaying = !replay.isPlaying;
-    if (replay.isPlaying && replay.cutoff >= replay.bars.length) replay.isPlaying = false;
+    if (replay.isPlaying && (replay.time === null || this.nextReplayTime(replay.time) === null)) replay.isPlaying = false;
     this.restartReplayTimer();
     this.syncReplayBar();
   }
@@ -2051,15 +2421,19 @@ export class MeridianChart {
     this.timeScale.setTimes(this.barList.map((bar) => bar.time), this.interval);
     this.updateDisplayBars();
     this.recomputeStudies();
-    this.listeners.replay.forEach((listener) => listener());
+    this.emitReplayChange();
     this.invalidate();
   }
 
   private syncReplayBar(): void {
     const replay = this.replay;
-    if (!replay) { this.replayBar.hide(); return; }
-    const current = replay.bars[replay.cutoff - 1];
-    const left = replay.bars.length - replay.cutoff;
+    if (!replay || this.isReplayHosted) {
+      this.replayBar.hide();
+      this.replayBar.showHint(!!replay?.isSelecting);
+      return;
+    }
+    const current = this.barList[this.barList.length - 1];
+    const left = replay.bars.length - this.barList.length;
     const status = replay.isSelecting ? 'Select a bar' : left ? `${current ? formatCrosshairTime(current.time, this.interval) : ''} · ${left} bars left` : 'End of data';
     this.replayBar.show({ isSelecting: replay.isSelecting, isPlaying: replay.isPlaying, status });
   }
@@ -2212,6 +2586,7 @@ export class MeridianChart {
     ctx.fillStyle = backgroundFill;
     ctx.fillRect(0, 0, this.width, this.height);
     if (!this.plotWidth || !this.height) return;
+    this.applyRequestedView();
 
     const { from, to } = this.timeScale.visible();
     const hasBars = this.barList.length > 0;
@@ -2220,7 +2595,9 @@ export class MeridianChart {
     if (Math.abs(axisWidth - this.axisWidth) > 1) {
       this.axisWidth = axisWidth;
       this.layout();
+      this.applyRequestedView();
     }
+    this.settleRequestedView();
 
     const times = this.barList.map((bar) => bar.time);
     const ticks = hasBars ? timeTicks(times, from, to, this.timeScale.spacing) : [];
@@ -2332,6 +2709,7 @@ export class MeridianChart {
     this.paintCrosshair();
     this.updateLegends();
     if (hasBars) this.pageHistory();
+    this.emitVisibleRange();
   }
 
   private crisp(value: number): number {
@@ -2758,12 +3136,16 @@ export class MeridianChart {
     }
   }
 
-  // A crosshair at another chart's time: a vertical line and its time label.
-  private paintExternalCrosshair(time: number): void {
-    const index = Math.round(this.timeScale.indexOf(time));
-    if (index < 0 || index > this.timeScale.lastIndex) return;
+  // Another chart's crosshair: a vertical line on this chart's bar holding its time, a horizontal
+  // one at its price when that is on the price pane, and their labels.
+  private paintExternalCrosshair({ time, price }: MeridianCrosshair): void {
+    const index = this.timeScale.barContaining(time);
+    if (index === null) return;
     const x = this.crisp(this.timeScale.indexToX(index));
     if (x < 0 || x > this.plotWidth) return;
+    const pane = this.panes[0];
+    const priceY = price === null ? null : pane.scale.priceToY(price);
+    const y = priceY !== null && priceY >= pane.top && priceY < pane.top + pane.height ? priceY : null;
     const ctx = this.context;
     const timeAxisTop = this.height - TIME_AXIS_HEIGHT;
     ctx.strokeStyle = this.colors().crosshair;
@@ -2772,9 +3154,27 @@ export class MeridianChart {
     ctx.beginPath();
     ctx.moveTo(x, 0);
     ctx.lineTo(x, timeAxisTop);
+    if (y !== null) {
+      ctx.moveTo(0, this.crisp(y));
+      ctx.lineTo(this.plotWidth, this.crisp(y));
+    }
     ctx.stroke();
     ctx.setLineDash([]);
+    if (y !== null && this.chartSettings.isPriceCrosshairLabelShown) this.priceTag(pane, y);
     if (this.chartSettings.isTimeCrosshairLabelShown) this.timeTag(x, this.barList[index].time);
+  }
+
+  private priceTag(pane: Pane, y: number): void {
+    const ctx = this.context;
+    const text = this.axisText(pane, pane.scale.yToPrice(y));
+    const height = this.tagHeight() + 1;
+    ctx.font = this.scaleFont();
+    ctx.fillStyle = this.theme.ui.muted;
+    ctx.fillRect(this.plotWidth + 1, y - height / 2, this.width - this.plotWidth - 1, height);
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, this.plotWidth + 8, y);
   }
 
   private timeTag(x: number, time: number): void {
@@ -2795,13 +3195,12 @@ export class MeridianChart {
   private paintCrosshair(): void {
     const hover = this.hover;
     const isHoverOnPlot = hover && hover.x < this.plotWidth && hover.y < this.height - TIME_AXIS_HEIGHT;
-    if (!isHoverOnPlot && this.externalTime !== null && this.barList.length && !this.drag) {
-      this.paintExternalCrosshair(this.externalTime);
+    if (!isHoverOnPlot && this.externalCrosshair && this.barList.length && !this.drag) {
+      this.paintExternalCrosshair(this.externalCrosshair);
       return;
     }
     if (!hover || !isHoverOnPlot || this.drag?.kind === 'pan' || !this.barList.length) return;
     const ctx = this.context;
-    const { ui } = this.theme;
     const index = this.timeScale.barAt(hover.x);
     const x = this.crisp(this.timeScale.indexToX(index));
     const pane = this.paneAt(hover.y);
@@ -2829,18 +3228,7 @@ export class MeridianChart {
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    const tagColor = ui.muted;
-    if (pane && this.chartSettings.isPriceCrosshairLabelShown) {
-      const text = this.axisText(pane, pane.scale.yToPrice(hover.y));
-      const height = this.tagHeight() + 1;
-      ctx.font = this.scaleFont();
-      ctx.fillStyle = tagColor;
-      ctx.fillRect(this.plotWidth + 1, hover.y - height / 2, this.width - this.plotWidth - 1, height);
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(text, this.plotWidth + 8, hover.y);
-    }
+    if (pane && this.chartSettings.isPriceCrosshairLabelShown) this.priceTag(pane, hover.y);
     if (this.chartSettings.isTimeCrosshairLabelShown) this.timeTag(x, this.barList[index].time);
   }
 

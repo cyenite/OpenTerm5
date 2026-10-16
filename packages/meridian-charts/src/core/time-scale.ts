@@ -1,3 +1,5 @@
+import { timeUnits } from './timeframes';
+
 // Horizontal geometry. Bars are placed by index ("logical" position), so market closures leave
 // no gaps; times outside the loaded bars are extrapolated with the bar interval.
 
@@ -77,6 +79,25 @@ export class TimeScale {
     return this.timeAt(this.xToIndex(x));
   }
 
+  // The loaded bar whose span holds `time`, so another chart's time lands on this chart's own bar
+  // whatever the intervals. A time in a market closure belongs to the first bar after it.
+  barContaining(time: number): number | null {
+    const times = this.times;
+    const last = times.length - 1;
+    if (last < 0 || time < times[0]) return null;
+    // Calendar months outlast the nominal 30 days of a month interval.
+    const span = this.interval >= 28 * timeUnits.DAY ? this.interval * 31 / 30 : this.interval;
+    let low = 0;
+    let high = last;
+    while (low < high) {
+      const middle = (low + high + 1) >> 1;
+      if (times[middle] <= time) low = middle;
+      else high = middle - 1;
+    }
+    if (time < times[low] + span) return low;
+    return low === last ? null : low + 1;
+  }
+
   // The bar index nearest to x, clamped to the loaded bars.
   barAt(x: number): number {
     return Math.max(0, Math.min(this.lastIndex, Math.round(this.xToIndex(x))));
@@ -84,6 +105,19 @@ export class TimeScale {
 
   visible(): { from: number; to: number } {
     return { from: Math.max(0, Math.floor(this.xToIndex(0))), to: Math.min(this.lastIndex, Math.ceil(this.rightEdge)) };
+  }
+
+  // Fits the logical range [from, to] into the width, within the spacing limits.
+  fit(from: number, to: number): void {
+    if (!(to > from)) return;
+    this.spacing = Math.max(this.minSpacing, Math.min(this.maxSpacing, this.width / (to - from)));
+    this.rightEdge = to;
+    this.clamp();
+  }
+
+  centerOn(index: number): void {
+    this.rightEdge = index + this.width / this.spacing / 2;
+    this.clamp();
   }
 
   pan(dx: number): void {

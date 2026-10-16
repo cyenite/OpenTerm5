@@ -62,7 +62,7 @@ pure logic for risk sizing (`risk.ts`), currency valuation (`valuation.ts`) and 
 | Path | Responsibility |
 |---|---|
 | `src/lib/session.ts` | Broker state: account, symbols, quotes, positions, orders, journal |
-| `src/lib/workspace.ts` | Layout state: workspace, panels, charts, chart windows, dialogs (persisted) |
+| `src/lib/workspace.ts` | Layout state: workspace, panels, charts, chart tabs and their layouts, dialogs (persisted) |
 | `src/lib/automation.ts` | Automation state mirrored from the main process |
 | `src/lib/store.ts` | A minimal observable store with a `useStore` hook |
 | `packages/meridian-charts/` | Meridian, the chart engine: scales, canvas rendering, studies, drawing tools and their toolbar, themes (app CSS variables and chart colours) |
@@ -70,7 +70,9 @@ pure logic for risk sizing (`risk.ts`), currency valuation (`valuation.ts`) and 
 | `src/lib/tick-bars.ts`, `src/lib/mt5-timeframes.ts` | Seconds bars built from received quotes; the chart timeframes, seconds included |
 | `src/lib/theme.ts` | Applies the chosen Meridian theme to the application and the charts |
 | `src/lib/chart-model.ts` | Saved studies and drawings, and migration from versions before Meridian |
-| `src/components/chart/` | Chart windows and the trade overlay (order and position lines aligned to the Meridian price scale) |
+| `src/lib/chart-layouts.ts`, `src/lib/chart-tabs.ts` | Multi-chart layouts as split trees (geometry, dividers, sizes) and the tab model built on them |
+| `src/lib/layout-sync.ts` | Crosshair, time and date range sync between the charts of a tab |
+| `src/components/chart/` | Chart windows, the layout picker and the trade overlay (order and position lines aligned to the Meridian price scale) |
 | `src/components/dialogs/` | Order, modify, login and other dialogs |
 | `src/components/pages/` | Trade Copier, Signals and Automation workspaces |
 
