@@ -152,6 +152,17 @@ test('a protocol link for another platform is refused; a matching one is preview
   assert.equal(service.view().pendingLink, null);
 });
 
+test('a protocol link never replaces an existing connection', async () => {
+  const { requests, events, service } = await harness();
+  await service.handle('journaling.redeem', { code: 'ABCD-EFGH' });
+  await service.receiveLink('openterm5://journaling/connect?code=WXYZ-2345&platform=https://tradescribe.io');
+  assert.match(service.view().error ?? '', /already connected/);
+  assert.equal(service.view().pendingLink, null);
+  assert.ok(!requests.some((request) => request.route === 'POST /api/v1/connect/preview'));
+  assert.deepEqual(events.at(-1), { event: 'link', data: { error: service.view().error } });
+  await assert.rejects(service.handle('journaling.confirmLink', {}), /no connection waiting/);
+});
+
 test('disconnect revokes the key; changing the platform disconnects and resets cursors', async () => {
   const { routes, requests, service } = await harness();
   routes.set('DELETE /api/v1/keys/current', () => json(200, { data: { revoked: true } }));

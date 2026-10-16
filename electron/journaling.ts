@@ -174,6 +174,7 @@ export class JournalingService {
       case 'journaling.confirmLink': {
         const link = this.pendingLink;
         if (!link) throw new Error('There is no connection waiting to be confirmed.');
+        if (this.isConnected) throw new Error('Journaling is already connected. Disconnect it first, then open the link again.');
         await this.exchange(link.code, null);
         return this.view();
       }
@@ -221,13 +222,9 @@ export class JournalingService {
 
   async receiveLink(url: string): Promise<void> {
     const check = checkConnectLink(url, this.stored.platformUrl);
-    if (!check.isAccepted) {
-      this.error = check.error;
-      this.pendingLink = null;
-      this.emit();
-      this.deps.send('link', { error: check.error });
-      return;
-    }
+    if (!check.isAccepted) return this.refuseLink(check.error);
+    // A link can come from anyone, so it may start a connection but never swap an existing one.
+    if (this.isConnected) return this.refuseLink(`Journaling is already connected to ${this.stored.user?.email || 'a Tradescribe account'}. Disconnect it first, then open the link again.`);
     try {
       const { data } = await this.api<{ user?: { email?: string; name?: string }; expiresAt?: string }>({ method: 'POST', path: '/connect/preview', body: { code: check.link.code }, isPublic: true });
       this.pendingLink = { code: check.link.code, name: textOr(data.user?.name, ''), email: textOr(data.user?.email, ''), platform: check.link.platform, expiresAt: textOr(data.expiresAt, '') };
@@ -238,6 +235,13 @@ export class JournalingService {
     }
     this.emit();
     this.deps.send('link', { error: this.error });
+  }
+
+  private refuseLink(error: string): void {
+    this.error = error;
+    this.pendingLink = null;
+    this.emit();
+    this.deps.send('link', { error });
   }
 
   private onTrade(snapshot: TradeSnapshot): void {

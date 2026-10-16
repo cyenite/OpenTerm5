@@ -25,12 +25,11 @@ export function LinkPrompt({ link, view }: LinkPromptProps) {
         <h3 id="journal-prompt-title">Connect Journaling to Tradescribe as {link.email || 'this account'}?</h3>
         <p id="journal-prompt-detail" className="is-muted">
           {link.name ? `${link.name}'s journal` : 'The journal'} on {link.platform}. Continue only if you just chose to connect OpenTerm5 in Tradescribe. With someone else's code, your trades would go to their journal.
-          {view.isConnected && view.user ? ` This replaces the connection to ${view.user.email}.` : ''}
         </p>
         {error && <p role="alert" className="banner is-bad">{error}</p>}
         <div className="button-row">
-          <button type="button" className="is-primary" aria-disabled={isBusy} onClick={confirm} autoFocus>Connect</button>
-          <button type="button" onClick={dismiss}>Cancel</button>
+          <button type="button" className="is-primary" aria-disabled={isBusy} onClick={confirm}>Connect</button>
+          <button type="button" onClick={dismiss} autoFocus>Cancel</button>
         </div>
       </div>
     </section>
