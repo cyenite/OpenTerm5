@@ -30,7 +30,8 @@ test('client ID is created once and survives a restart', async () => {
   const second = await new DeviceIdentity(file, () => traits).load();
   assert.equal(first.length, 16);
   assert.deepEqual(second, first);
-  assert.equal((await fs.stat(file)).mode & 0o777, 0o600);
+  // Windows has no POSIX permission bits; stat always reports 0o666 there.
+  if (process.platform !== 'win32') assert.equal((await fs.stat(file)).mode & 0o777, 0o600);
 });
 
 test('regenerating replaces the stored ID without changing buffers already handed out', async () => {
