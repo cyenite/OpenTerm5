@@ -67,7 +67,8 @@ are most reliably built on Windows.
 4. Enter your **login** and **password**. Fill in **One-time code** only if your account uses
    two-factor authentication.
 5. Optionally give the account a **label**, and tick **Save password securely** to log in
-   automatically next time.
+   automatically next time. For a prop firm account, also tick
+   [Generate unique CID](user-guide/accounts-and-brokers.md#unique-client-id-for-prop-firm-accounts).
 6. Choose **Login**.
 
 If OpenTerm5 cannot find your server, or asks you to approve an address, read
@@ -80,7 +81,7 @@ Open an account on it from the MetaTrader 5 mobile or desktop app.
 
 ```
 ┌ Menu bar ───────────────────────────────────────────────────────────────┐
-│ Workspaces: Trading · Copy Trading · Signals · Automation    Account ▾ │
+│ Workspaces: Trading · Trade Copier · Signals · Automation    Account ▾ │
 │ Toolbar: panels, New Order, chart tools, timeframes                     │
 ├──────────────┬──────────────────────────────────────────────────────────┤
 │ Market Watch │                                                          │
@@ -93,7 +94,7 @@ Open an account on it from the MetaTrader 5 mobile or desktop app.
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Workspaces.** The tabs below the menu bar switch between Trading, Copy Trading, Signals and
+- **Workspaces.** The tabs below the menu bar switch between Trading, Trade Copier, Signals and
   Automation (Ctrl+1 to Ctrl+4). The engines behind each workspace keep running while you use another
   one.
 - **Account switcher.** The chip in the top-right corner shows the active account and whether it is a

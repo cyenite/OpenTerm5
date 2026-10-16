@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { cursor } from '../lib/cursor';
 import { formatPrice, formatTime } from '../lib/format';
-import { session } from '../lib/session';
+import { session, signInName } from '../lib/session';
 import { useStore } from '../lib/store';
 import { openDialog } from '../lib/workspace';
 import { JournalingStatus } from './journaling/JournalingStatus';
+import { SigningIn } from './ui/SigningIn';
 
 const RESULT_MS = 6000;
 
@@ -45,25 +46,32 @@ function TradeActivity() {
 export function StatusBar() {
   const link = useStore(session, (state) => state.link);
   const status = useStore(session, (state) => state.status);
+  const signIn = useStore(session, (state) => state.signIn);
   const account = useStore(session, (state) => state.account);
   const hover = useStore(cursor, (state) => state);
   const isOpen = link.state === 'open';
-  const isTerminalConnected = isOpen && status?.isConnected !== false;
-  const connection = !isOpen
-    ? link.error ?? (link.state === 'connecting' ? 'Connecting…' : 'No connection')
-    : status?.connectionState === 'login-required'
-      ? 'Login required'
-      : status?.connectionState === 'authenticating'
-        ? 'Signing in…'
-        : !isTerminalConnected
-          ? 'Broker offline'
-          : `${link.latency ?? 0} ms`;
+  const isSigningIn = signIn?.state === 'signing-in';
+  const isTerminalConnected = isOpen && status?.isConnected !== false && !isSigningIn;
+  const connection = isSigningIn
+    ? 'Signing in…'
+    : !isOpen
+      ? link.error ?? (link.state === 'connecting' ? 'Connecting…' : 'No connection')
+      : signIn?.state === 'failed'
+        ? 'Sign-in failed'
+        : status?.connectionState === 'login-required'
+          ? 'Login required'
+          : status?.connectionState === 'authenticating'
+            ? 'Signing in…'
+            : !isTerminalConnected
+              ? 'Broker offline'
+              : `${link.latency ?? 0} ms`;
+  const linkTitle = signIn?.state === 'failed' ? `${signInName(signIn)}: ${signIn.error ?? 'sign-in failed'}` : link.url || 'Connection settings';
   const { bar, digits } = hover;
 
   return (
     <footer className="status-bar">
       {isTerminalConnected && <span className="status-cell" title={status?.isTradeAllowed && status.capabilities?.trading ? 'This account can submit orders.' : 'Orders are unavailable for this connection or account.'}>{status?.isTradeAllowed && status.capabilities?.trading ? 'Trading enabled' : 'Read only'}</span>}
-      <span className="status-cell">{account ? `${account.login} ${account.server}` : 'Default'}</span>
+      {isSigningIn ? <SigningIn signIn={signIn} className="status-cell" /> : <span className="status-cell">{account ? `${account.login} ${account.server}` : 'Default'}</span>}
       <TradeActivity />
       <JournalingStatus />
       {bar && (
@@ -72,7 +80,7 @@ export function StatusBar() {
           {formatPrice(bar.close, digits)} V: {bar.volume}
         </span>
       )}
-      <button className={`status-cell status-link is-${isTerminalConnected ? 'up' : 'down'}`} onClick={() => openDialog({ kind: 'connection' })} title={link.url || 'Connection settings'}>
+      <button className={`status-cell status-link is-${isSigningIn ? 'pending' : isTerminalConnected ? 'up' : 'down'}`} onClick={() => openDialog({ kind: 'connection' })} title={linkTitle}>
         <span className="status-bars" aria-hidden />
         {connection}
       </button>

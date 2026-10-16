@@ -1,7 +1,7 @@
 import { CloseByDialog } from './components/dialogs/CloseByDialog';
 import { ManagePositionDialog } from './components/dialogs/ManagePositionDialog';
 import { AutomationPage } from './components/pages/AutomationPage';
-import { CopyTradingPage } from './components/pages/CopyTradingPage';
+import { TradeCopierPage } from './components/pages/TradeCopierPage';
 import { SignalsPage } from './components/pages/SignalsPage';
 import { JournalingPage } from './components/pages/JournalingPage';
 import { JournalingNotice } from './components/journaling/JournalingNotice';
@@ -85,7 +85,7 @@ export function App() {
       <AppBar />
       <PriceAlertNotice />
       <JournalingNotice />
-      {page === 'copier' && <main className="workbench is-page"><CopyTradingPage /></main>}
+      {page === 'copier' && <main className="workbench is-page"><TradeCopierPage /></main>}
       {page === 'signals' && <main className="workbench is-page"><SignalsPage /></main>}
       {page === 'automation' && <main className="workbench is-page"><AutomationPage /></main>}
       {page === 'journaling' && <main className="workbench is-page"><JournalingPage /></main>}

@@ -1,6 +1,7 @@
 import { PureComponent, createRef } from 'react';
-import type { SymbolSpec } from '../../shared/protocol';
+import type { AccountSignIn, SymbolSpec } from '../../shared/protocol';
 import { searchSymbols, symbolCategories, symbolCategory } from '../lib/symbol-search';
+import { SigningIn } from './ui/SigningIn';
 
 const RESULT_LIMIT = 60;
 const CATEGORY_LIMIT = 8;
@@ -11,6 +12,7 @@ interface SymbolSearchProps {
   watched: ReadonlySet<string>;
   onPick: (name: string) => void;
   label?: string;
+  signIn?: AccountSignIn | null;
   placeholder?: string;
 }
 
@@ -92,7 +94,7 @@ export class SymbolSearch extends PureComponent<SymbolSearchProps, SymbolSearchS
   };
 
   render() {
-    const { symbols, watched, label = 'Add symbol', placeholder = '+ click to add' } = this.props;
+    const { symbols, watched, signIn, label = 'Add symbol', placeholder = '+ click to add' } = this.props;
     const { query, active, category, place } = this.state;
     const results = this.results();
     const categories = symbolCategories(symbols).slice(0, CATEGORY_LIMIT);
@@ -151,7 +153,7 @@ export class SymbolSearch extends PureComponent<SymbolSearchProps, SymbolSearchS
                 ))}
               </ul>
             ) : (
-              <p className="symbol-search-empty">{hasSymbols ? `No symbols match "${query.trim()}"${category ? ` in ${category}` : ''}.` : 'Log in to an account to search its symbols.'}</p>
+              <p className="symbol-search-empty">{hasSymbols ? `No symbols match "${query.trim()}"${category ? ` in ${category}` : ''}.` : signIn ? <SigningIn signIn={signIn} /> : 'Log in to an account to search its symbols.'}</p>
             )}
             <p className="symbol-search-footer">
               {results.length === RESULT_LIMIT ? `First ${RESULT_LIMIT} matches. Keep typing to narrow. ` : ''}↑ ↓ choose · Enter add · Esc close

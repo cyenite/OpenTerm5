@@ -2,7 +2,7 @@ import { automationStore } from '../lib/automation';
 import { journalingStore } from '../lib/journaling';
 import { connectProfile } from '../lib/accounts';
 import { openContextMenu } from '../lib/context-menu';
-import { session } from '../lib/session';
+import { session, signInName } from '../lib/session';
 import { useStore } from '../lib/store';
 import { openDialog, pages, toggleAnalysisMode, workspace, type Page } from '../lib/workspace';
 import { MenuBar } from './MenuBar';
@@ -80,11 +80,23 @@ function ModeSwitch({ isAnalysis }: ModeSwitchProps) {
 }
 
 function AccountChip() {
+  const signIn = useStore(session, (state) => state.signIn);
   const account = useStore(session, (state) => state.account);
   const profiles = useStore(session, (state) => state.accounts);
   const profileId = useStore(session, (state) => state.profileId);
   const profile = profiles.find((item) => item.id === profileId);
-  if (!account) return <button type="button" className="account-chip" onClick={() => openDialog({ kind: 'login' })}>Log in</button>;
+  if (signIn?.state === 'signing-in') {
+    return (
+      <span className="account-chip is-signing-in" role="status" aria-busy title={`Signing in to ${signInName(signIn)}…`}>
+        <span className="spinner" aria-hidden />
+        <span className="account-chip-name">Signing in to {signIn.label || signIn.login}…</span>
+      </span>
+    );
+  }
+  if (!account) {
+    const failure = signIn?.state === 'failed' ? `Sign-in to ${signInName(signIn)} failed: ${signIn.error ?? 'unknown error'}` : undefined;
+    return <button type="button" className="account-chip" title={failure} onClick={() => openDialog({ kind: 'login', ...(signIn?.id ? { profileId: signIn.id } : {}) })}>Log in</button>;
+  }
   const switcher = (event: React.MouseEvent) => openContextMenu(event, [
     ...profiles.map((item) => ({ label: `${item.label || item.login} · ${item.server}`, isChecked: item.id === profileId, action: () => { if (item.id !== profileId) void connectProfile(item); } })),
     { label: '', isSeparator: true },

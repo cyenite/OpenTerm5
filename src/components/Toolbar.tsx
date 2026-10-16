@@ -5,7 +5,7 @@ import { defaultSymbol } from '../lib/broker-symbols';
 import { openMenuAt } from '../lib/context-menu';
 import { indicatorMenuItems } from '../lib/indicator-menu';
 import { chartTimeframes } from '../lib/mt5-timeframes';
-import { session } from '../lib/session';
+import { session, signingIn } from '../lib/session';
 import { useStore } from '../lib/store';
 import { useWatchedSpecs } from '../lib/watchlists';
 import { activeChart, chartTypes, openChart, openDialog, toggleAnalysisPositions, workspace, type ChartType } from '../lib/workspace';
@@ -94,13 +94,14 @@ function useCompactToolbar() {
 
 function SymbolPicker() {
   const symbol = useStore(workspace, (state) => activeChart(state)?.symbol);
+  const signIn = useStore(session, signingIn);
   const symbols = useStore(session, (state) => state.symbols);
   const watchedSpecs = useWatchedSpecs();
   const watched = useMemo(() => new Set(watchedSpecs.map((spec) => spec.name)), [watchedSpecs]);
   return (
     <div className="chart-symbol" title={symbol ? symbols[symbol]?.description : undefined}>
       <strong>{symbol ?? 'No chart'}</strong>
-      <SymbolSearch symbols={symbols} watched={watched} onPick={showSymbol} label="Change symbol" placeholder="Symbol search" />
+      <SymbolSearch symbols={symbols} watched={watched} signIn={signIn} onPick={showSymbol} label="Change symbol" placeholder="Symbol search" />
     </div>
   );
 }

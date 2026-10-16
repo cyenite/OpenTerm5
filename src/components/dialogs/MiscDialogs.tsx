@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ConnectionSettings, ResolvedServer, SymbolSpec } from '../../../shared/protocol';
-import { refreshSession, session, terminal } from '../../lib/session';
+import { refreshSession, session, signingIn, signInName, terminal } from '../../lib/session';
 import { searchSymbols } from '../../lib/symbol-search';
 import { rowsOf, toggleWatched, useActiveWatchlist, watchedSpecs } from '../../lib/watchlists';
 import { useStore } from '../../lib/store';
@@ -8,6 +8,8 @@ import { closeDialog } from '../../lib/workspace';
 import { Dialog } from './Dialog';
 import { BrokerServerField } from './BrokerServerField';
 import { JournalingPlatformField } from '../journaling/JournalingPlatformField';
+import { SigningIn } from '../ui/SigningIn';
+import { InfoTip } from '../ui/InfoTip';
 
 export function SymbolsDialog() {
   const symbols = useStore(session, (state) => state.symbols);
@@ -89,7 +91,6 @@ export function ConnectionDialog() {
           <input value={settings.webEndpoint} disabled={isSaving} onChange={(event) => patch({ webEndpoint: event.target.value })} placeholder="wss://web.metatrader.app/terminal" />
         </label>
         <p className="is-muted">Advanced. The login dialog fills this in from the trade server you pick, so you rarely need to change it.</p>
-        <ClientIdField />
         {error && <p role="alert" className="is-loss">{error}</p>}
         <p className="order-check">
           Status: {link.state}
@@ -107,61 +108,36 @@ export function ConnectionDialog() {
   );
 }
 
-function ClientIdField() {
-  const [cid, setCid] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
-
-  useEffect(() => {
-    void terminal.request('device.clientId', {}).then((result) => setCid(result.cid)).catch((reason: Error) => setError(reason.message));
-  }, []);
-
-  const regenerate = async () => {
-    if (!window.confirm('Generate a new client ID? Brokers will see this computer as a new device from the next login.')) return;
-    setIsGenerating(true);
-    setError(null);
-    try { setCid((await terminal.request('device.regenerateClientId', {})).cid); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'A new client ID could not be generated.'); }
-    finally { setIsGenerating(false); }
-  };
-
-  return (
-    <>
-      <label className="field">
-        <span>Client ID (CID)</span>
-        <input value={cid ?? ''} readOnly placeholder="Loading…" className="is-mono" />
-      </label>
-      <p className="is-muted">Sent to the broker at every login so it can recognise this computer. A new ID applies from the next login.</p>
-      {error && <p role="alert" className="is-loss">{error}</p>}
-      <div className="dialog-actions">
-        <button disabled={!cid || isGenerating} onClick={regenerate}>Generate new CID</button>
-      </div>
-    </>
-  );
-}
-
 export function LoginDialog({ profileId }: { profileId?: string }) {
   const profile = useStore(session, (state) => state.accounts.find((item) => item.id === profileId));
+  const signIn = useStore(session, (state) => state.signIn);
   const [otp, setOtp] = useState('');
   const [login, setLogin] = useState(profile ? String(profile.login) : '');
   const [label, setLabel] = useState(profile?.label ?? '');
   const [server, setServer] = useState<ResolvedServer | null>(null);
   const [canSavePassword, setCanSavePassword] = useState(false);
   const [isPasswordSaved, setIsPasswordSaved] = useState(profile?.isPasswordSaved ?? false);
+  const [isClientIdUnique, setIsClientIdUnique] = useState(false);
+  const [isUniqueClientIdRequested, setIsUniqueClientIdRequested] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   useEffect(() => {
     let isCancelled = false;
     void terminal.request('accounts.storage', {}).then((storage) => { if (!isCancelled) setCanSavePassword(storage.canSavePasswords); });
+    void terminal.request('device.identity', {}).then((identity) => { if (!isCancelled) setIsClientIdUnique(identity.isUnique); }).catch(() => undefined);
     return () => { isCancelled = true; };
   }, []);
+  const isSigningIn = signIn?.state === 'signing-in';
+  const isOwnSignIn = isBusy || isSigningIn && !!profileId && signIn.id === profileId;
+  const failure = signIn?.state === 'failed' && !!profileId && signIn.id === profileId && !error ? signIn : null;
   const submit = async () => {
     if (!server) { setError('Choose a server first.'); return; }
+    if (isSigningIn) return;
     setIsBusy(true);
     setError(null);
     try {
-      const next = await terminal.request('account.login', { login: Number(login), password, label, webEndpoint: server.webEndpoint, isPasswordSaved, ...(otp ? { otp } : {}) });
+      const next = await terminal.request('account.login', { login: Number(login), password, label, server: server.server, webEndpoint: server.webEndpoint, isPasswordSaved, isUniqueClientIdRequested, ...(otp ? { otp } : {}) });
       session.set({ account: next });
       await refreshSession();
       closeDialog();
@@ -199,11 +175,23 @@ export function LoginDialog({ profileId }: { profileId?: string }) {
         <label className="field"><span>Label</span><input value={label} disabled={isBusy} onChange={(event) => setLabel(event.target.value)} placeholder="Optional, e.g. Personal demo" maxLength={128} /></label>
         <label className="check"><input type="checkbox" checked={isPasswordSaved} disabled={isBusy || !canSavePassword} onChange={(event) => setIsPasswordSaved(event.target.checked)} />Save password securely on this computer</label>
         {!canSavePassword && <p className="is-muted">Secure OS password storage is unavailable. Passwords stay in memory until you quit.</p>}
+        <label className="check">
+          <input type="checkbox" checked={isClientIdUnique || isUniqueClientIdRequested} disabled={isBusy || isClientIdUnique} onChange={(event) => setIsUniqueClientIdRequested(event.target.checked)} />
+          Generate unique CID
+          <InfoTip
+            title="Recommended for prop firm accounts"
+            description={isClientIdUnique
+              ? 'This computer already sends a client ID (CID) that nobody else has. All your accounts share it, which is what prop firms expect from one trader.'
+              : 'Brokers identify your computer by a client ID (CID) sent at login. The standard web terminal picks it from about a million values, so strangers with the same screen, scaling and language can share one, and prop firms have closed accounts over shared CIDs. Tick this to give this computer a CID nobody else has, once. All your accounts keep sharing it.'}
+          />
+        </label>
+        {isSigningIn && !isBusy && <p className="is-muted"><SigningIn signIn={signIn} /> Log in here once it finishes.</p>}
+        {failure && <p role="alert" className="is-loss">The last sign-in to {signInName(failure)} failed: {failure.error ?? 'unknown error'}</p>}
         {error && <p role="alert" className="is-loss">{error}</p>}
         <div className="dialog-actions">
           <button type="button" onClick={closeDialog}>Cancel</button>
-          <button className="is-primary" type="submit" disabled={isBusy || !server}>
-            {isBusy ? 'Connecting…' : 'Login'}
+          <button className="is-primary" type="submit" disabled={isBusy || isSigningIn || !server}>
+            {isOwnSignIn ? 'Signing in…' : 'Login'}
           </button>
         </div>
       </form>
@@ -212,6 +200,7 @@ export function LoginDialog({ profileId }: { profileId?: string }) {
 }
 
 export function AboutDialog() {
+  const signIn = useStore(session, signingIn);
   const status = useStore(session, (state) => state.status);
   return (
     <Dialog title="About OpenTerm5" width={380}>
@@ -219,7 +208,7 @@ export function AboutDialog() {
         <b>OpenTerm5</b> is a cross-platform trading terminal modelled on the MetaTrader 5 desktop workflow.
       </p>
       <p className="is-muted">
-        {status?.isConnected ? `Connected to ${status.company ?? 'trade server'}, server build ${status.build}.` : 'Not connected.'}{' '}
+        {signIn ? `Signing in to ${signInName(signIn)}…` : status?.isConnected ? `Connected to ${status.company ?? 'trade server'}, server build ${status.build}.` : 'Not connected.'}{' '}
         MetaTrader is a trademark of MetaQuotes Ltd. OpenTerm5 is not affiliated with MetaQuotes.
       </p>
       <div className="dialog-actions">

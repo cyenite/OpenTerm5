@@ -255,14 +255,18 @@ export interface JournalEntry {
   time: number;
 }
 
+export interface ClientIdState {
+  isUnique: boolean;
+}
+
 export interface TerminalMethods {
   'accounts.storage': [Record<string, never>, { canSavePasswords: boolean }];
   'accounts.list': [Record<string, never>, AccountProfile[]];
+  'accounts.signIn': [Record<string, never>, AccountSignIn | null];
   'accounts.connect': [{ id: string; password?: string; otp?: string; isPasswordSaved?: boolean }, Account];
   'accounts.remove': [{ id: string }, boolean];
   'brokers.search': [{ query: string }, BrokerServer[]];
-  'device.clientId': [Record<string, never>, { cid: string }];
-  'device.regenerateClientId': [Record<string, never>, { cid: string }];
+  'device.identity': [Record<string, never>, ClientIdState];
   'brokers.resolve': [{ server: string; webUrl?: string }, ResolvedServer];
   'tradingview.account': [Record<string, never>, TradingViewAccount | null];
   'tradingview.signIn': [Record<string, never>, TradingViewAccount | null];
@@ -275,7 +279,7 @@ export interface TerminalMethods {
   'tradingview.chartSettings': [Record<string, never>, TradingViewChartSettingsScan];
   'terminal.status': [Record<string, never>, TerminalStatus];
   'account.info': [Record<string, never>, Account | null];
-  'account.login': [{ login: number; password: string; otp?: string; webEndpoint?: string; label?: string; isPasswordSaved?: boolean }, Account];
+  'account.login': [{ login: number; password: string; otp?: string; server?: string; webEndpoint?: string; label?: string; isPasswordSaved?: boolean; isUniqueClientIdRequested?: boolean }, Account];
   'symbols.info': [{ symbol: string }, SymbolSpec];
   'symbols.list': [Record<string, never>, SymbolSpec[]];
   'symbols.select': [{ symbol: string; isEnabled: boolean }, boolean];
@@ -298,6 +302,7 @@ export type TerminalMethod = keyof TerminalMethods;
 export interface TerminalEvents {
   accounts: AccountProfile[];
   accountChanged: { id: string | null };
+  signIn: AccountSignIn | null;
   status: TerminalStatus;
   symbols: SymbolSpec[];
   bar: { symbol: string; timeframe: Timeframe; bar: Bar };
@@ -335,6 +340,17 @@ export interface AccountProfile {
   readonly hasPassword: boolean;
   readonly isPasswordSaved: boolean;
   readonly isActive?: boolean;
+}
+
+// The account the terminal is logging in to (automatically at startup, or on request), so the
+// window can say so instead of looking logged out. It stays after a failure until the next attempt.
+export interface AccountSignIn {
+  readonly id: string | null;
+  readonly error?: string;
+  readonly label: string;
+  readonly server: string;
+  readonly state: 'signing-in' | 'failed';
+  readonly login: number;
 }
 
 export interface ServerLookupResult {

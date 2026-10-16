@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { AccountGuard, BulkKind, PositionRule } from '../../../shared/automation';
-import { bulkKinds, guardActions } from '../../../shared/automation';
+import { bulkKinds, defaultGuard, guardActions } from '../../../shared/automation';
+import type { NewsImpact } from '../../../shared/news';
+import { meetsImpact, newsImpacts } from '../../../shared/news';
+import { lossBases, resetZones } from '../../../shared/trading-day';
 import { accountLabel, automation, automationStore, runBulkTrades } from '../../lib/automation';
 import { formatMoney, formatTime } from '../../lib/format';
 import { log, session } from '../../lib/session';
@@ -8,7 +11,49 @@ import { useStore } from '../../lib/store';
 import { openDialog } from '../../lib/workspace';
 import { EmptyState, NumberField, Section, SelectField, StatusPill, Switch } from '../ui/Controls';
 
-const defaultGuard = (accountId: string): AccountGuard => ({ accountId, action: 'blockNew', resetHour: 0, isEnabled: false });
+const UPCOMING_NEWS = 6;
+
+const localTime = (time: number) => new Date(time).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+
+interface NewsScheduleProps {
+  impact: NewsImpact;
+}
+
+function NewsSchedule({ impact }: NewsScheduleProps) {
+  const news = useStore(automationStore, (state) => state.news);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const upcoming = news.events.filter((event) => meetsImpact(event.impact, impact)).slice(0, UPCOMING_NEWS);
+  const refresh = () => {
+    setIsRefreshing(true);
+    void automation.request('news.refresh', {}).then((view) => automationStore.set({ news: view })).catch((error: Error) => log(error.message, 'News')).finally(() => setIsRefreshing(false));
+  };
+  return (
+    <>
+      {!news.status.isCovering && (
+        <p className="banner is-warn">
+          The economic calendar does not cover this week{news.status.error ? ` (${news.status.error})` : ''}, so the news blackout is not enforced.{' '}
+          <button type="button" className="link-button" disabled={isRefreshing} onClick={refresh}>Try again</button>
+        </p>
+      )}
+      {upcoming.length ? (
+        <table className="grid compact">
+          <thead><tr><th>Your time</th><th>Currency</th><th>Event</th><th>Impact</th></tr></thead>
+          <tbody>
+            {upcoming.map((event) => (
+              <tr key={`${event.time}-${event.currency}-${event.title}`}>
+                <td>{localTime(event.time)}</td>
+                <td>{event.currency}</td>
+                <td>{event.title}</td>
+                <td>{newsImpacts.find((item) => item.key === event.impact)?.label}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : news.status.isCovering && <p className="is-muted">No more releases of this impact this week.</p>}
+      <p className="is-muted">Calendar from ForexFactory{news.status.fetchedAt ? `, updated ${localTime(news.status.fetchedAt)}` : ''}. Pairs, metals and indices are matched by the currencies the broker lists for them.</p>
+    </>
+  );
+}
 
 interface GuardEditorProps {
   accountId: string;
@@ -18,12 +63,16 @@ function GuardEditor({ accountId }: GuardEditorProps) {
   const stored = useStore(automationStore, (state) => state.manager.guards.find((guard) => guard.accountId === accountId));
   const status = useStore(automationStore, (state) => state.manager.guardStates.find((item) => item.accountId === accountId));
   const equity = useStore(session, (state) => state.profileId === accountId ? state.account?.equity : undefined);
+  const requests = useStore(automationStore, (state) => state.manager.requestCounts.find((item) => item.accountId === accountId));
   const [guard, setGuard] = useState<AccountGuard>(stored ?? defaultGuard(accountId));
   const [message, setMessage] = useState<string | null>(null);
   useEffect(() => setGuard(stored ?? defaultGuard(accountId)), [stored, accountId]);
   const set = (patch: Partial<AccountGuard>) => setGuard({ ...guard, ...patch });
   const optional = (value: number) => (value > 0 ? value : undefined);
   const isDirty = JSON.stringify(stored ?? defaultGuard(accountId)) !== JSON.stringify(guard);
+  const requestsToday = requests && requests.dayKey === status?.dayKey ? requests.count : 0;
+  const hasNewsWindow = !!(stored?.isEnabled && (stored.newsMinutesBefore || stored.newsMinutesAfter));
+  const whole = (value: number) => optional(Math.round(value));
   return (
     <Section
       title="Equity guard"
@@ -38,21 +87,32 @@ function GuardEditor({ accountId }: GuardEditorProps) {
         </p>
       )}
       <div className="status-strip">
+        <span>Day start balance <b>{status ? formatMoney(status.dayStartBalance) : '-'}</b></span>
         <span>Day start equity <b>{status ? formatMoney(status.dayStartEquity) : '-'}</b></span>
         <span>Peak equity <b>{status ? formatMoney(status.peakEquity) : '-'}</b></span>
         <span>Equity now <b>{equity !== undefined && Number.isFinite(equity) ? formatMoney(equity) : '-'}</b></span>
+        {status?.dayStartedAt && <span>Day recorded from <b>{localTime(status.dayStartedAt)}</b></span>}
+        {status && <span>Trade requests today <b>{requestsToday}{guard.maxDailyRequests ? ` / ${guard.maxDailyRequests}` : ''}</b></span>}
       </div>
       <div className="form-grid">
         <Switch label="Guard enabled" isOn={guard.isEnabled} onChange={(isEnabled) => set({ isEnabled })} />
         <SelectField label="When tripped" value={guard.action} options={guardActions} onChange={(action) => set({ action })} />
         <NumberField label="Daily loss (money)" value={guard.dailyLossMoney ?? 0} step={50} hint="Account currency. 0 is off." onChange={(value) => set({ dailyLossMoney: optional(value) })} />
-        <NumberField label="Daily loss (percent)" value={guard.dailyLossPercent ?? 0} step={0.5} suffix="%" hint="Of the day's starting equity." onChange={(value) => set({ dailyLossPercent: optional(value) })} />
+        <NumberField label="Daily loss (percent)" value={guard.dailyLossPercent ?? 0} step={0.5} suffix="%" hint="Of the day's starting value, measured as set below." onChange={(value) => set({ dailyLossPercent: optional(value) })} />
         <NumberField label="Max drawdown" value={guard.maxDrawdownPercent ?? 0} step={0.5} suffix="%" hint="From the equity peak. Needs a manual reset." onChange={(value) => set({ maxDrawdownPercent: optional(value) })} />
         <NumberField label="Daily profit lock" value={guard.dailyProfitMoney ?? 0} step={50} hint="Stop for the day once this profit is reached." onChange={(value) => set({ dailyProfitMoney: optional(value) })} />
         <NumberField label="Max open positions" value={guard.maxOpenPositions ?? 0} onChange={(value) => set({ maxOpenPositions: optional(Math.round(value)) })} />
         <NumberField label="Max lots per symbol" value={guard.maxLotsPerSymbol ?? 0} step={0.1} onChange={(value) => set({ maxLotsPerSymbol: optional(value) })} />
-        <NumberField label="Day starts at" value={guard.resetHour} min={0} max={23} suffix=":00" hint="Local time." onChange={(resetHour) => set({ resetHour: Math.min(23, Math.max(0, Math.round(resetHour))) })} />
+        <SelectField label="Day resets on" value={guard.resetZone} options={resetZones} hint="Use the clock your firm's rules name. Most reset at broker server midnight." onChange={(resetZone) => set({ resetZone })} />
+        <NumberField label="Day starts at" value={guard.resetHour} min={0} max={23} suffix=":00" hint="In the clock chosen above." onChange={(resetHour) => set({ resetHour: Math.min(23, Math.max(0, Math.round(resetHour))) })} />
+        <SelectField label="Daily loss measured from" value={guard.lossBasis} options={lossBases} hint={lossBases.find((item) => item.key === guard.lossBasis)?.hint} onChange={(lossBasis) => set({ lossBasis })} />
+        <NumberField label="Max trade requests a day" value={guard.maxDailyRequests ?? 0} step={100} hint="Every order, change, close and delete counts. Closes and deletes still go through past the limit. 0 is off." onChange={(value) => set({ maxDailyRequests: whole(value) })} />
+        <NumberField label="No new trades before news" value={guard.newsMinutesBefore ?? 0} max={240} suffix="min" hint="0 with 0 after turns the blackout off." onChange={(value) => set({ newsMinutesBefore: whole(value) })} />
+        <NumberField label="No new trades after news" value={guard.newsMinutesAfter ?? 0} max={240} suffix="min" onChange={(value) => set({ newsMinutesAfter: whole(value) })} />
+        <SelectField label="News impact" value={guard.newsImpact} options={newsImpacts.map((item) => ({ key: item.key, label: item.key === 'high' ? 'High only' : `${item.label} and above` }))} onChange={(newsImpact) => set({ newsImpact })} />
       </div>
+      <p className="is-muted">The day's starting values are recorded from the first update after the reset. If OpenTerm5 was closed at the reset, losses taken before it opened are not counted, so open it before the day starts.</p>
+      {hasNewsWindow && <NewsSchedule impact={stored!.newsImpact} />}
     </Section>
   );
 }

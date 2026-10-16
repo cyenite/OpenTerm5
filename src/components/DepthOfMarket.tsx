@@ -1,9 +1,10 @@
 import { Component } from 'react';
 import type { Book, OrderTypeKey } from '../../shared/protocol';
 import { formatPrice } from '../lib/format';
-import { session, terminal, type SessionState } from '../lib/session';
+import { session, signingIn, terminal, type SessionState } from '../lib/session';
 import { openDialog, workspace } from '../lib/workspace';
 import { Panel } from './Panel';
+import { SigningIn } from './ui/SigningIn';
 
 interface DomVolumeProps {
   readonly volume: number;
@@ -86,6 +87,7 @@ export class DepthOfMarket extends Component<DepthOfMarketProps, DepthOfMarketSt
     const snapshot = this.state.snapshot;
     const spec = snapshot.symbols[symbol];
     const tick = snapshot.ticks[symbol];
+    const signIn = signingIn(snapshot);
     const digits = spec?.digits ?? 5;
     const step = spec?.tickSize || spec?.point || 10 ** -digits;
     const canTrade = snapshot.status?.isTradeAllowed === true && snapshot.link.state === 'open';
@@ -115,7 +117,7 @@ export class DepthOfMarket extends Component<DepthOfMarketProps, DepthOfMarketSt
               </tr>;
             })}</tbody>
           </table>
-          {!prices.length && <p className="empty">{snapshot.status?.isConnected ? 'Waiting for broker quotes and depth…' : 'Log in to view market depth and quotes.'}</p>}
+          {!prices.length && <p className="empty">{signIn ? <SigningIn signIn={signIn} /> : snapshot.status?.isConnected ? 'Waiting for broker quotes and depth…' : 'Log in to view market depth and quotes.'}</p>}
         </div>
       </Panel>
     );

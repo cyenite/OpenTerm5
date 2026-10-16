@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { CopierConfig, CopierLogEntry, FollowerConfig } from '../shared/automation';
+import { defaultEquityProtection } from '../shared/automation';
 import { FakeLink, account, order, position } from './automation-fixtures';
 import { Copier, type CopierState } from './copier';
 import { defaultFollower } from './copier-math';
@@ -21,7 +22,7 @@ async function setup(followerPatch: Partial<FollowerConfig> = {}, configPatch: P
   const blocked = { reason: null as string | null };
   const copier = new Copier(pool, {
     load: async () => state, save: async (next) => { state = next; }, append: (entry) => logs.push(entry),
-    canOpen: () => blocked.reason, sleep: async () => {}, random: () => 0,
+    canOpen: async () => blocked.reason, sleep: async () => {}, random: () => 0,
   });
   await copier.init();
   const config: CopierConfig = { id: 'c1', name: 'Main', status: 'enabled', masterId: MASTER, followers: [{ ...defaultFollower('f1', FOLLOWER), ...followerPatch }], createdAt: 0, ...configPatch };
@@ -173,7 +174,7 @@ test('filters, monitor-existing and guards stop new copies but not closes', asyn
 });
 
 test('equity protection closes copied trades', async () => {
-  const { master, follower, tick } = await setup({ equityProtection: { minEquity: 4000, maxDailyLossPercent: 0, action: 'closeAll' } });
+  const { master, follower, tick } = await setup({ equityProtection: { ...defaultEquityProtection, minEquity: 4000, action: 'closeAll' } });
   master.positions = [position({ ticket: 7 })];
   await tick();
   assert.equal(follower.positions.length, 1);
@@ -191,4 +192,26 @@ test('configuration validation rejects self-copy, duplicates and loops', async (
   assert.throws(() => copier.validate({ ...base, followers: [defaultFollower('x', MASTER)] }), /itself/);
   assert.throws(() => copier.validate({ ...base, followers: [defaultFollower('x', FOLLOWER), defaultFollower('y', FOLLOWER)] }), /only once/);
   assert.throws(() => copier.validate({ ...base, id: 'c2', masterId: FOLLOWER, followers: [defaultFollower('z', MASTER)] }), /loop/);
+});
+
+test('equity protection can measure the daily loss from the balance at day start', async () => {
+  const { master, follower, tick, logs } = await setup({ equityProtection: { ...defaultEquityProtection, maxDailyLossPercent: 5, lossBasis: 'balance' } });
+  follower.info = account({ balance: 5000, equity: 4760 });
+  master.positions = [position({ ticket: 7 })];
+  await tick();
+  assert.equal(follower.positions.length, 1, 'a 4.8% loss is inside the limit');
+  follower.info = account({ balance: 5000, equity: 4740 });
+  await tick();
+  master.positions.push(position({ ticket: 8 }));
+  await tick();
+  assert.equal(follower.positions.length, 1, 'a 5.2% loss blocks new copies');
+  assert.ok(logs.filter((entry) => entry.followerId === 'f1').every((entry) => entry.accountId === FOLLOWER), 'log entries name the follower account');
+});
+
+test('followers saved before reset settings keep local midnight on equity', async () => {
+  const { copier } = await setup();
+  const config = copier.configs()[0];
+  const legacy = { minEquity: 0, maxDailyLossPercent: 3, action: 'blockNew' } as FollowerConfig['equityProtection'];
+  const saved = await copier.save({ ...config, followers: [{ ...config.followers[0], equityProtection: legacy }] });
+  assert.deepEqual(saved.followers[0].equityProtection, { ...defaultEquityProtection, maxDailyLossPercent: 3, resetZone: 'local', lossBasis: 'equity' });
 });

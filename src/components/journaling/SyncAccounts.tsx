@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { syncState, type JournalingView } from '../../../shared/journaling';
 import { journaling, journalingStore } from '../../lib/journaling';
 import { accountRows, relativeTime } from '../../lib/journaling-model';
-import { session } from '../../lib/session';
+import { session, signingIn, signInName } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { Section, StatusPill } from '../ui/Controls';
 
@@ -28,6 +28,7 @@ interface SyncAccountsProps {
 }
 
 export function SyncAccounts({ view }: SyncAccountsProps) {
+  const signIn = useStore(session, signingIn);
   const profiles = useStore(session, (state) => state.accounts);
   const [now, setNow] = useState(Date.now());
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +47,7 @@ export function SyncAccounts({ view }: SyncAccountsProps) {
     catch (reason) { setError((reason as Error).message); }
   };
   const syncNow = () => { if (canSync) void run(() => journaling.request('journaling.syncNow', {})); };
-  const syncHint = !active ? 'Log in to an MT5 account to sync it.' : !active.isEnabled ? 'Sync is off for the active account.' : 'Fetch the active account\'s deals now.';
+  const syncHint = !active && signIn ? `Available once ${signInName(signIn)} has signed in.` : !active ? 'Log in to an MT5 account to sync it.' : !active.isEnabled ? 'Sync is off for the active account.' : 'Fetch the active account\'s deals now.';
 
   return (
     <Section

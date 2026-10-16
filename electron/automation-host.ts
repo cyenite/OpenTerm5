@@ -4,12 +4,15 @@ import type {
   AutomationEvent, AutomationEvents, AutomationMethod, AutomationMethods, CopierLogEntry, CopierView, NotificationTarget,
   SignalRecord, WebhookSettings, WebhookSource, WebhookView,
 } from '../shared/automation';
+import type { AccountGuard } from '../shared/automation';
 import { copierRiskTypes, notificationEvents, notificationKinds, parseRiskPreferences, type RiskPreferences } from '../shared/automation';
 import { riskModes } from '../shared/risk';
 import type { AccountRegistry } from './account-registry';
 import type { PasswordCipher } from './account-registry';
 import { Copier, type CopierState } from './copier';
+import { buildCopierAudit } from './copier-audit';
 import { JsonLog, JsonStore } from './json-store';
+import { NewsCalendar, parseCalendarCache } from './news-calendar';
 import { parseOwnedTickets, SignalOwnership } from './signal-ownership';
 import { Notifier, validateTarget } from './notifier';
 import type { SessionPool } from './session-pool';
@@ -20,10 +23,27 @@ import { WebhookServer } from './webhook-server';
 export interface HostDeps {
   pool: SessionPool;
   userData: string;
+  appVersion: string;
   cipher: PasswordCipher;
+  clientId: () => string;
   accounts: () => AccountRegistry | undefined;
   send<E extends AutomationEvent>(event: E, data: AutomationEvents[E]): void;
   journal(message: string, source: string): void;
+  saveFile(name: string, contents: string): Promise<string | null>;
+}
+
+const MAX_NEWS_MINUTES = 240;
+const MAX_DAILY_REQUESTS = 100_000;
+
+const usesNews = (guard: AccountGuard) => guard.isEnabled && !!(guard.newsMinutesBefore || guard.newsMinutesAfter);
+
+export function validateGuard(guard: AccountGuard): AccountGuard {
+  for (const [label, value] of [['News minutes before', guard.newsMinutesBefore], ['News minutes after', guard.newsMinutesAfter]] as const) {
+    if (value !== undefined && !(Number.isInteger(value) && value >= 0 && value <= MAX_NEWS_MINUTES)) throw new Error(`${label} must be a whole number from 0 to ${MAX_NEWS_MINUTES}`);
+  }
+  const requests = guard.maxDailyRequests;
+  if (requests !== undefined && !(Number.isInteger(requests) && requests >= 0 && requests <= MAX_DAILY_REQUESTS)) throw new Error(`Daily trade requests must be a whole number up to ${MAX_DAILY_REQUESTS}`);
+  return guard;
 }
 
 interface StoredSecrets {
@@ -62,25 +82,29 @@ export class AutomationHost {
   readonly copier: Copier;
   readonly webhooks: WebhookServer;
   readonly notifier: Notifier;
+  readonly news: NewsCalendar;
   private settings: WebhookSettings = { host: '127.0.0.1', port: 8787, sources: [], isEnabled: false, isPaused: false };
   private notifications: NotificationTarget[] = [];
   private copierPush?: NodeJS.Timeout;
   private readonly heldSources = new Map<string, string>();
   private readonly secrets: JsonStore<StoredSecrets>;
   private readonly signalLog: JsonLog<SignalRecord>;
+  private readonly copierLog: JsonLog<CopierLogEntry>;
   private readonly riskStore: JsonStore<RiskPreferences>;
 
   constructor(private readonly deps: HostDeps) {
     const file = (name: string) => path.join(deps.userData, name);
     this.notifier = new Notifier((message) => deps.journal(message, 'Notifications'));
-    this.manager = new TradeManager(deps.pool, new JsonStore<ManagerState>(file('automation.json'), (value) => value as ManagerState, () => ({ rules: [], guards: [], guardStates: [] })), (message) => {
+    this.news = new NewsCalendar(new JsonStore(file('news-calendar.json'), parseCalendarCache, () => ({ fetchedAt: 0, events: [] })), (url, init) => fetch(url, init), (message) => deps.journal(message, 'News'));
+    const managerStore = new JsonStore<ManagerState>(file('automation.json'), (value) => value as ManagerState, () => ({ rules: [], guards: [], guardStates: [], requestCounts: [] }));
+    this.manager = new TradeManager(deps.pool, managerStore, (message) => {
       deps.journal(message, 'Automation');
       this.notifier.notify('manager', 'Trade manager', message);
-    });
-    const copierLog = new JsonLog<CopierLogEntry>(file('copier-log.jsonl'));
+    }, undefined, this.news);
+    this.copierLog = new JsonLog<CopierLogEntry>(file('copier-log.jsonl'));
     const copierStore = new JsonStore<CopierState>(file('copier.json'), (value) => value as CopierState, () => ({ configs: [], mappings: [], baselines: [], protections: [] }));
     this.copier = new Copier(deps.pool, {
-      load: () => copierStore.load(), save: (state) => copierStore.save(state), append: (entry) => copierLog.append(entry),
+      load: () => copierStore.load(), save: (state) => copierStore.save(state), append: (entry) => this.copierLog.append(entry),
       canOpen: (accountId, symbol, lots) => this.manager.canOpen(accountId, symbol, lots),
     });
     this.signalLog = new JsonLog<SignalRecord>(file('signals.jsonl'));
@@ -92,8 +116,15 @@ export class AutomationHost {
 
   async init(): Promise<void> {
     const { deps } = this;
+    await this.news.init();
+    this.news.on('changed', (view) => deps.send('news', view));
     await this.manager.init().catch((error: Error) => deps.journal(`Trade manager disabled: ${error.message}`, 'Automation'));
-    this.manager.on('changed', (state) => deps.send('manager', state));
+    deps.pool.setAdmission((accountId, request) => this.manager.admit(accountId, request));
+    this.news.setActive(this.manager.state().guards.some(usesNews));
+    this.manager.on('changed', (state: ManagerState) => {
+      deps.send('manager', state);
+      this.news.setActive(state.guards.some(usesNews));
+    });
     this.manager.on('tripped', (accountId: string, reason: string) => this.notifier.notify('guard', 'Equity guard tripped', `${accountId.split('|').pop()}: ${reason}`));
     await this.copier.init().catch((error: Error) => deps.journal(`Copier disabled: ${error.message}`, 'Copier'));
     this.copier.on('changed', () => this.pushCopier());
@@ -163,8 +194,26 @@ export class AutomationHost {
     await this.secrets.save({ isEncrypted, settings: encode(this.settings), notifications: encode(this.notifications) });
   }
 
-  canOpen(accountId: string | null, symbol?: string, lots?: number): string | null {
-    return accountId ? this.manager.canOpen(accountId, symbol, lots) : null;
+  canOpen(accountId: string | null, symbol?: string, lots?: number): Promise<string | null> {
+    return accountId ? this.manager.canOpen(accountId, symbol, lots) : Promise.resolve(null);
+  }
+
+  private async exportAudit(copierId?: string): Promise<AutomationMethods['copier.exportAudit'][1]> {
+    const profiles = this.deps.accounts()?.list() ?? [];
+    const exportedAt = Date.now();
+    const audit = buildCopierAudit({
+      copierId, exportedAt, clientId: this.deps.clientId(), appVersion: this.deps.appVersion, log: await this.copierLog.all(),
+      configs: this.copier.configs(), mappings: this.copier.mappings(),
+      account: (id) => {
+        const profile = profiles.find((item) => item.id === id);
+        const holder = this.manager.account(id)?.name;
+        return { id, ...(profile ? { label: profile.label, server: profile.server, company: profile.company, login: profile.login } : {}), ...(holder ? { holder } : {}) };
+      },
+    });
+    const name = copierId ? this.copier.configs().find((config) => config.id === copierId)?.name ?? 'copier' : 'all-copiers';
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'copier';
+    const path = await this.deps.saveFile(`openterm5-audit-${slug}-${new Date(exportedAt).toISOString().slice(0, 10)}.json`, JSON.stringify(audit, null, 2));
+    return { path, entries: audit.log.length };
   }
 
   async handle(method: AutomationMethod, values: unknown): Promise<unknown> {
@@ -179,7 +228,7 @@ export class AutomationHost {
       case 'manager.state': return this.manager.state();
       case 'manager.setRule': this.manager.setRule(params as AutomationMethods['manager.setRule'][0]); return true;
       case 'manager.removeRule': { const { accountId, ticket } = params as AutomationMethods['manager.removeRule'][0]; this.manager.removeRule(accountId, ticket); return true; }
-      case 'manager.setGuard': this.manager.setGuard(params as AutomationMethods['manager.setGuard'][0]); return true;
+      case 'manager.setGuard': this.manager.setGuard(validateGuard(params as AutomationMethods['manager.setGuard'][0])); return true;
       case 'manager.resetGuard': this.manager.resetGuard((params as AutomationMethods['manager.resetGuard'][0]).accountId); return true;
       case 'manager.bulk': return this.manager.bulk(params as AutomationMethods['manager.bulk'][0]);
       case 'manager.risk': return this.manager.placeRisk(params as AutomationMethods['manager.risk'][0]);
@@ -193,6 +242,9 @@ export class AutomationHost {
       }
       case 'copier.remove': await this.copier.remove((params as AutomationMethods['copier.remove'][0]).id); return true;
       case 'copier.resetProtection': this.copier.resetProtection((params as AutomationMethods['copier.resetProtection'][0]).followerId); return true;
+      case 'copier.exportAudit': return this.exportAudit((params as AutomationMethods['copier.exportAudit'][0]).copierId);
+      case 'news.view': return this.news.view();
+      case 'news.refresh': await this.news.refresh(); return this.news.view();
       case 'copier.symbols': {
         const { accountId } = params as AutomationMethods['copier.symbols'][0];
         const link = await this.deps.pool.acquire(accountId, 'symbols');
@@ -251,6 +303,7 @@ export class AutomationHost {
 
   async shutdown(): Promise<void> {
     for (const [sourceId, accountId] of this.heldSources) this.deps.pool.release(accountId, `webhook:${sourceId}`);
+    this.news.stop();
     this.copier.shutdown();
     await this.webhooks.stop();
   }

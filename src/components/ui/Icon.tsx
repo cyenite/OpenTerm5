@@ -41,6 +41,7 @@ const paths = {
   panels: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16M9 14h12" /></>,
   trade: <><path d="M4 17 9 11l4 3 7-8" /><path d="M15 6h5v5" /></>,
   exit: <><path d="M14 4h6v16h-6" /><path d="M10 8l-4 4 4 4M6 12h10" /></>,
+  info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5.5M12 7.5v.5" /></>,
 } as const;
 
 export type IconName = keyof typeof paths;

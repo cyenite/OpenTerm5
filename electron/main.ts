@@ -1,7 +1,8 @@
-import { app, BrowserWindow, ipcMain, Menu, screen, session, shell, type MenuItemConstructorOptions } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, screen, session, shell, type MenuItemConstructorOptions } from 'electron';
+import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { Account, TerminalEvent, TerminalMethod, ConnectionSettings, JournalEntry } from '../shared/protocol';
+import type { Account, AccountProfile, AccountSignIn, TerminalEvent, TerminalMethod, ConnectionSettings, JournalEntry } from '../shared/protocol';
 import type { JournalingEvent, JournalingMethod } from '../shared/journaling';
 import { loadSettings, saveSettings } from './settings';
 import { migrateLegacyProfile } from './legacy-migration';
@@ -38,6 +39,7 @@ let journaling: JournalingService | undefined;
 let isChanging = false;
 let isWindowLoaded = false;
 let uiAccount: Account | null = null;
+let signIn: AccountSignIn | null = null;
 const pendingLinks: string[] = [];
 let activeAccount: string | null = null;
 let accounts: AccountRegistry | undefined;
@@ -50,6 +52,14 @@ function send(event: TerminalEvent, data: unknown): void {
 
 function sendAutomation(event: AutomationEvent, data: unknown): void {
   window?.webContents.send('automation:event', event, data);
+}
+
+async function saveFile(name: string, contents: string): Promise<string | null> {
+  const options = { defaultPath: path.join(app.getPath('documents'), name), filters: [{ name: 'JSON', extensions: ['json'] }] };
+  const { canceled, filePath } = window ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options);
+  if (canceled || !filePath) return null;
+  await fs.writeFile(filePath, contents, { mode: 0o600 });
+  return filePath;
 }
 
 function sendJournaling(event: JournalingEvent, data: unknown): void {
@@ -202,12 +212,45 @@ async function clearingBotCheck<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
+type SignInTarget = Omit<AccountSignIn, 'state' | 'error'>;
+
+function profileTarget(profile: AccountProfile): SignInTarget {
+  return { id: profile.id, label: profile.label, server: profile.server, login: profile.login };
+}
+
+function setSignIn(next: AccountSignIn | null): void {
+  signIn = next;
+  send('signIn', next);
+}
+
+// Runs inside changeConnection, so a request refused because another change is running
+// cannot replace the state of the login that is actually in progress.
+async function signingIn<T>(target: SignInTarget, work: () => Promise<T>): Promise<T> {
+  setSignIn({ ...target, state: 'signing-in' });
+  try {
+    const result = await work();
+    setSignIn(null);
+    return result;
+  } catch (error) {
+    setSignIn({ ...target, state: 'failed', error: (error as Error).message });
+    throw error;
+  }
+}
+
+function loginTarget(params: TerminalMethods['account.login'][0]): SignInTarget {
+  const endpoint = params.webEndpoint ?? settings.webEndpoint;
+  const known = accounts?.list().find((profile) => profile.login === params.login && profile.webEndpoint === endpoint);
+  return { id: known?.id ?? null, label: params.label?.trim() || known?.label || '', server: String(params.server ?? known?.server ?? ''), login: params.login };
+}
+
 async function loginAccount(params: TerminalMethods['account.login'][0]) {
   if (params.isPasswordSaved && !accounts?.canSavePasswords()) throw new Error('Secure password storage is unavailable. Leave Save password unchecked.');
   const next = parseSettings({ webEndpoint: params.webEndpoint ?? settings.webEndpoint });
   leaveAccount();
   send('accountChanged', { id: null });
   direct.disconnect();
+  // Each connection creates its client from device.clientId, so a new ID applies to this login.
+  if (params.isUniqueClientIdRequested && await device.ensureUnique()) journal('This computer now sends a unique client ID at login.', 'Accounts');
   await pool.beforeUiLogin(`${next.webEndpoint}|${params.login}`);
   await saveSettings(next);
   settings = next;
@@ -231,27 +274,33 @@ async function loginAccount(params: TerminalMethods['account.login'][0]) {
 ipcMain.handle('terminal:request', async (_event, method: TerminalMethod, params: unknown) => {
   try {
     if (method === 'accounts.list') return { result: accountProfiles() };
+    if (method === 'accounts.signIn') return { result: signIn };
     if (method === 'accounts.storage') return { result: { canSavePasswords: !!accounts?.canSavePasswords() } };
-    if (method === 'device.clientId') return { result: { cid: device.clientId.toString('hex') } };
-    if (method === 'device.regenerateClientId') return { result: { cid: (await device.regenerate()).toString('hex') } };
+    if (method === 'device.identity') return { result: { isUnique: !device.hasWeakSeed } };
     if (method === 'brokers.search') return { result: await brokers().search((params as TerminalMethods['brokers.search'][0]).query, accountProfiles().map((profile) => profile.server)) };
     if (method === 'brokers.resolve') {
       const { server, webUrl } = params as TerminalMethods['brokers.resolve'][0];
       return { result: await clearingBotCheck(() => webUrl ? brokers().inspect(server, webUrl) : brokers().resolve(server)) };
     }
-    if (method === 'account.login') return { result: await changeConnection(() => clearingBotCheck(() => loginAccount(params as TerminalMethods['account.login'][0]))) };
+    if (method === 'account.login') {
+      const values = params as TerminalMethods['account.login'][0];
+      return { result: await changeConnection(() => signingIn(loginTarget(values), () => clearingBotCheck(() => loginAccount(values)))) };
+    }
     if (method === 'accounts.connect') return { result: await changeConnection(async () => {
       if (!accounts) throw new Error('Account storage is unavailable.');
       const values = params as TerminalMethods['accounts.connect'][0];
       const profile = accounts.get(values.id);
-      const password = values.password ?? accounts.password(values.id);
-      if (!password) throw new Error('Enter the password for this saved account.');
-      return clearingBotCheck(() => loginAccount({ login: profile.login, password, webEndpoint: profile.webEndpoint, label: profile.label, otp: values.otp, isPasswordSaved: values.isPasswordSaved ?? profile.isPasswordSaved }));
+      return signingIn(profileTarget(profile), () => {
+        const password = values.password ?? accounts!.password(values.id);
+        if (!password) throw new Error('Enter the password for this saved account.');
+        return clearingBotCheck(() => loginAccount({ login: profile.login, password, webEndpoint: profile.webEndpoint, label: profile.label, otp: values.otp, isPasswordSaved: values.isPasswordSaved ?? profile.isPasswordSaved }));
+      });
     }) };
     if (method === 'accounts.remove') return { result: await changeConnection(async () => {
       if (!accounts) throw new Error('Account storage is unavailable.');
       const { id } = params as TerminalMethods['accounts.remove'][0];
       await accounts.remove(id);
+      if (signIn?.id === id && signIn.state === 'failed') setSignIn(null);
       if (id === activeAccount) {
         leaveAccount();
         send('accountChanged', { id: null });
@@ -266,7 +315,7 @@ ipcMain.handle('terminal:request', async (_event, method: TerminalMethod, params
     if (method === 'order.send') {
       const request = params as TerminalMethods['order.send'][0];
       const isOpening = request.action === 'pending' || request.action === 'deal' && !request.position && !!orderType(request.type ?? '');
-      const blocked = isOpening ? automation?.canOpen(activeAccount, request.symbol, request.volume) : null;
+      const blocked = isOpening ? await automation?.canOpen(activeAccount, request.symbol, request.volume) : null;
       if (blocked) throw new Error(blocked);
     }
     return { result: await direct.request(method, params as never) };
@@ -296,6 +345,7 @@ ipcMain.handle('settings:save', async (_event, next: ConnectionSettings) => chan
   await saveSettings(next);
   settings = await loadSettings();
   leaveAccount();
+  if (signIn?.state === 'failed') setSignIn(null);
   send('accountChanged', { id: null });
   await applySettings();
   return direct.state;
@@ -349,18 +399,32 @@ if (!app.requestSingleInstanceLock()) {
       },
     });
     await journaling.init();
+    const recent = accounts?.list()[0];
+    const automatic = recent?.isPasswordSaved && recent.hasPassword && recent.webEndpoint === settings.webEndpoint ? recent : undefined;
+    // Announced before the window loads and before the endpoint connects, so the window never looks logged out meanwhile.
+    if (automatic) setSignIn({ ...profileTarget(automatic), state: 'signing-in' });
+    const announced = signIn;
     createWindow();
     await applySettings();
-    const recent = accounts?.list()[0];
-    if (recent?.isPasswordSaved && recent.hasPassword && recent.webEndpoint === settings.webEndpoint) {
+    if (automatic) {
       try {
-        const password = accounts!.password(recent.id);
-        if (password) await changeConnection(() => loginAccount({ login: recent.login, password, webEndpoint: recent.webEndpoint, label: recent.label, isPasswordSaved: true }));
+        await changeConnection(() => signingIn(profileTarget(automatic), () => {
+          const password = accounts!.password(automatic.id);
+          if (!password) throw new Error('The saved password is unavailable');
+          return loginAccount({ login: automatic.login, password, webEndpoint: automatic.webEndpoint, label: automatic.label, isPasswordSaved: true });
+        }));
         send('status', await direct.request('terminal.status', {}));
         send('trade', await direct.request('trade.snapshot', {}));
-      } catch (error) { journal(`Automatic login failed: ${(error as Error).message}. Log in manually.`, 'Accounts'); }
+      } catch (error) {
+        // A change the user started while the endpoint was connecting refuses this one before it begins.
+        if (signIn === announced) setSignIn({ ...profileTarget(automatic), state: 'failed', error: (error as Error).message });
+        journal(`Automatic login failed: ${(error as Error).message}. Log in manually.`, 'Accounts');
+      }
     }
-    automation = new AutomationHost({ pool, userData: app.getPath('userData'), cipher: secretCipher, accounts: () => accounts, send: sendAutomation, journal });
+    automation = new AutomationHost({
+      pool, userData: app.getPath('userData'), cipher: secretCipher, appVersion: app.getVersion(), accounts: () => accounts, send: sendAutomation, journal, saveFile,
+      clientId: () => device.clientId.toString('hex'),
+    });
     await automation.init();
     app.on('activate', () => !window && createWindow());
   });

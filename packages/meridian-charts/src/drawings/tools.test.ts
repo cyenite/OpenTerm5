@@ -196,18 +196,24 @@ test('bars pattern copies the bars between its first two anchors to the third', 
   assert.equal(bodies(build('bars-pattern', [at(5, 100), at(14, 105), at(40, 120)], { mode: 'Line' })).length, 0);
 });
 
+test('a position starts minimal: compact price labels and no stats until it is selected', () => {
+  const labels = texts(build('long-position', [at(10, 100), at(30, 110), at(30, 95)]));
+  assert.deepEqual(labels, ['110.00 (+10.00%)', '95.00 (-5.00%)']);
+});
+
 test('position labels show the quantity from account size, risk and lot size', () => {
+  const full = { isCompact: false, showStats: true };
   // Risking 1% of 1000 = 10 over a 5-point stop: a quantity of 2.
-  const long = texts(build('long-position', [at(10, 100), at(30, 110), at(30, 95)]));
+  const long = texts(build('long-position', [at(10, 100), at(30, 110), at(30, 95)], full));
   assert.ok(long.some((text) => text.includes('Qty: 2')), long.join(' | '));
   assert.ok(long.some((text) => text.includes('Risk/Reward Ratio: 2.00')));
   assert.ok(long.some((text) => text.startsWith('Target: 110.00') && text.includes('Amount: 20')));
   assert.ok(long.some((text) => text.startsWith('Stop: 95.00') && text.includes('Amount: 10')));
   assert.ok(long.some((text) => /(Open|Closed) P&L: /.test(text)));
   // 2% of 5000 = 100 over 5 points with a lot size of 4: a quantity of 5.
-  const custom = texts(build('long-position', [at(10, 100), at(30, 110), at(30, 95)], { accountSize: 5000, riskPercent: 2, lotSize: 4 }));
+  const custom = texts(build('long-position', [at(10, 100), at(30, 110), at(30, 95)], { ...full, accountSize: 5000, riskPercent: 2, lotSize: 4 }));
   assert.ok(custom.some((text) => text.includes('Qty: 5')), custom.join(' | '));
-  const short = texts(build('short-position', [at(10, 110), at(30, 100), at(30, 115)]));
+  const short = texts(build('short-position', [at(10, 110), at(30, 100), at(30, 115)], full));
   assert.ok(short.some((text) => text.includes('Qty: 2')), short.join(' | '));
 });
 

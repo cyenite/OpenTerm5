@@ -1,5 +1,5 @@
 import { Component } from 'react';
-import type { AccountProfile } from '../../../shared/protocol';
+import type { AccountProfile, AccountSignIn } from '../../../shared/protocol';
 import { refreshSession, session, terminal } from '../../lib/session';
 import { closeDialog, openDialog } from '../../lib/workspace';
 import { Dialog } from './Dialog';
@@ -8,16 +8,17 @@ interface AccountsState {
   error: string;
   removeId: string;
   activeId: string | null;
+  signIn: AccountSignIn | null;
   profiles: AccountProfile[];
   isBusy: boolean;
 }
 
 export class AccountsDialog extends Component<Record<string, never>, AccountsState> {
-  state: AccountsState = { error: '', removeId: '', activeId: session.get().profileId, profiles: session.get().accounts, isBusy: false };
+  state: AccountsState = { error: '', removeId: '', activeId: session.get().profileId, signIn: session.get().signIn, profiles: session.get().accounts, isBusy: false };
   private unsubscribe?: () => void;
 
   componentDidMount(): void {
-    this.unsubscribe = session.subscribe(() => this.setState({ activeId: session.get().profileId, profiles: session.get().accounts }));
+    this.unsubscribe = session.subscribe(() => this.setState({ activeId: session.get().profileId, signIn: session.get().signIn, profiles: session.get().accounts }));
     void terminal.request('accounts.list', {}).then((profiles) => session.set({ accounts: profiles })).catch((error: Error) => this.setState({ error: error.message }));
   }
 
@@ -42,7 +43,8 @@ export class AccountsDialog extends Component<Record<string, never>, AccountsSta
   };
 
   render() {
-    const { error, profiles, activeId, removeId, isBusy } = this.state;
+    const { error, signIn, profiles, activeId, removeId, isBusy } = this.state;
+    const isSigningIn = signIn?.state === 'signing-in';
     return (
       <Dialog title="Trading Accounts" width={760}>
         <p className="is-muted">One account is active at a time. Switching clears its market and trade state. Saved passwords use your OS credential storage only when you choose to save them.</p>
@@ -53,9 +55,9 @@ export class AccountsDialog extends Component<Record<string, never>, AccountsSta
               <tr key={profile.id}>
                 <td title={profile.webEndpoint}><b>{profile.label}</b><br />{profile.login} · {profile.name}{profile.id === activeId ? ' · Active' : ''}</td>
                 <td>{profile.server}<br /><span className="is-muted">{profile.company}</span></td>
-                <td>{profile.tradeMode}<br />{profile.isPasswordSaved ? 'Password saved securely' : profile.hasPassword ? 'Password in memory' : 'Password required'}</td>
+                <td>{profile.tradeMode}<br />{profile.isPasswordSaved ? 'Password saved securely' : profile.hasPassword ? 'Password in memory' : 'Password required'}{signIn?.id === profile.id && signIn.state === 'failed' && <><br /><span className="is-loss" title={signIn.error}>Last sign-in failed</span></>}</td>
                 <td>
-                  <button disabled={isBusy} onClick={() => void this.connect(profile)}>Connect</button>{' '}
+                  <button disabled={isBusy || isSigningIn} title={isSigningIn && signIn.id !== profile.id ? 'Available once the current sign-in finishes' : undefined} onClick={() => void this.connect(profile)}>{isSigningIn && signIn.id === profile.id ? <><span className="spinner" aria-hidden /> Signing in…</> : 'Connect'}</button>{' '}
                   <button disabled={isBusy} onClick={() => openDialog({ kind: 'login', profileId: profile.id })}>Edit login</button>{' '}
                   {removeId === profile.id ? <><button disabled={isBusy} onClick={() => void this.remove(profile.id)}>Confirm forget</button><button disabled={isBusy} onClick={() => this.setState({ removeId: '' })}>Keep account</button></> : <button disabled={isBusy} onClick={() => this.setState({ removeId: profile.id })}>Forget</button>}
                 </td>

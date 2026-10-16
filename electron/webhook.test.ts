@@ -25,7 +25,7 @@ async function setup(settings: Partial<WebhookSettings> = {}) {
   const link = new FakeLink();
   const pool = new SessionPool(link, () => undefined, () => new FakeLink());
   pool.afterUiChange(ACCOUNT, null);
-  const manager = new TradeManager(pool, memoryStore<ManagerState>({ rules: [], guards: [], guardStates: [] }), () => {});
+  const manager = new TradeManager(pool, memoryStore<ManagerState>({ rules: [], guards: [], guardStates: [], requestCounts: [] }), () => {});
   await manager.init();
   const ownership = new SignalOwnership(memoryStore<OwnedTickets>({}));
   const executor = new SignalExecutor(pool, manager, ownership);

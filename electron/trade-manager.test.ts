@@ -1,26 +1,30 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import type { AccountGuard } from '../shared/automation';
+import { defaultGuard } from '../shared/automation';
+import type { NewsEvent } from '../shared/news';
 import { FakeLink, account, memoryStore, position } from './automation-fixtures';
 import { SessionPool } from './session-pool';
-import { TradeManager, type ManagerState } from './trade-manager';
+import { TradeManager, type ManagerState, type NewsSource } from './trade-manager';
 
 const ACCOUNT = 'wss://fake|1';
 const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
-async function setup(time = Date.UTC(2026, 9, 13, 12)) {
+async function setup(time = Date.UTC(2026, 9, 13, 12), news?: NewsSource) {
   const link = new FakeLink();
   const pool = new SessionPool(link, () => undefined, () => new FakeLink());
   pool.afterUiChange(ACCOUNT, null);
-  const store = memoryStore<ManagerState>({ rules: [], guards: [], guardStates: [] });
+  const store = memoryStore<ManagerState>({ rules: [], guards: [], guardStates: [], requestCounts: [] });
   const messages: string[] = [];
   const clock = { time };
-  const manager = new TradeManager(pool, store, (message) => messages.push(message), () => clock.time);
+  const manager = new TradeManager(pool, store, (message) => messages.push(message), () => clock.time, news);
   await manager.init();
+  pool.setAdmission((accountId, request) => manager.admit(accountId, request));
   const tick = async () => {
     pool.emit('trade', ACCOUNT, { account: link.info, orders: link.orders, positions: link.positions });
     await settle();
   };
-  return { link, pool, manager, messages, tick, clock };
+  return { link, pool, manager, messages, tick, clock, store };
 }
 
 test('trailing stop follows price in steps and never loosens', async () => {
@@ -89,43 +93,43 @@ test('rules for closed positions are dropped', async () => {
 
 test('daily loss guard trips, closes everything and blocks new trades until the next day', async () => {
   const { link, manager, tick, clock } = await setup();
-  manager.setGuard({ accountId: ACCOUNT, action: 'closeAll', resetHour: 0, dailyLossPercent: 5, isEnabled: true });
+  manager.setGuard({ ...defaultGuard(ACCOUNT), action: 'closeAll', lossBasis: 'equity', dailyLossPercent: 5, isEnabled: true });
   link.positions = [position()];
   await tick();
   link.info = account({ equity: 9400 });
   await tick();
   await settle();
   assert.equal(link.positions.length, 0);
-  assert.match(manager.canOpen(ACCOUNT) ?? '', /tripped/);
+  assert.match(await manager.canOpen(ACCOUNT) ?? '', /tripped/);
   clock.time += 86_400_000;
   await tick();
-  assert.equal(manager.canOpen(ACCOUNT), null);
+  assert.equal(await manager.canOpen(ACCOUNT), null);
 });
 
 test('drawdown trips persist across days until reset', async () => {
   const { link, manager, tick, clock } = await setup();
-  manager.setGuard({ accountId: ACCOUNT, action: 'blockNew', resetHour: 0, maxDrawdownPercent: 10, isEnabled: true });
+  manager.setGuard({ ...defaultGuard(ACCOUNT), action: 'blockNew', resetHour: 0, maxDrawdownPercent: 10, isEnabled: true });
   await tick();
   link.info = account({ equity: 8900 });
   await tick();
-  assert.match(manager.canOpen(ACCOUNT) ?? '', /drawdown/);
+  assert.match(await manager.canOpen(ACCOUNT) ?? '', /drawdown/);
   clock.time += 86_400_000;
   await tick();
-  assert.match(manager.canOpen(ACCOUNT) ?? '', /drawdown/);
+  assert.match(await manager.canOpen(ACCOUNT) ?? '', /drawdown/);
   manager.resetGuard(ACCOUNT);
-  assert.equal(manager.canOpen(ACCOUNT), null);
+  assert.equal(await manager.canOpen(ACCOUNT), null);
 });
 
 test('position and lot caps block new trades', async () => {
   const { link, manager, tick } = await setup();
-  manager.setGuard({ accountId: ACCOUNT, action: 'blockNew', resetHour: 0, maxOpenPositions: 2, maxLotsPerSymbol: 1.5, isEnabled: true });
+  manager.setGuard({ ...defaultGuard(ACCOUNT), action: 'blockNew', resetHour: 0, maxOpenPositions: 2, maxLotsPerSymbol: 1.5, isEnabled: true });
   link.positions = [position({ volume: 1 })];
   await tick();
-  assert.match(manager.canOpen(ACCOUNT, 'EURUSD', 1) ?? '', /1.5 lots/);
-  assert.equal(manager.canOpen(ACCOUNT, 'EURUSD', 0.5), null);
+  assert.match(await manager.canOpen(ACCOUNT, 'EURUSD', 1) ?? '', /1.5 lots/);
+  assert.equal(await manager.canOpen(ACCOUNT, 'EURUSD', 0.5), null);
   link.positions.push(position({ ticket: 101 }));
   await tick();
-  assert.match(manager.canOpen(ACCOUNT) ?? '', /2 open positions/);
+  assert.match(await manager.canOpen(ACCOUNT) ?? '', /2 open positions/);
 });
 
 test('bulk close filters by profit and side', async () => {
@@ -158,8 +162,97 @@ test('risk orders respect a tripped guard and dry runs send nothing', async () =
   const dry = await manager.placeRisk({ type: 'sell', mode: 'money', value: 50, symbol: 'EURUSD', stopLoss: { unit: 'points', value: 200 }, isDryRun: true });
   assert.equal(dry.lots, 0.25);
   assert.equal(link.sent.length, 0);
-  manager.setGuard({ accountId: ACCOUNT, action: 'blockNew', resetHour: 0, maxOpenPositions: 1, isEnabled: true });
+  manager.setGuard({ ...defaultGuard(ACCOUNT), action: 'blockNew', resetHour: 0, maxOpenPositions: 1, isEnabled: true });
   link.positions = [position()];
   await tick();
   await assert.rejects(manager.placeRisk({ type: 'sell', mode: 'money', value: 50, symbol: 'EURUSD', stopLoss: { unit: 'points', value: 200 } }), /open positions/);
+});
+
+test('the daily loss reference follows the chosen basis', async () => {
+  const cases: { basis: AccountGuard['lossBasis']; start: { balance: number; equity: number }; trips: number; holds: number }[] = [
+    { basis: 'balance', start: { balance: 10_000, equity: 9_800 }, trips: 9_500, holds: 9_501 },
+    { basis: 'equity', start: { balance: 10_000, equity: 9_800 }, trips: 9_310, holds: 9_311 },
+    { basis: 'higher', start: { balance: 10_000, equity: 10_300 }, trips: 9_785, holds: 9_786 },
+  ];
+  for (const { basis, start, trips, holds } of cases) {
+    const { link, manager, tick } = await setup();
+    manager.setGuard({ ...defaultGuard(ACCOUNT), lossBasis: basis, dailyLossPercent: 5, isEnabled: true });
+    link.info = account(start);
+    await tick();
+    link.info = account({ balance: start.balance, equity: holds });
+    await tick();
+    assert.equal(await manager.canOpen(ACCOUNT), null, `${basis} holds at ${holds}`);
+    link.info = account({ balance: start.balance, equity: trips });
+    await tick();
+    assert.match(await manager.canOpen(ACCOUNT) ?? '', /tripped/, `${basis} trips at ${trips}`);
+  }
+});
+
+test('the trading day starts at midnight broker server time', async () => {
+  const { link, manager, tick, clock } = await setup(Date.UTC(2026, 9, 15, 20, 30));
+  manager.setGuard({ ...defaultGuard(ACCOUNT), dailyLossMoney: 500, isEnabled: true });
+  link.info = account({ utcOffsetSeconds: 10_800 });
+  await tick();
+  assert.equal(manager.state().guardStates[0].dayKey, '2026-10-15');
+  link.info = account({ utcOffsetSeconds: 10_800, balance: 9_700, equity: 9_700 });
+  clock.time += 45 * 60_000;
+  await tick();
+  const state = manager.state().guardStates[0];
+  assert.equal(state.dayKey, '2026-10-16');
+  assert.equal(state.dayStartBalance, 9_700);
+  assert.equal(state.dayStartedAt, clock.time);
+});
+
+test('guards saved before reset zones keep local time and equity', async () => {
+  const { manager } = await setup();
+  const legacy = { accountId: ACCOUNT, action: 'blockNew', resetHour: 0, isEnabled: true } as AccountGuard;
+  manager.setGuard(legacy);
+  const guard = manager.state().guards[0];
+  assert.equal(guard.resetZone, 'local');
+  assert.equal(guard.lossBasis, 'equity');
+});
+
+test('the daily request limit blocks new requests but never a close', async () => {
+  const { link, manager, tick, clock, messages } = await setup();
+  manager.setGuard({ ...defaultGuard(ACCOUNT), maxDailyRequests: 5, isEnabled: true });
+  await tick();
+  for (let index = 0; index < 4; index++) await link.request('order.send', { action: 'deal', type: 'buy', symbol: 'EURUSD', volume: 0.1 });
+  assert.ok(messages.some((message) => /4 of 5 daily trade requests/.test(message)));
+  await link.request('order.send', { action: 'deal', type: 'buy', symbol: 'EURUSD', volume: 0.1 });
+  await assert.rejects(link.request('order.send', { action: 'deal', type: 'buy', symbol: 'EURUSD', volume: 0.1 }), /Daily limit of 5/);
+  await assert.rejects(link.request('order.send', { action: 'sltp', symbol: 'EURUSD', position: link.positions[0].ticket, sl: 1.09 }), /Daily limit/);
+  assert.match(await manager.canOpen(ACCOUNT, 'EURUSD', 0.1) ?? '', /Daily limit of 5/);
+  const close = await link.request('order.send', { action: 'deal', type: 'sell', symbol: 'EURUSD', position: link.positions[0].ticket, volume: 0.1 });
+  assert.equal(close.isSuccess, true);
+  assert.equal(manager.state().requestCounts[0].count, 6);
+  clock.time += 86_400_000;
+  assert.equal(await manager.canOpen(ACCOUNT, 'EURUSD', 0.1), null, 'a new trading day starts a new count');
+});
+
+test('requests are counted without a guard so a limit added later sees the whole day', async () => {
+  const { link, manager, tick } = await setup();
+  await tick();
+  await link.request('order.send', { action: 'deal', type: 'buy', symbol: 'EURUSD', volume: 0.1 });
+  manager.setGuard({ ...defaultGuard(ACCOUNT), maxDailyRequests: 1, isEnabled: true });
+  assert.match(await manager.canOpen(ACCOUNT, 'EURUSD', 0.1) ?? '', /Daily limit of 1/);
+});
+
+test('a news blackout blocks opening trades on affected currencies', async () => {
+  const release = Date.UTC(2026, 9, 13, 12, 1);
+  const seen: string[][] = [];
+  const news: NewsSource = {
+    isCovering: () => true,
+    blackout: (currencies, time, beforeMs, afterMs) => {
+      seen.push([...currencies]);
+      const event: NewsEvent = { time: release, impact: 'high', title: 'CPI m/m', currency: 'USD' };
+      return currencies.includes('USD') && time >= release - beforeMs && time <= release + afterMs ? event : undefined;
+    },
+  };
+  const { manager, tick } = await setup(Date.UTC(2026, 9, 13, 12), news);
+  manager.setGuard({ ...defaultGuard(ACCOUNT), isEnabled: true });
+  await tick();
+  assert.equal(await manager.canOpen(ACCOUNT, 'EURUSD', 0.1), null, 'no window configured');
+  manager.setGuard({ ...defaultGuard(ACCOUNT), newsMinutesBefore: 2, newsMinutesAfter: 2, isEnabled: true });
+  assert.match(await manager.canOpen(ACCOUNT, 'EURUSD', 0.1) ?? '', /News blackout for EURUSD: USD CPI m\/m/);
+  assert.deepEqual(seen.at(-1), ['EUR', 'USD'], 'currencies come from the symbol record');
 });

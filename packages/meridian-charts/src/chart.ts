@@ -5,14 +5,14 @@ import { timeTicks } from './core/time-ticks';
 import { timeframeMs, timeUnits } from './core/timeframes';
 import { drawingToolInfo } from './drawings/catalogue';
 import { rebaseDrawings } from './drawings/history';
-import { applyDrawingFields, drawingFields, isShownOn, templateOf, withTemplate } from './drawings/settings';
+import { applyDrawingFields, drawingFields, isShownOn, lookOf, templateOf, visibilityForInterval, withTemplate, type IntervalChoice } from './drawings/settings';
 import { hitShape, paintShapes, ShapeList, type Pt } from './drawings/shapes';
 import { styleFor, toolDefinitions, type CreateEnv, type ToolDefinition, type ToolEnv } from './drawings/tools';
 import { applySettingsFields, backgroundGradientOf, defaultSettings, restoreSettings, settingsFields, themeSettings, type ChartSettings } from './settings';
 import { getStudy, resolveInputs, studyCaption } from './studies/registry';
 import { listThemes, type MeridianTheme } from './themes';
-import type { Bar, DataProvider, DrawingPoint, DrawingTemplateStore, InputValue, PriceStyle, SerializedDrawing, StudyDefinition, StudyOutput } from './types';
-import { openDialog, type Field } from './ui/dialog';
+import type { Bar, DataProvider, DrawingPoint, DrawingStyle, DrawingTemplate, DrawingTemplateStore, InputValue, PriceStyle, SerializedDrawing, StudyDefinition, StudyOutput } from './types';
+import { askTemplateName, confirmRemove, fieldValues, openDialog, type Field, type TemplateListActions } from './ui/dialog';
 import { Legend, type LegendEntry, type LegendValue } from './ui/legend';
 import { openMenu, separator, type MenuEntry } from './ui/menu';
 import { ObjectTree } from './ui/object-tree';
@@ -154,6 +154,17 @@ let nextChartId = 0;
 
 // Copied drawings, shared by every chart in the window so they can be pasted into another.
 let clipboard: SerializedDrawing[] = [];
+
+// The look each tool's next drawing starts with, when the host keeps none: shared by the charts in
+// the window, as TradingView applies a restyle to every later drawing of that tool.
+const lastLooks = new Map<string, DrawingTemplate>();
+
+const intervalChoices: readonly { choice: IntervalChoice; label: string }[] = [
+  { choice: 'above', label: 'Current interval and above' },
+  { choice: 'below', label: 'Current interval and below' },
+  { choice: 'only', label: 'Current interval only' },
+  { choice: 'all', label: 'All intervals' },
+];
 
 // Alt shortcuts for the common tools, by physical key.
 const toolShortcuts: Readonly<Record<string, string>> = {
@@ -325,11 +336,16 @@ export class MeridianChart {
     }, this.toolbarState());
     this.toolbar.setVisible(options.isDrawingToolbarShown ?? false);
     this.styleBar = new StyleBar(this.main, {
-      setStyle: (patch) => this.patchSelected({ style: { ...this.selected()!.style, ...patch } }),
+      setStyle: (patch) => this.restyleSelected(patch),
+      templates: () => this.templateActions(this.selectedId!),
       openSettings: () => this.openDrawingSettings(this.selectedId!),
       toggleLock: () => this.patchSelected({ locked: !this.selected()!.locked }),
-      clone: () => this.cloneSelected(),
       remove: () => this.removeSelected(),
+      more: () => this.moreMenu(this.selected()!),
+      openMenu: (x, y, entries) => {
+        this.closeMenu?.();
+        this.closeMenu = openMenu(this.main, x, y, entries);
+      },
     });
     this.replayBar = new ReplayBar(this.main, {
       togglePlay: () => this.toggleReplayPlay(),
@@ -1332,26 +1348,75 @@ export class MeridianChart {
     ];
   }
 
+  // TradingView's menu for a drawing: templates, visual order and interval visibility, then the
+  // edits, then Settings.
   private drawingMenu(drawing: SerializedDrawing): MenuEntry[] {
     const definition = toolDefinitions.get(drawing.type);
     const isEditable = !drawing.locked && !this.isLocked;
+    const templates = this.templateActions(drawing.id);
     return [
-      { label: 'Settings…', icon: 'settings', action: () => this.openDrawingSettings(drawing.id) },
+      {
+        label: 'Template',
+        icon: 'template',
+        children: [
+          ...(templates.saveAs ? [{ label: 'Save Drawing Template As…', action: templates.saveAs }] : []),
+          { label: 'Apply Default Drawing Template', action: templates.applyDefault },
+          ...(templates.names.length ? [separator, ...templates.names.map((name) => ({ label: name, action: () => templates.apply(name) }))] : []),
+        ],
+      },
+      ...this.orderMenu(drawing),
+      separator,
       ...(definition?.hasText ? [{ label: 'Edit text', icon: 'text-edit', isDisabled: !isEditable, action: () => this.editText(drawing.id) }] : []),
-      separator,
-      { label: 'Copy', icon: 'copy', shortcut: 'Ctrl+C', action: () => { this.copySelection(); } },
       { label: 'Clone', icon: 'clone', action: () => this.cloneSelected() },
-      separator,
-      { label: 'Bring to front', icon: 'bring-front', action: () => this.reorder(drawing.id, 'front') },
-      { label: 'Bring forward', action: () => this.reorder(drawing.id, 'forward') },
-      { label: 'Send backward', action: () => this.reorder(drawing.id, 'backward') },
-      { label: 'Send to back', icon: 'send-back', action: () => this.reorder(drawing.id, 'back') },
+      { label: 'Copy', icon: 'copy', shortcut: 'Ctrl+C', action: () => { this.copySelection(); } },
       separator,
       { label: drawing.locked ? 'Unlock' : 'Lock', icon: drawing.locked ? 'unlock' : 'lock', action: () => this.patchDrawing(drawing.id, (current) => ({ locked: !current.locked })) },
       { label: 'Hide', icon: 'eye-off', action: () => this.patchDrawing(drawing.id, () => ({ visible: false })) },
-      separator,
       { label: 'Remove', icon: 'trash', shortcut: 'Del', isDisabled: drawing.locked, action: () => this.removeDrawing(drawing.id) },
+      separator,
+      { label: 'Settings…', icon: 'settings', action: () => this.openDrawingSettings(drawing.id) },
     ];
+  }
+
+  private orderMenu(drawing: SerializedDrawing): MenuEntry[] {
+    return [
+      {
+        label: 'Visual order',
+        icon: 'bring-front',
+        children: [
+          { label: 'Bring to front', icon: 'bring-front', action: () => this.reorder(drawing.id, 'front') },
+          { label: 'Bring forward', action: () => this.reorder(drawing.id, 'forward') },
+          { label: 'Send backward', action: () => this.reorder(drawing.id, 'backward') },
+          { label: 'Send to back', icon: 'send-back', action: () => this.reorder(drawing.id, 'back') },
+        ],
+      },
+      {
+        label: 'Visibility on intervals',
+        icon: 'visibility',
+        children: intervalChoices.map(({ choice, label }) => ({ label, action: () => this.showOnIntervals(drawing.id, choice) })),
+      },
+    ];
+  }
+
+  // The floating toolbar's overflow menu.
+  private moreMenu(drawing: SerializedDrawing): MenuEntry[] {
+    return [
+      { label: 'Clone', icon: 'clone', action: () => this.cloneSelected() },
+      { label: 'Copy', icon: 'copy', shortcut: 'Ctrl+C', action: () => { this.copySelection(); } },
+      separator,
+      ...this.orderMenu(drawing),
+      separator,
+      { label: 'Hide', icon: 'eye-off', action: () => this.patchDrawing(drawing.id, () => ({ visible: false })) },
+    ];
+  }
+
+  private showOnIntervals(id: string, choice: IntervalChoice): void {
+    const visibility = visibilityForInterval(this.interval, choice);
+    this.patchDrawing(id, (drawing) => {
+      const { visibility: _, ...rest } = drawing.props ?? {};
+      const props = { ...rest, ...(visibility ? { visibility } : {}) };
+      return { props: Object.keys(props).length ? props : undefined };
+    });
   }
 
   private chartMenu(): MenuEntry[] {
@@ -1598,18 +1663,20 @@ export class MeridianChart {
     const definition = toolDefinitions.get(type)!;
     const isMeasure = this.tool === MEASURE;
     if (!isMeasure) this.checkpoint();
+    const look = isMeasure ? undefined : this.lookFor(type);
+    const props = { ...(look?.props ? structuredClone(look.props) : {}), ...(isMeasure ? { isTransient: true } : {}) };
     const drawing: SerializedDrawing = {
       id: this.newDrawingId(),
       type,
       paneId: 'price',
       anchors: structuredClone(anchors),
-      style: styleFor(type),
-      ...(definition.hasText ? { text: definition.defaultText ?? '' } : {}),
+      style: look ? structuredClone(look.style) : styleFor(type),
+      ...(definition.hasText ? { text: look?.text ?? definition.defaultText ?? '' } : {}),
       locked: false,
       visible: true,
       zIndex: this.topZ() + 1,
       createdAt: Date.now(),
-      ...(isMeasure ? { props: { isTransient: true } } : {}),
+      ...(Object.keys(props).length ? { props } : {}),
     };
     this.drawingList.push(drawing);
     this.draft = null;
@@ -1672,7 +1739,8 @@ export class MeridianChart {
   private select(id: string | null): void {
     this.selectedId = id;
     const drawing = this.selected();
-    if (drawing) this.styleBar.show(drawing, { isFillable: !!toolDefinitions.get(drawing.type)?.isFillable });
+    const definition = drawing && toolDefinitions.get(drawing.type);
+    if (drawing) this.styleBar.show(drawing, { isFillable: !!definition?.isFillable, hasText: !!definition?.hasText });
     else this.styleBar.hide();
     this.invalidate();
   }
@@ -1739,36 +1807,108 @@ export class MeridianChart {
     this.invalidate();
   }
 
+  // As in TradingView, edits show on the chart while the dialog is open; Ok keeps them as one undo
+  // step and makes them the tool's look for new drawings, Cancel puts the drawing back.
   openDrawingSettings(id: string, focus?: string): void {
     const drawing = this.drawingList.find((candidate) => candidate.id === id);
     const definition = drawing && toolDefinitions.get(drawing.type);
     if (!drawing || !definition) return;
     this.closeDialog?.();
-    const valuesOf = (restyled: SerializedDrawing) => Object.fromEntries(drawingFields(restyled, definition).map((field) => [field.key, field.value as never]));
+    const before = this.snapshot();
+    const original = structuredClone(drawing);
+    const valuesOf = (restyled: SerializedDrawing) => fieldValues(drawingFields(restyled, definition));
     const store = this.drawingTemplates;
+    const put = (next: SerializedDrawing) => {
+      this.drawingList = this.drawingList.map((candidate) => (candidate.id === id ? next : candidate));
+      if (this.selectedId === id) this.select(id);
+      this.invalidate();
+    };
     this.closeDialog = openDialog(this.root, {
       title: drawingToolInfo.get(drawing.type)?.label ?? 'Drawing',
       fields: drawingFields(drawing, definition),
       focus,
-      onDefaults: () => valuesOf(withTemplate(drawing, null, styleFor(drawing.type))),
-      templates: () => (store?.list(drawing.type) ?? []).map((template) => ({ label: template.name, values: valuesOf(withTemplate(drawing, template, styleFor(drawing.type))) })),
+      onDefaults: () => valuesOf(withTemplate(original, null, styleFor(drawing.type))),
+      templates: () => (store?.list(drawing.type) ?? []).map((template) => ({ label: template.name, values: valuesOf(withTemplate(original, template, styleFor(drawing.type))) })),
       ...(store ? {
         templateActions: {
-          save: (name, values) => store.save(drawing.type, templateOf(applyDrawingFields(drawing, definition, values), name)),
+          save: (name, values) => store.save(drawing.type, templateOf(applyDrawingFields(original, definition, values), name)),
           remove: (name) => store.remove(drawing.type, name),
         },
       } : {}),
+      onChange: (values) => {
+        if (this.drawingList.some((candidate) => candidate.id === id)) put(applyDrawingFields(original, definition, values));
+      },
+      onCancel: () => {
+        this.closeDialog = null;
+        if (this.drawingList.some((candidate) => candidate.id === id)) put(original);
+      },
       onApply: (values) => {
-        const current = this.drawingList.find((candidate) => candidate.id === id);
-        if (!current) return;
-        const next = applyDrawingFields(current, definition, values);
-        this.checkpoint();
-        this.drawingList = this.drawingList.map((candidate) => (candidate.id === id ? next : candidate));
-        if (this.selectedId === id) this.select(id);
+        this.closeDialog = null;
+        if (!this.drawingList.some((candidate) => candidate.id === id)) return;
+        const next = applyDrawingFields(original, definition, values);
+        this.checkpoint(before);
+        put(next);
+        this.rememberLook(next);
         this.emit('drawings');
-        this.invalidate();
       },
     });
+  }
+
+  // The look the tool's next drawing starts with: the host's, else this window's.
+  private lookFor(type: string): DrawingTemplate | undefined {
+    return this.drawingTemplates?.lastUsed?.(type) ?? lastLooks.get(type);
+  }
+
+  private rememberLook(drawing: SerializedDrawing): void {
+    const definition = toolDefinitions.get(drawing.type);
+    if (!definition || drawing.props?.isTransient) return;
+    const look = lookOf(drawing, definition);
+    lastLooks.set(drawing.type, look);
+    this.drawingTemplates?.setLastUsed?.(drawing.type, look);
+  }
+
+  // A change from the floating toolbar, which also becomes the tool's look.
+  private restyleSelected(patch: Partial<DrawingStyle>): void {
+    const drawing = this.selected();
+    if (!drawing) return;
+    const style: DrawingStyle = { ...drawing.style, ...patch };
+    // A patch clears a setting with undefined (opacity back to opaque).
+    for (const key of Object.keys(style) as (keyof DrawingStyle)[]) if (style[key] === undefined) delete style[key];
+    this.patchSelected({ style });
+    this.rememberLook(this.selected()!);
+  }
+
+  private applyTemplate(id: string, template: DrawingTemplate | null): void {
+    const drawing = this.drawingList.find((candidate) => candidate.id === id);
+    if (!drawing) return;
+    this.checkpoint();
+    const next = withTemplate(drawing, template, styleFor(drawing.type));
+    if (!Object.keys(next.props ?? {}).length) delete next.props;
+    this.drawingList = this.drawingList.map((candidate) => (candidate.id === id ? next : candidate));
+    this.rememberLook(next);
+    if (this.selectedId === id) this.select(id);
+    this.emit('drawings');
+    this.invalidate();
+  }
+
+  // The template entries offered for a drawing by the floating toolbar and the context menu.
+  private templateActions(id: string): TemplateListActions & { applyDefault: () => void } {
+    const store = this.drawingTemplates;
+    const type = this.drawingList.find((candidate) => candidate.id === id)?.type ?? '';
+    const templates = store?.list(type) ?? [];
+    const names = templates.map((template) => template.name);
+    return {
+      names,
+      apply: (name) => this.applyTemplate(id, templates.find((template) => template.name === name) ?? null),
+      applyDefault: () => this.applyTemplate(id, null),
+      ...(store ? {
+        saveAs: () => askTemplateName(this.root, names, (name) => {
+          const drawing = this.drawingList.find((candidate) => candidate.id === id);
+          if (drawing) store.save(type, templateOf(drawing, name));
+        }),
+        remove: (name: string) => confirmRemove(this.root, name, () => store.remove(type, name)),
+      } : {}),
+    };
   }
 
   // Edits a drawing's text in place, in a box over its first anchor. Enter keeps the text
@@ -2596,7 +2736,8 @@ export class MeridianChart {
     const ordered = this.shownDrawings().sort((left, right) => left.zIndex - right.zIndex);
     for (const drawing of ordered) paintShapes(ctx, this.shapesOf(drawing).shapes, defaults);
     if (this.draft) {
-      const draft: SerializedDrawing = { id: 'draft', type: this.draft.type, paneId: 'price', anchors: this.draft.anchors, style: styleFor(this.draft.type), locked: false, visible: true, zIndex: 0, createdAt: 0, ...(this.draft.definition.hasText ? { text: this.draft.definition.defaultText ?? '' } : {}) };
+      const look = this.lookFor(this.draft.type);
+      const draft: SerializedDrawing = { id: 'draft', type: this.draft.type, paneId: 'price', anchors: this.draft.anchors, style: look?.style ?? styleFor(this.draft.type), locked: false, visible: true, zIndex: 0, createdAt: 0, ...(this.draft.definition.hasText ? { text: look?.text ?? this.draft.definition.defaultText ?? '' } : {}), ...(look?.props ? { props: look.props } : {}) };
       paintShapes(ctx, this.shapesOf(draft, true).shapes, defaults);
       if (this.draft.definition.anchors !== 'free') this.paintHandles(this.handlePoints(draft), draft.style.lineColor);
     }

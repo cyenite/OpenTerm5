@@ -64,7 +64,7 @@ export type ToolboxTab = 'trade' | 'exposure' | 'history' | 'journal';
 
 export const pages = [
   { key: 'trading', label: 'Trading', shortcut: 'Ctrl+1' },
-  { key: 'copier', label: 'Copy Trading', shortcut: 'Ctrl+2' },
+  { key: 'copier', label: 'Trade Copier', shortcut: 'Ctrl+2' },
   { key: 'signals', label: 'Signals', shortcut: 'Ctrl+3' },
   { key: 'automation', label: 'Automation', shortcut: 'Ctrl+4' },
   { key: 'journaling', label: 'Journaling', shortcut: 'Ctrl+5' },

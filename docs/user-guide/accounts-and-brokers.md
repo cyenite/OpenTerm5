@@ -34,6 +34,18 @@ the option is disabled; OpenTerm5 never stores a password in plain text.
 
 Accounts that use a one-time code need a fresh code after every disconnection.
 
+### Unique client ID for prop firm accounts
+
+At every login the broker receives a client ID (CID) that identifies your computer. The standard web
+terminal picks it from about a million values, so strangers with the same screen, scaling and language
+can end up with the same one, and prop firms have closed accounts over shared CIDs.
+
+Tick **Generate unique CID** when you log in to a prop firm account. OpenTerm5 then gives this
+computer a CID nobody else has, once, before that login connects. Every account on this computer keeps
+sharing it, which is what firms expect from one trader who copies between their own accounts. Once
+done, the box stays ticked and greyed out. Accounts already connected in the background pick up the
+new CID the next time they connect.
+
 ## How OpenTerm5 finds your broker
 
 MT5 web trading has no server field at login. A broker is reached through its own web trading

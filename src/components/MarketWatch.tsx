@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { SymbolSpec } from '../../shared/protocol';
+import type { AccountSignIn, SymbolSpec } from '../../shared/protocol';
 import { newOrder, showSymbol, toggleDepth, togglePanel } from '../lib/commands';
 import { formatClock, formatPrice } from '../lib/format';
-import { session } from '../lib/session';
+import { session, signingIn, signInName } from '../lib/session';
 import { useStore } from '../lib/store';
 import { openChart, openDialog, updateActiveChart, workspace } from '../lib/workspace';
 import type { WatchRow } from '../lib/watchlist-model';
@@ -15,6 +15,7 @@ import type { MenuItem } from './MenuBar';
 import { openContextMenu, openMenuAt } from '../lib/context-menu';
 import { Panel } from './Panel';
 import { SymbolSearch } from './SymbolSearch';
+import { SigningIn } from './ui/SigningIn';
 
 const tabs = ['Symbols', 'Details'] as const;
 const entryType = 'text/x-openterm-watch-entry';
@@ -72,18 +73,19 @@ function QuoteRow({ spec, isSelected, dropSide, onSelect, onMenu, onDragStart, o
 
 interface MissingRowProps extends DragProps {
   name: string;
+  signIn: AccountSignIn | null;
   isSelected: boolean;
   isOffline: boolean;
   onSelect: () => void;
   onMenu: (event: React.MouseEvent) => void;
 }
 
-function MissingRow({ name, isSelected, isOffline, dropSide, onSelect, onMenu, onDragStart, onDragOver, onDrop, onDragEnd }: MissingRowProps) {
+function MissingRow({ name, signIn, isSelected, isOffline, dropSide, onSelect, onMenu, onDragStart, onDragOver, onDrop, onDragEnd }: MissingRowProps) {
   return (
     <tr
       data-key={name}
       className={`quote-row is-missing${isSelected ? ' is-selected' : ''}${dropClass(dropSide)}`}
-      title={isOffline ? 'Quotes appear once an account is connected' : 'This account does not offer this symbol under any name'}
+      title={signIn ? `Quotes appear once ${signInName(signIn)} has signed in` : isOffline ? 'Quotes appear once an account is connected' : 'This account does not offer this symbol under any name'}
       onMouseDown={onSelect}
       onContextMenu={onMenu}
       draggable
@@ -287,6 +289,7 @@ export function MarketWatch() {
   const list = useActiveWatchlist();
   const lists = useStore(watchlists, (state) => state.lists);
   const all = useStore(session, (state) => state.symbols);
+  const signIn = useStore(session, signingIn);
   const hasCharts = useStore(workspace, (state) => state.charts.length > 0);
   const isAnalysis = useStore(workspace, (state) => state.isAnalysisMode);
   const [tab, setTab] = useState<(typeof tabs)[number]>('Symbols');
@@ -422,6 +425,7 @@ export function MarketWatch() {
             { label: 'Remove All Unused', isDisabled: !specs.length, action: removeUnused },
           ])}
         >
+          {signIn && <p className="empty"><SigningIn signIn={signIn} /></p>}
           <table className="grid quotes">
             <thead>
               <tr>
@@ -442,12 +446,12 @@ export function MarketWatch() {
                 return spec ? (
                   <QuoteRow key={`${row.index}:${key}`} spec={spec} isSelected={selected === key} onSelect={() => setSelected(key)} onMenu={(event) => symbolMenu(event, row)} {...drag(row)} />
                 ) : (
-                  <MissingRow key={`${row.index}:${key}`} name={row.name} isOffline={isOffline} isSelected={selected === key} onSelect={() => setSelected(key)} onMenu={(event) => symbolMenu(event, row)} {...drag(row)} />
+                  <MissingRow key={`${row.index}:${key}`} name={row.name} signIn={signIn} isOffline={isOffline} isSelected={selected === key} onSelect={() => setSelected(key)} onMenu={(event) => symbolMenu(event, row)} {...drag(row)} />
                 );
               })}
               <tr className="quote-add">
                 <td colSpan={5}>
-                  <SymbolSearch ref={search} symbols={all} watched={watched} onPick={pick} />
+                  <SymbolSearch ref={search} symbols={all} watched={watched} signIn={signIn} onPick={pick} />
                 </td>
               </tr>
             </tbody>

@@ -1033,6 +1033,22 @@ button:disabled {
   align-items: center;
 }
 
+.info-tip {
+  display: inline-flex;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: help;
+  box-shadow: none;
+}
+
+.info-tip:hover,
+.info-tip:focus-visible {
+  color: var(--text);
+}
+
 .indent {
   padding-left: 22px;
   display: flex;
@@ -2391,6 +2407,23 @@ button.is-link {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.signing-in {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.signing-in .spinner,
+.status-link.is-pending,
+.account-chip.is-signing-in .spinner {
+  color: var(--accent);
+}
+
+.account-chip.is-signing-in {
+  cursor: progress;
 }
 
 .dialog-title.is-draggable {

@@ -74,12 +74,56 @@ workspace.
 | Limit | Meaning |
 |---|---|
 | Daily loss (money) | Maximum loss since the start of the trading day |
-| Daily loss (percent) | The same, as a percentage of the day's starting equity |
+| Daily loss (percent) | The same, as a percentage of the day's starting value |
 | Maximum drawdown | Maximum fall from the highest equity, as a percentage. Reset manually |
 | Daily profit lock | Stop trading for the day once this profit is reached |
 | Maximum open positions | A cap on the number of open positions |
 | Maximum lots per symbol | A cap on total volume in one symbol |
-| Day starts at | The local hour at which the trading day resets |
+| Max trade requests a day | A cap on orders, changes, closes and deletes sent in one trading day |
+| No new trades before / after news | Minutes around economic releases in which new trades are blocked |
+
+### When the trading day starts
+
+Prop firms measure the daily loss from a fixed moment, and they do not all use the same clock. Set
+**Day resets on** and **Day starts at** to match your firm's rules:
+
+| Clock | Use it for |
+|---|---|
+| Broker server time | Most firms, which reset at midnight on the MT5 server clock |
+| Prague time (FTMO) | FTMO, which resets at midnight CE(S)T |
+| New York time | Firms that reset at 17:00 New York time |
+| UTC | Firms that state a UTC time |
+| This computer | Your own local time |
+
+**Daily loss measured from** chooses the starting value:
+
+- **Balance at day start** ignores positions that are open at the reset, as at FTMO.
+- **Equity at day start** includes their floating profit or loss.
+- **Higher of balance and equity** is the most cautious, as at The5ers.
+
+The starting values are recorded from the first update after the reset. If OpenTerm5 was not running
+at the reset, losses taken before it opened are not counted, so open it before your trading day starts.
+New guards reset at broker server midnight on the higher of balance and equity; guards saved by an
+earlier version keep local time and equity.
+
+### Trade request limit
+
+Some firms cap the number of trade requests a day (FTMO: 2,000). Every order, change, close and delete
+sent from any source counts, including copier retries. OpenTerm5 counts them for every account. When
+the limit is reached, new orders and changes are refused, but closing positions and deleting orders
+still go through, so you are never stuck in a trade. The Journal warns at 80% of the limit.
+
+### News blackout
+
+With minutes set before or after news, new trades are blocked around economic releases of the chosen
+impact for the currencies a symbol depends on: both currencies of a pair, the quote currency of a metal
+and the currency of an index, as listed by the broker. Closing and changing trades is never blocked.
+The guard lists the week's upcoming releases.
+
+The calendar comes from ForexFactory and is downloaded only while a guard uses a news blackout, then
+refreshed every hour. If the calendar does not cover the current week (the download failed), nothing
+is blocked and the guard says so: check the release times yourself. A stop or target filled inside the
+window still counts as trading at some firms, which OpenTerm5 cannot prevent.
 
 When a limit is reached, the guard either **blocks new trades** or **closes everything and blocks**.
 A block applies to every source: manual orders, the risk ticket, the chart, signals and the copier.

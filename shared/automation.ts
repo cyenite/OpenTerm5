@@ -1,5 +1,9 @@
 import type { OrderTypeKey, TradeResult } from './protocol';
 import type { DistanceUnit, RiskMode } from './risk';
+import type { NewsImpact, NewsView } from './news';
+import { isNewsImpact } from './news';
+import type { LossBasis, ResetZone } from './trading-day';
+import { isLossBasis, isResetZone } from './trading-day';
 
 export interface PartialTarget {
   points: number;
@@ -35,13 +39,35 @@ export interface AccountGuard {
   accountId: string;
   action: GuardAction;
   resetHour: number;
+  resetZone: ResetZone;
+  lossBasis: LossBasis;
+  newsImpact: NewsImpact;
   dailyLossMoney?: number;
   maxOpenPositions?: number;
   maxLotsPerSymbol?: number;
   dailyLossPercent?: number;
   dailyProfitMoney?: number;
+  maxDailyRequests?: number;
+  newsMinutesAfter?: number;
+  newsMinutesBefore?: number;
   maxDrawdownPercent?: number;
   isEnabled: boolean;
+}
+
+export const defaultGuard = (accountId: string): AccountGuard => ({
+  accountId, action: 'blockNew', resetHour: 0, resetZone: 'server', lossBasis: 'higher', newsImpact: 'high', isEnabled: false,
+});
+
+// Guards saved before the reset zone and loss basis existed keep their old behaviour:
+// local time and equity at day start.
+export function parseGuard(value: AccountGuard): AccountGuard {
+  return {
+    ...value,
+    resetZone: isResetZone(value.resetZone) ? value.resetZone : 'local',
+    lossBasis: isLossBasis(value.lossBasis) ? value.lossBasis : 'equity',
+    newsImpact: isNewsImpact(value.newsImpact) ? value.newsImpact : 'high',
+    resetHour: Number.isInteger(value.resetHour) && value.resetHour >= 0 && value.resetHour <= 23 ? value.resetHour : 0,
+  };
 }
 
 export interface GuardState {
@@ -50,7 +76,15 @@ export interface GuardState {
   reason?: string;
   trippedAt?: number;
   peakEquity: number;
+  dayStartedAt?: number;
   dayStartEquity: number;
+  dayStartBalance: number;
+}
+
+export interface RequestCount {
+  count: number;
+  dayKey: string;
+  accountId: string;
 }
 
 export const bulkKinds = [
@@ -138,6 +172,30 @@ export interface TradingWindow {
   start: string;
 }
 
+export interface EquityProtection {
+  action: GuardAction;
+  lossBasis: LossBasis;
+  resetZone: ResetZone;
+  minEquity: number;
+  resetHour: number;
+  maxDailyLossPercent: number;
+}
+
+export const defaultEquityProtection: EquityProtection = { action: 'blockNew', minEquity: 0, resetHour: 0, resetZone: 'server', lossBasis: 'higher', maxDailyLossPercent: 0 };
+
+// Followers saved before the reset settings existed keep resetting at local midnight on equity.
+export function parseEquityProtection(value: Partial<EquityProtection> | undefined): EquityProtection {
+  const raw = value ?? {};
+  return {
+    action: raw.action === 'closeAll' ? 'closeAll' : 'blockNew',
+    minEquity: Number(raw.minEquity) > 0 ? Number(raw.minEquity) : 0,
+    resetHour: Number.isInteger(raw.resetHour) && raw.resetHour! >= 0 && raw.resetHour! <= 23 ? raw.resetHour! : 0,
+    resetZone: isResetZone(raw.resetZone) ? raw.resetZone : 'local',
+    lossBasis: isLossBasis(raw.lossBasis) ? raw.lossBasis : 'equity',
+    maxDailyLossPercent: Number(raw.maxDailyLossPercent) > 0 ? Number(raw.maxDailyLossPercent) : 0,
+  };
+}
+
 export interface FollowerConfig {
   id: string;
   accountId: string;
@@ -153,7 +211,7 @@ export interface FollowerConfig {
   tradingHours: TradingWindow[];
   delay: { minMs: number; maxMs: number };
   lotFilter: { min: number; max: number };
-  equityProtection: { minEquity: number; maxDailyLossPercent: number; action: GuardAction };
+  equityProtection: EquityProtection;
   stopMode: 'price' | 'distance';
   riskValue: number;
   lotRefiner: number;
@@ -193,6 +251,7 @@ export interface CopierLogEntry {
   symbol: string;
   message: string;
   copierId: string;
+  accountId?: string;
   followerId: string;
   latencyMs?: number;
   masterTicket?: number;
@@ -300,6 +359,12 @@ export interface ManagerView {
   rules: PositionRule[];
   guards: AccountGuard[];
   guardStates: GuardState[];
+  requestCounts: RequestCount[];
+}
+
+export interface AuditExportResult {
+  path: string | null;
+  entries: number;
 }
 
 export interface CopierMappingView {
@@ -375,6 +440,9 @@ export interface AutomationMethods {
   'copier.remove': [{ id: string }, boolean];
   'copier.resetProtection': [{ followerId: string }, boolean];
   'copier.symbols': [{ accountId: string }, string[]];
+  'copier.exportAudit': [{ copierId?: string }, AuditExportResult];
+  'news.view': [Record<string, never>, NewsView];
+  'news.refresh': [Record<string, never>, NewsView];
   'accounts.unlock': [{ id: string; password: string }, boolean];
   'webhooks.view': [Record<string, never>, WebhookView];
   'webhooks.save': [WebhookSettings, WebhookStatus];
@@ -387,6 +455,7 @@ export interface AutomationMethods {
 export type AutomationMethod = keyof AutomationMethods;
 
 export interface AutomationEvents {
+  news: NewsView;
   manager: ManagerView;
   copier: CopierView;
   copierLog: CopierLogEntry;

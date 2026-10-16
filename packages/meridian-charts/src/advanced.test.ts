@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PriceScale } from './core/price-scale';
-import { applyDrawingFields, drawingFields, isShownOn } from './drawings/settings';
+import { applyDrawingFields, drawingFields, isShownOn, lookOf, visibilityForInterval } from './drawings/settings';
 import { styleFor, toolDefinitions } from './drawings/tools';
 import { applySettingsFields, defaultSettings, restoreSettings, settingsFields } from './settings';
 import { meridianDark } from './themes';
 import type { SerializedDrawing } from './types';
-import type { FieldValues } from './ui/dialog';
+import { fieldValues, type FieldValues } from './ui/dialog';
 
 const close = (actual: number, expected: number, epsilon = 1e-9) => assert.ok(Math.abs(actual - expected) < epsilon, `${actual} ≉ ${expected}`);
 
@@ -78,7 +78,7 @@ test('drawing settings edit style, coordinates and visibility', () => {
   const subject = drawing('rectangle', [{ time: 1_000, price: 1.1 }, { time: 61_000, price: 1.2 }]);
   const fields = drawingFields(subject, definition);
   assert.deepEqual([...new Set(fields.map((field) => field.tab))].filter((tab) => ['Style', 'Coordinates', 'Visibility'].includes(tab!)), ['Style', 'Coordinates', 'Visibility']);
-  const values: FieldValues = Object.fromEntries(fields.map((field) => [field.key, field.value as FieldValues[string]]));
+  const values = fieldValues(fields);
   const unchanged = applyDrawingFields(subject, definition, values);
   assert.deepEqual(unchanged.anchors, subject.anchors);
   assert.deepEqual({ ...unchanged.style, extendRight: undefined }, { ...subject.style, extendRight: undefined, fillColor: subject.style.fillColor ?? subject.style.lineColor, fillOpacity: subject.style.fillOpacity ?? 0.15, textColor: subject.style.textColor ?? subject.style.lineColor, fontSize: subject.style.fontSize ?? 13 });
@@ -102,4 +102,37 @@ test('text tools get a Text tab', () => {
   assert.ok(fields.some((field) => field.tab === 'Text' && field.key === 'text'));
   const values: FieldValues = Object.fromEntries(fields.map((field) => [field.key, field.value as FieldValues[string]]));
   assert.equal(applyDrawingFields(subject, entry, { ...values, text: 'World' }).text, 'World');
+});
+
+test('visibility limits a drawing to a range of intervals in each band', () => {
+  const definition = toolDefinitions.get('trend-line')!;
+  const subject = drawing('trend-line', [{ time: 0, price: 1 }, { time: 60_000, price: 2 }]);
+  const values = fieldValues(drawingFields(subject, definition));
+  assert.deepEqual(values['range:minutes'], [1, 59]);
+  const edited = applyDrawingFields(subject, definition, { ...values, 'range:minutes': [5, 30], 'visible:days': false });
+  assert.deepEqual(edited.props?.visibility, { seconds: true, minutes: true, minutesFrom: 5, minutesTo: 30, hours: true, days: false, weeks: true, months: true });
+  assert.equal(isShownOn(edited, 60_000), false, 'not on M1');
+  assert.equal(isShownOn(edited, 15 * 60_000), true, 'on M15');
+  assert.equal(isShownOn(edited, 4 * 3_600_000), true, 'on H4');
+  assert.equal(isShownOn(edited, 86_400_000), false, 'not on D1');
+  const restored = fieldValues(drawingFields(edited, definition));
+  assert.deepEqual(restored['range:minutes'], [5, 30]);
+  assert.equal(restored['visible:days'], false);
+});
+
+test('visibility on intervals follows the chart interval', () => {
+  const at = (choice: 'above' | 'below' | 'only' | 'all') => ({ ...drawing('trend-line', []), props: { visibility: visibilityForInterval(15 * 60_000, choice) } });
+  assert.equal(at('all').props.visibility, undefined);
+  assert.deepEqual([60_000, 15 * 60_000, 30 * 60_000, 3_600_000].map((interval) => isShownOn(at('above'), interval)), [false, true, true, true]);
+  assert.deepEqual([5_000, 60_000, 15 * 60_000, 3_600_000].map((interval) => isShownOn(at('below'), interval)), [true, true, true, false]);
+  assert.deepEqual([60_000, 15 * 60_000, 3_600_000].map((interval) => isShownOn(at('only'), interval)), [false, true, false]);
+});
+
+test('a look carries style and options, and text only for optional labels', () => {
+  const line = { ...drawing('trend-line', [{ time: 0, price: 1 }, { time: 60_000, price: 2 }]), text: 'BOS', props: { endArrow: true, visibility: { minutes: false } } };
+  const lineLook = lookOf(line, toolDefinitions.get('trend-line')!);
+  assert.equal(lineLook.text, 'BOS');
+  assert.deepEqual(lineLook.props, { endArrow: true }, 'visibility stays with the drawing');
+  const note = { ...drawing('anchored-text', [{ time: 0, price: 1 }]), text: 'Hello' };
+  assert.equal(lookOf(note, toolDefinitions.get('anchored-text')!).text, undefined);
 });

@@ -56,3 +56,34 @@ test('a corrupt file is replaced and malformed IDs are refused', async () => {
   for (const value of [null, {}, { cid: 'ab' }, { cid: 'A'.repeat(32) }, { cid: 5 }]) assert.throws(() => parseClientId(value));
   assert.throws(() => new DeviceIdentity(file, () => traits).clientId, /not been loaded/);
 });
+
+test('IDs from the narrow seed are flagged until a new one is generated', async () => {
+  const file = await scratch();
+  await fs.writeFile(file, JSON.stringify({ cid: 'ab'.repeat(16) }));
+  const identity = new DeviceIdentity(file, () => traits);
+  await identity.load();
+  assert.equal(identity.hasWeakSeed, true);
+  await identity.regenerate();
+  assert.equal(identity.hasWeakSeed, false);
+  assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).version, 2);
+  const reloaded = new DeviceIdentity(file, () => traits);
+  await reloaded.load();
+  assert.equal(reloaded.hasWeakSeed, false);
+});
+
+test('new IDs differ even on identical machines', async () => {
+  const ids = await Promise.all([1, 2, 3].map(async () => (await new DeviceIdentity(await scratch(), () => traits).load()).toString('hex')));
+  assert.equal(new Set(ids).size, 3);
+});
+
+test('ensuring a unique ID replaces a narrow-seed ID once and then keeps it', async () => {
+  const file = await scratch();
+  await fs.writeFile(file, JSON.stringify({ cid: 'ab'.repeat(16) }));
+  const identity = new DeviceIdentity(file, () => traits);
+  await identity.load();
+  assert.equal(await identity.ensureUnique(), true);
+  const upgraded = identity.clientId.toString('hex');
+  assert.notEqual(upgraded, 'ab'.repeat(16));
+  assert.equal(await identity.ensureUnique(), false);
+  assert.equal(identity.clientId.toString('hex'), upgraded, 'later logins keep the same device');
+});
