@@ -43,9 +43,14 @@ session ID (u64). OpenTerm5 fills the password, code, client ID and login; the r
 
 The official web terminal derives the client ID as the first 16 bytes of the SHA-1 of
 `platform;devicePixelRatio;language;<larger>x<smaller screen side>;<stored random number>`, and keeps
-it in browser storage, so one browser sends the same ID every time. OpenTerm5 computes it the same way
-once, stores it in `device.json` in the profile and sends it from every connection and account
-(`device-identity.ts`).
+it in browser storage, so one browser sends the same ID every time. The random number is at most
+1,000,000, so two people with the same platform, scaling, language and screen size share a CID often
+enough to matter (about even odds among 1,200 such users). OpenTerm5 uses the same recipe with a
+128-bit random seed, which the server cannot tell apart because it only sees the hash. It computes the
+CID once, stores it in `device.json` in the profile (`version: 2`) and sends it from every connection
+and account (`device-identity.ts`). A `device.json` without a version holds a CID from the narrow seed;
+ticking **Generate unique CID** in the login dialog replaces it once, before that login connects
+(`DeviceIdentity.ensureUnique`).
 
 ## Records
 

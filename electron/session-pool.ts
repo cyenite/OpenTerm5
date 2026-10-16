@@ -1,6 +1,9 @@
 import { EventEmitter } from 'node:events';
-import type { JournalEntry, LinkState, TerminalEvent, TerminalMethod, TerminalMethods, Tick, TradeSnapshot } from '../shared/protocol';
+import type { JournalEntry, LinkState, TerminalEvent, TerminalMethod, TerminalMethods, Tick, TradeRequest, TradeSnapshot } from '../shared/protocol';
 import type { CopierLinkState } from '../shared/automation';
+
+// Returns why a trade request must not be sent, or null to send it.
+export type TradeGate = (request: TradeRequest) => string | null;
 
 export interface TradingLink extends EventEmitter {
   readonly loggedIn: boolean;
@@ -8,6 +11,7 @@ export interface TradingLink extends EventEmitter {
   connect(endpoint: string): Promise<void>;
   disconnect(): void;
   setPollInterval(milliseconds: number): void;
+  setTradeGate(gate: TradeGate | undefined): void;
   request<M extends TerminalMethod>(method: M, params: TerminalMethods[M][0]): Promise<TerminalMethods[M][1]>;
 }
 
@@ -24,6 +28,7 @@ const DEFAULT_POLL = 2_000;
 // session on the same login would invalidate the first.
 export class SessionPool extends EventEmitter {
   private uiAccount: string | null = null;
+  private admit?: (accountId: string, request: TradeRequest) => string | null;
   private readonly background = new Map<string, TradingLink>();
   private readonly starting = new Map<string, Promise<TradingLink>>();
   private readonly users = new Map<string, Set<string>>();
@@ -36,6 +41,12 @@ export class SessionPool extends EventEmitter {
     private readonly create: () => TradingLink,
   ) {
     super();
+    ui.setTradeGate((request) => this.uiAccount ? this.admit?.(this.uiAccount, request) ?? null : null);
+  }
+
+  // One gate sees every trade request on every session, whichever engine or window sent it.
+  setAdmission(admit: ((accountId: string, request: TradeRequest) => string | null) | undefined): void {
+    this.admit = admit;
   }
 
   get activeAccount(): string | null { return this.uiAccount; }
@@ -151,6 +162,7 @@ export class SessionPool extends EventEmitter {
     }
     this.close(accountId);
     const link = this.create();
+    link.setTradeGate((request) => this.admit?.(accountId, request) ?? null);
     this.background.set(accountId, link);
     link.on('event', (event: TerminalEvent, data: unknown) => {
       if (this.background.get(accountId) !== link) return;

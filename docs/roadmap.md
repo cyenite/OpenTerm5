@@ -27,7 +27,7 @@ Issues tagged `roadmap` track each item; comment there before starting work on o
 ## Not planned
 
 - **MQL5 Expert Advisors and indicators, MetaEditor and the Strategy Tester.** OpenTerm5 does not run
-  compiled MT5 programs. Its automation, copy trading and signal API cover the most common reasons to
+  compiled MT5 programs. Its automation, trade copier and signal API cover the most common reasons to
   use them.
 - **MetaQuotes services** such as the Market, Signals and VPS.
 - **Broker services** such as account opening, deposits and withdrawals; use your broker's client

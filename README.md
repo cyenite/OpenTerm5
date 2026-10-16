@@ -10,7 +10,7 @@
 OpenTerm5 gives you the familiar MetaTrader 5 desktop workflow without Wine, a virtual machine or a
 Windows-only terminal. It connects directly to your broker's MT5 trading servers. On top of that
 workflow it adds tools that traders usually buy as Expert Advisors or third-party services: risk-based
-order sizing, trade management, copy trading between accounts, and an HTTP signal API for
+order sizing, trade management, a trade copier between accounts, and an HTTP signal API for
 TradingView alerts and bots.
 
 > **Risk warning.** Trading foreign exchange, CFDs and other leveraged products carries a high level of
@@ -44,7 +44,7 @@ TradingView alerts and bots.
 - Manage open positions with break-even, trailing stops, partial targets, hidden stops and time exits.
 - Equity guards per account: daily loss limits, maximum drawdown, a profit lock and exposure caps.
 
-**Copy trading**
+**Trade Copier**
 
 - Copy from a master account to any number of followers, across brokers.
 - Six risk modes, symbol mapping, filters, trading hours and equity protection.
@@ -84,7 +84,7 @@ detail.
 | [Trading](docs/user-guide/trading.md) | Charts, windows, orders and trading from the chart |
 | [Accounts and brokers](docs/user-guide/accounts-and-brokers.md) | Logging in, saved accounts and broker detection |
 | [Risk and automation](docs/user-guide/risk-and-automation.md) | Risk-based orders, position management and equity guards |
-| [Copy trading](docs/user-guide/copy-trading.md) | Copying trades between accounts |
+| [Trade Copier](docs/user-guide/trade-copier.md) | Copying trades between accounts |
 | [Signal API](docs/user-guide/signal-api.md) | Webhook reference for TradingView and bots |
 | [Keyboard shortcuts](docs/user-guide/keyboard-shortcuts.md) | Shortcut reference |
 | [Troubleshooting](docs/troubleshooting.md) | Common problems and their fixes |
@@ -98,7 +98,7 @@ interface is built with React. Charts are drawn by Meridian (`packages/meridian-
 own canvas chart engine and theme system.
 
 The main process contains an independent client for the protocol that MT5 web trading uses. It keeps
-one broker session per account. The trade management, copy trading and signal engines run alongside
+one broker session per account. The trade management, trade copier and signal engines run alongside
 it, so they keep working while you use the interface. They need OpenTerm5 to be running and connected.
 See [Architecture](docs/development/architecture.md).
 

@@ -1,6 +1,7 @@
 import type {
   Account,
   AccountProfile,
+  AccountSignIn,
   JournalEntry,
   LinkState,
   Order,
@@ -58,6 +59,7 @@ export interface SessionState {
   accounts: AccountProfile[];
   link: LinkState;
   status: TerminalStatus | null;
+  signIn: AccountSignIn | null;
   account: Account | null;
   orders: Order[];
   journal: JournalEntry[];
@@ -76,6 +78,7 @@ export const session = new Store<SessionState>({
   accounts: [],
   link: { url: '', state: 'idle' },
   status: null,
+  signIn: null,
   account: null,
   orders: [],
   journal: [],
@@ -166,6 +169,26 @@ async function loadSession(): Promise<void> {
   }
 }
 
+// Main reports the login finished before this window has the account's symbols and quotes, so
+// the sign-in is shown until the synchronisation already running for it settles.
+function applySignIn(signIn: AccountSignIn | null): void {
+  const current = session.get().signIn;
+  const work = refreshWork;
+  if (signIn || !work || current?.state !== 'signing-in') {
+    session.set({ signIn });
+    return;
+  }
+  void work.finally(() => { if (session.get().signIn === current) session.set({ signIn: null }); });
+}
+
+export function signingIn(state: SessionState): AccountSignIn | null {
+  return state.signIn?.state === 'signing-in' ? state.signIn : null;
+}
+
+export function signInName(signIn: AccountSignIn): string {
+  return [signIn.label || String(signIn.login), signIn.server].filter(Boolean).join(' · ');
+}
+
 export function isTradePending(state: SessionState, target: TradeTarget): boolean {
   return state.pendingTrades.some((trade) => (target.position !== undefined && trade.position === target.position) || (target.order !== undefined && trade.order === target.order));
 }
@@ -226,6 +249,8 @@ export function startSession(): void {
       session.set({ extraSymbols: [], profileId: null, account: null, status: null, orders: [], positions: [], symbols: {}, ticks: {}, directions: {} });
     } else session.set({ profileId: id });
   });
+  terminal.on('signIn', applySignIn);
+  void terminal.request('accounts.signIn', {}).then(applySignIn).catch((error: Error) => log(error.message, 'Accounts'));
   void terminal.request('accounts.list', {}).then((accounts) => session.set({ accounts, profileId: accounts.find((profile) => profile.isActive)?.id ?? null })).catch((error: Error) => log(error.message, 'Accounts'));
   terminal.on('status', (status) => session.set({ status }));
   terminal.on('symbols', (symbols) => session.set((state) => ({ symbols: { ...state.symbols, ...Object.fromEntries(symbols.map((symbol) => [symbol.name, symbol])) } })));

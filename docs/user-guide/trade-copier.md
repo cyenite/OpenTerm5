@@ -1,6 +1,6 @@
-# Copy trading
+# Trade Copier
 
-The **Copy Trading** workspace (Ctrl+2) copies trades from a master account to any number of follower
+The **Trade Copier** workspace (Ctrl+2) copies trades from a master account to any number of follower
 accounts. The accounts can be at the same broker or at different brokers.
 
 > The copier runs inside OpenTerm5 and copies only while OpenTerm5 is running and connected to every
@@ -16,7 +16,7 @@ a restart.
 
 ## Creating a copier
 
-1. Open **Copy Trading** and choose **Create a copier**.
+1. Open **Trade Copier** and choose **Create a copier**.
 2. Choose the **master** account.
 3. Under **Followers**, pick an account from **+ Add follower**. Repeat for more followers.
 4. Configure each follower (see below), then set the copier's status to **Enabled**.
@@ -78,7 +78,9 @@ to `EURUSD.m`. Add explicit mappings for other differences, such as `DE40` to `G
 ### Equity protection
 
 Each follower can stop copying when its equity falls below a minimum, or when its daily loss exceeds
-a percentage. It can then either block new copies or close every copy.
+a percentage. It can then either block new copies or close every copy. The daily loss resets on the
+clock and is measured from the value you choose, as for an
+[equity guard](risk-and-automation.md#when-the-trading-day-starts).
 
 ## How copying works
 
@@ -94,3 +96,13 @@ each master position and its copies, and the follower's positions. The master is
 
 The **Activity** section lists the open copies and a **Log** of every action with its result. The
 connection list shows the state of each account's session.
+
+## Audit export
+
+**Export audit** saves one copier's settings, copies and full log as a JSON file, together with the
+account logins and holder names and the client ID this computer sends at login. Every copy pairs a
+master ticket with a follower ticket and a time, so a prop firm can check it against the broker's own
+records. Use it to show that you copied between your own accounts if a firm asks.
+
+The file is a record, not a proof: it is not signed, and you could edit it. Its value is that every
+ticket and time in it can be verified on the broker's side.

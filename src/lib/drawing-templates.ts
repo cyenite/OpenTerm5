@@ -8,9 +8,12 @@ import { Store } from './store';
 
 export interface DrawingTemplatesState {
   byType: Readonly<Record<string, readonly DrawingTemplate[]>>;
+  // The look each tool's next drawing starts with: the last one restyled or templated.
+  lastByType: Readonly<Record<string, DrawingTemplate>>;
 }
 
 const STORAGE_KEY = 'openterm.drawing-templates.v1';
+const LOOKS_KEY = 'openterm.drawing-looks.v1';
 
 // Templates from storage, read through the drawing migration so their styles get the same checks.
 export function restoreDrawingTemplates(value: unknown): Record<string, DrawingTemplate[]> {
@@ -26,15 +29,22 @@ export function restoreDrawingTemplates(value: unknown): Record<string, DrawingT
   }));
 }
 
-function load(): Record<string, DrawingTemplate[]> {
+// The last-used looks, stored as one unnamed template per tool and checked the same way.
+export function restoreDrawingLooks(value: unknown): Record<string, DrawingTemplate> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return {};
+  const named = Object.fromEntries(Object.entries(value).map(([type, look]) => [type, [{ ...(look as object), name: 'look' }]]));
+  return Object.fromEntries(Object.entries(restoreDrawingTemplates(named)).map(([type, [look]]) => [type, { ...look, name: '' }]));
+}
+
+function load<T>(key: string, restore: (value: unknown) => T, fallback: T): T {
   try {
-    return restoreDrawingTemplates(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null'));
+    return restore(JSON.parse(localStorage.getItem(key) ?? 'null'));
   } catch {
-    return {};
+    return fallback;
   }
 }
 
-export const drawingTemplates = new Store<DrawingTemplatesState>({ byType: load() });
+export const drawingTemplates = new Store<DrawingTemplatesState>({ byType: load(STORAGE_KEY, restoreDrawingTemplates, {}), lastByType: load(LOOKS_KEY, restoreDrawingLooks, {}) });
 
 const none: readonly DrawingTemplate[] = [];
 
@@ -58,6 +68,8 @@ export const drawingTemplateStore: DrawingTemplateStore = {
   list: (type) => drawingTemplates.get().byType[type] ?? none,
   save: saveTemplate,
   remove: removeTemplate,
+  lastUsed: (type) => drawingTemplates.get().lastByType[type],
+  setLastUsed: (type, template) => drawingTemplates.set((state) => ({ lastByType: { ...state.lastByType, [type]: template } })),
 };
 
 // Adds imported templates. One with the name of a template already here is kept as it is unless
@@ -79,6 +91,7 @@ export function startDrawingTemplates(): void {
   drawingTemplates.subscribe(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(drawingTemplates.get().byType));
+      localStorage.setItem(LOOKS_KEY, JSON.stringify(drawingTemplates.get().lastByType));
       isSaveFailing = false;
     } catch (error) {
       if (!isSaveFailing) log(`Drawing templates could not be saved: ${(error as Error).message}`, 'Charts');

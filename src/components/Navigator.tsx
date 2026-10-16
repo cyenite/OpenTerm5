@@ -11,7 +11,7 @@ import { Panel } from './Panel';
 
 interface TreeNodeProps {
   label: string;
-  icon: string;
+  icon: ReactNode;
   detail?: string;
   title?: string;
   isEmphasized?: boolean;
@@ -50,8 +50,10 @@ function TreeNode({ label, icon, detail, title, isEmphasized, isInitiallyCollaps
 
 export function Navigator() {
   const accounts = useStore(session, (state) => state.accounts);
+  const signIn = useStore(session, (state) => state.signIn);
   const profileId = useStore(session, (state) => state.profileId);
   const status = useStore(session, (state) => state.status);
+  const isSigningIn = signIn?.state === 'signing-in';
   const chartId = useStore(workspace, (state) => activeChart(state)?.id);
   const attach = (kind: string) => chartId && addIndicator(chartId, kind);
 
@@ -63,17 +65,21 @@ export function Navigator() {
             <TreeNode label="Accounts" icon="👤" menu={() => [{ label: 'Login to Trade Account...', action: () => openDialog({ kind: 'login' }) }, { label: 'Manage Accounts...', action: () => openDialog({ kind: 'accounts' }) }]}>
               {accounts.map((profile) => {
                 const isActive = profileId === profile.id;
+                const isTarget = signIn?.id === profile.id;
+                const hasFailed = isTarget && signIn.state === 'failed';
+                const isPending = isTarget && isSigningIn;
+                const summary = `${profile.login} · ${profile.server}${profile.company ? ` · ${profile.company}` : ''}`;
                 return (
                   <TreeNode
                     key={profile.id}
                     label={profile.label || String(profile.login)}
-                    detail={isActive ? 'active' : profile.tradeMode}
-                    icon={isActive ? '●' : '○'}
-                    isEmphasized={isActive}
-                    title={`${profile.login} · ${profile.server}${profile.company ? ` · ${profile.company}` : ''}`}
-                    onOpen={() => { if (!isActive) void connectProfile(profile); }}
+                    detail={isPending ? 'signing in' : hasFailed ? 'failed' : isActive ? 'active' : profile.tradeMode}
+                    icon={isPending ? <span className="spinner" aria-hidden /> : isActive ? '●' : '○'}
+                    isEmphasized={isActive || isPending}
+                    title={hasFailed ? `${summary} · Sign-in failed: ${signIn.error ?? 'unknown error'}` : isSigningIn && !isPending ? `${summary} · Available once the current sign-in finishes` : summary}
+                    onOpen={() => { if (!isActive && !isSigningIn) void connectProfile(profile); }}
                     menu={() => [
-                      { label: 'Login', isDisabled: isActive, action: () => void connectProfile(profile) },
+                      { label: isPending ? 'Signing in…' : 'Login', isDisabled: isActive || isSigningIn, action: () => void connectProfile(profile) },
                       { label: 'Edit Login...', action: () => openDialog({ kind: 'login', profileId: profile.id }) },
                       { label: '', isSeparator: true },
                       { label: 'Remove', action: () => void removeProfile(profile) },

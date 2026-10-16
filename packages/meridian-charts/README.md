@@ -25,7 +25,12 @@ dependencies: charts are drawn on a canvas, and the toolbar, legend and dialogs 
 - **Drawings** (`drawings/`): 82 tools in six groups (`catalogue.ts`). Each tool describes itself as
   shapes (`shapes.ts`) that are both painted and hit-tested (`tools.ts`), and declares its own
   settings (levels, options) as `fields`. The chart handles placing, selecting, moving, anchor
-  editing, the magnet, locking, hiding and the tabbed settings dialog (`drawings/settings.ts`).
+  editing, the magnet, locking, hiding and the settings dialog (`drawings/settings.ts`), laid out
+  like TradingView's with a live preview, interval-range visibility and a Template menu. A new
+  drawing starts with the last look the user gave its tool (`DrawingTemplateStore.lastUsed`).
+- **Dialogs and popups** (`ui/dialog.ts`, `ui/color-picker.ts`, `ui/dropdown.ts`, `ui/stylebar.ts`):
+  the property dialog, TradingView's colour picker (palette, custom colours, opacity, thickness),
+  list dropdowns, and the floating toolbar of the selected drawing.
 - **Toolbar** (`ui/toolbar.ts`): groups with sectioned flyouts, last-used tool per group, favourites,
   magnet, stay-in-drawing-mode, lock, hide and remove. Icons are in `ui/icons.ts`.
 - **Themes** (`themes.ts`): one palette colours both the host application, through CSS custom

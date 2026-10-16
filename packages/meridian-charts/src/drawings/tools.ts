@@ -73,6 +73,8 @@ export interface ToolDefinition {
   defaults?: Partial<DrawingStyle>;
   // Tool-specific settings (levels, options) shown in the settings dialog.
   fields?: readonly ToolField[];
+  // Names for the anchors on the Coordinates tab, in place of #1, #2…
+  anchorNames?: readonly string[];
   build: (g: ShapeList, env: ToolEnv) => void;
 }
 
@@ -531,19 +533,21 @@ function positionCreate(isLong: boolean) {
   };
 }
 
+const positionAnchors = ['Entry', 'Target', 'Stop'];
+
 const positionFields: ToolField[] = [
-  numberField('accountSize', 'Account size', 1000, 0),
-  numberField('lotSize', 'Lot size', 1, 0),
-  numberField('riskPercent', 'Risk (%)', 1, 0, 100, 0.1),
-  colorField('profitColor', 'Target colour', '#089981'),
-  colorField('stopColor', 'Stop colour', '#f23645'),
-  numberField('areaOpacity', 'Background opacity (%)', 20, 0, 100, 1),
-  ...onTab('Text', [
-    checkbox('showStats', 'Always show stats', true),
-    checkbox('showPriceLabels', 'Target and stop labels', true),
-    checkbox('isCompact', 'Compact labels'),
-    colorField('textColor', 'Text colour', '#ffffff'),
+  ...onTab('Inputs', [
+    numberField('accountSize', 'Account size', 1000, 0),
+    numberField('lotSize', 'Lot size', 1, 0),
+    numberField('riskPercent', 'Risk (%)', 1, 0, 100, 0.1),
   ]),
+  colorField('profitColor', 'Target color', '#089981'),
+  colorField('stopColor', 'Stop color', '#f23645'),
+  numberField('areaOpacity', 'Background opacity (%)', 20, 0, 100, 1),
+  colorField('textColor', 'Text color', '#ffffff'),
+  checkbox('showPriceLabels', 'Price labels', true),
+  checkbox('isCompact', 'Compact stats mode', true),
+  checkbox('showStats', 'Always show stats'),
 ];
 
 // Follows price from the entry bar to the end of the position: the trade closes at the first bar
@@ -585,17 +589,19 @@ function position(isLong: boolean): Build {
     const isCompact = o.bool('isCompact');
     const color = o.str('textColor');
     const ratio = risk ? (reward / risk).toFixed(2) : '-';
+    // Compact keeps the boxes readable over the candles: prices and percentages only, with the
+    // amounts and quantity left to the full mode.
     if (o.bool('showPriceLabels') || env.isSelected) {
       const targetText = isCompact ? `${env.formatPrice(targetPrice)} (${pct(targetPrice)})` : `Target: ${env.formatPrice(targetPrice)} (${pct(targetPrice)}) ${env.formatPrice(reward)}, Amount: ${money(reward)}`;
       const stopText = isCompact ? `${env.formatPrice(stopPrice)} (${pct(stopPrice)})` : `Stop: ${env.formatPrice(stopPrice)} (${pct(stopPrice)}) ${env.formatPrice(risk)}, Amount: ${money(risk)}`;
-      label(g, { x: mid, y: target.y + (isLong ? -12 : 12) }, targetText, env, { align: 'center', background: profitColor, color, size: 11 });
-      label(g, { x: mid, y: stop.y + (isLong ? 12 : -12) }, stopText, env, { align: 'center', background: stopColor, color, size: 11 });
+      label(g, { x: mid, y: target.y + (isLong ? -10 : 10) }, targetText, env, { align: 'center', background: profitColor, color, size: isCompact ? 10 : 11 });
+      label(g, { x: mid, y: stop.y + (isLong ? 10 : -10) }, stopText, env, { align: 'center', background: stopColor, color, size: isCompact ? 10 : 11 });
     }
     if (o.bool('showStats') || env.isSelected) {
       const outcome = targetPoint.time > entryPoint.time ? positionOutcome(env, isLong, entryPoint, targetPoint.time, targetPrice, stopPrice) : null;
       const pnl = outcome ? `${outcome.isClosed ? 'Closed' : 'Open'} P&L: ${money((outcome.exit - entryPrice) * (isLong ? 1 : -1))}, ` : '';
       const text = isCompact ? `R:R ${ratio}` : `${isLong ? 'Long' : 'Short'} · ${pnl}Qty: ${amount(quantity)}\nRisk/Reward Ratio: ${ratio}`;
-      label(g, { x: mid, y: entry.y }, text, env, { align: 'center', background: env.theme.muted, color, size: 11 });
+      label(g, { x: mid, y: entry.y }, text, env, { align: 'center', background: env.theme.muted, color, size: isCompact ? 10 : 11 });
     }
   };
 }
@@ -1287,8 +1293,8 @@ const definitions: ToolDefinition[] = [
   }),
 
   // Forecasting
-  three('long-position', position(true), { create: positionCreate(true), handles: positionHandles, fields: positionFields }),
-  three('short-position', position(false), { create: positionCreate(false), handles: positionHandles, fields: positionFields }),
+  three('long-position', position(true), { create: positionCreate(true), handles: positionHandles, fields: positionFields, anchorNames: positionAnchors }),
+  three('short-position', position(false), { create: positionCreate(false), handles: positionHandles, fields: positionFields, anchorNames: positionAnchors }),
   two('forecast', (g, env) => {
     const [a, b] = env.points;
     const [p0, p1] = env.anchors;

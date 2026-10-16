@@ -3,13 +3,14 @@ import { orderType, type Account, type History, type Order, type Position } from
 import { showToolbox, togglePanel } from '../lib/commands';
 import { downloadHistory } from '../lib/history-export';
 import { formatMoney, formatPrice, formatTime, formatVolume } from '../lib/format';
-import { closePosition, isTradePending, log, sendOrder, session, terminal } from '../lib/session';
+import { closePosition, isTradePending, log, sendOrder, session, signingIn, terminal } from '../lib/session';
 import { useStore } from '../lib/store';
 import { openDialog, workspace, type ToolboxTab } from '../lib/workspace';
 import { openContextMenu } from '../lib/context-menu';
 import { defaultSymbol } from '../lib/broker-symbols';
 import { bulkKinds, type BulkKind } from '../../shared/automation';
 import { runBulkTrades } from '../lib/automation';
+import { SigningIn } from './ui/SigningIn';
 
 async function runBulk(kind: BulkKind, ticket?: number, symbol?: string): Promise<void> {
   const label = `${bulkKinds.find((candidate) => candidate.key === kind)?.label ?? kind}${ticket ? ` #${ticket}` : ''}${symbol ? ` ${symbol}` : ''}`;
@@ -120,6 +121,8 @@ interface AccountSummaryProps {
 }
 
 function AccountSummary({ account }: AccountSummaryProps) {
+  const signIn = useStore(session, signingIn);
+  if (signIn) return <SigningIn signIn={signIn} />;
   if (!account) {
     return <span className="is-muted">No account information</span>;
   }

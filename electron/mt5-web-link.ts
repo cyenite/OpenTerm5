@@ -6,6 +6,7 @@ import { Mt5WebClient, type WebCredentials } from './mt5-web-client';
 import { WebProtocolError } from './mt5-web-transport';
 import { BotCheckError } from './bot-check';
 import { RequestQueue } from './request-queue';
+import type { TradeGate } from './session-pool';
 import { matchSymbol } from '../shared/symbol-match';
 import { buildSymbolSubscription, type WebTickUpdate } from './mt5-web-market';
 import { adjustQuote, parseAccountModel, parseSymbolDetails, type WebAccountModel, type WebSymbolDetails } from './mt5-web-models';
@@ -63,6 +64,7 @@ export class Mt5WebLink extends EventEmitter {
   private readonly pinned = new Set<string>();
   private readonly untrusted = new Set<string>();
   private readonly subscribed = new Set<string>();
+  private tradeGate?: TradeGate;
   state: LinkState = { url: '', state: 'idle' };
 
   constructor(private readonly createClient = (endpoint: string) => new Mt5WebClient(endpoint), private readonly retryDelay = 500) {
@@ -118,6 +120,10 @@ export class Mt5WebLink extends EventEmitter {
     if (this.poller) this.startPolling();
   }
 
+  setTradeGate(gate: TradeGate | undefined): void {
+    this.tradeGate = gate;
+  }
+
   request<M extends TerminalMethod>(method: M, params: TerminalMethods[M][0]): Promise<TerminalMethods[M][1]> {
     const epoch = this.epoch;
     const started = performance.now();
@@ -127,6 +133,8 @@ export class Mt5WebLink extends EventEmitter {
     const values = params as Record<string, any>;
     const canRead = this.isLoggedIn && !this.isStopped && !this.pendingLogins;
     if (method === 'order.send') {
+      const refused = this.tradeGate?.(params as TradeRequest);
+      if (refused) return Promise.reject(new Error(refused));
       const symbol = values.symbol ?? this.positions.find((position) => position.ticket === values.position)?.symbol
         ?? this.orders.find((order) => order.ticket === values.order)?.symbol;
       const ready = canRead && this.details.has(symbol) ? Promise.resolve() : this.queue.enqueue(async () => {

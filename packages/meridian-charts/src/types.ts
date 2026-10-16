@@ -85,6 +85,10 @@ export interface DrawingTemplateStore {
   // Replaces a template of the same name.
   save(type: string, template: DrawingTemplate): void;
   remove(type: string, name: string): void;
+  // The look a new drawing of the tool starts with: the last one the user restyled or templated.
+  // Without these the chart remembers it for the window's lifetime only.
+  lastUsed?(type: string): DrawingTemplate | undefined;
+  setLastUsed?(type: string, template: DrawingTemplate): void;
 }
 
 // ── Studies ──────────────────────────────────────────────────────────────────

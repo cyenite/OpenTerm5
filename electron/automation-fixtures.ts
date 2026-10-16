@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { Account, LinkState, Order, Position, SymbolSpec, TerminalMethod, TerminalMethods, TradeRequest, TradeResult } from '../shared/protocol';
-import type { TradingLink } from './session-pool';
+import type { TradeGate, TradingLink } from './session-pool';
 
 export const eurusdSpec: SymbolSpec = {
   name: 'EURUSD', path: 'Forex\\EURUSD', tradeMode: 'Full access', description: 'Euro vs US Dollar',
@@ -41,6 +41,7 @@ export class FakeLink extends EventEmitter implements TradingLink {
   quote = { bid: 1.1, ask: 1.1001 };
   info = account();
   pollInterval = 2000;
+  gate?: TradeGate;
   respond: (request: TradeRequest) => TradeResult | Promise<TradeResult> = (request) => {
     this.applyTrade(request);
     return { retcode: 10009, isSuccess: true, comment: 'Done', order: 900 + this.sent.length };
@@ -49,6 +50,7 @@ export class FakeLink extends EventEmitter implements TradingLink {
   async connect(): Promise<void> { this.loggedIn = true; }
   disconnect(): void { this.loggedIn = false; }
   setPollInterval(milliseconds: number): void { this.pollInterval = milliseconds; }
+  setTradeGate(gate: TradeGate | undefined): void { this.gate = gate; }
 
   applyTrade(request: TradeRequest): void {
     if (request.action === 'deal' && request.position) {
@@ -87,6 +89,8 @@ export class FakeLink extends EventEmitter implements TradingLink {
         case 'trade.snapshot': return { account: this.info, orders: this.orders, positions: this.positions };
         case 'order.send': {
           const request = params as TradeRequest;
+          const refused = this.gate?.(request);
+          if (refused) throw new Error(refused);
           this.sent.push(request);
           return this.respond(request);
         }

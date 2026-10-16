@@ -1,4 +1,5 @@
 import type { FollowerConfig, TradingWindow } from '../shared/automation';
+import { defaultEquityProtection } from '../shared/automation';
 import type { Position, SymbolSpec } from '../shared/protocol';
 import { floorToStep, stepDecimals } from '../shared/risk';
 import { pipFactor } from '../shared/valuation';
@@ -145,7 +146,7 @@ export function defaultFollower(id: string, accountId: string): FollowerConfig {
     id, accountId, status: 'enabled', riskType: 'lotMultiplier', comment: 'copy', customComment: '', side: 'all',
     symbolMap: {}, magicFilter: { mode: 'off', values: [] }, commentFilter: { mode: 'off', values: [] },
     symbolFilter: { mode: 'off', values: [] }, tradingHours: [], delay: { minMs: 0, maxMs: 0 }, lotFilter: { min: 0, max: 0 },
-    equityProtection: { minEquity: 0, maxDailyLossPercent: 0, action: 'blockNew' }, stopMode: 'price', riskValue: 100, lotRefiner: 0,
+    equityProtection: defaultEquityProtection, stopMode: 'price', riskValue: 100, lotRefiner: 0,
     fixedStopPips: 0, fixedTargetPips: 0, stopRefinePips: 0, targetRefinePips: 0, fixedMasterBalance: 0, maxOpenTrades: 0,
     isReversed: false, isStopCopied: true, isTargetCopied: true, isPendingCopied: false, isExpiryCopied: true, isStrictClose: false,
     isExistingCopied: false, isMinimumForced: false, isMaximumForced: false, isContractAligned: true, isSuffixAutoMapped: true,

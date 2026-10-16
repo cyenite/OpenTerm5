@@ -48,7 +48,7 @@ fit together, so you can find where a change belongs.
 | `accounts.ts`, `account-registry.ts` | Saved accounts and `safeStorage` password encryption |
 | `automation-host.ts` | Creates the engines, their stores and the automation IPC |
 | `trade-manager.ts` | Risk-based orders, position rules, equity guards and bulk actions |
-| `copier.ts`, `copier-math.ts` | Copy trading reconciliation and sizing |
+| `copier.ts`, `copier-math.ts` | Trade Copier reconciliation and sizing |
 | `webhook-server.ts`, `webhook-signal.ts`, `signal-executor.ts`, `signal-ownership.ts` | Signal API |
 | `notifier.ts` | Discord, Slack, Telegram and JSON notifications |
 | `json-store.ts` | Atomic JSON files and rotating JSON Lines logs |
@@ -72,7 +72,7 @@ pure logic for risk sizing (`risk.ts`), currency valuation (`valuation.ts`) and 
 | `src/lib/chart-model.ts` | Saved studies and drawings, and migration from versions before Meridian |
 | `src/components/chart/` | Chart windows and the trade overlay (order and position lines aligned to the Meridian price scale) |
 | `src/components/dialogs/` | Order, modify, login and other dialogs |
-| `src/components/pages/` | Copy Trading, Signals and Automation workspaces |
+| `src/components/pages/` | Trade Copier, Signals and Automation workspaces |
 
 ## Data flow
 

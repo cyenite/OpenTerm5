@@ -8,7 +8,7 @@ import { priceAlerts, updateAlerts } from '../../lib/price-alerts';
 import { cursor } from '../../lib/cursor';
 import { mt5Provider, tickBars } from '../../lib/mt5-provider';
 import { isSecondsTimeframe, timeframeSeconds, toChartTimeframe } from '../../lib/mt5-timeframes';
-import { log, requireSymbols, session } from '../../lib/session';
+import { log, requireSymbols, session, signingIn } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { drawingTemplateStore } from '../../lib/drawing-templates';
 import { drawingsForSymbol, setSymbolDrawings, symbolDrawings } from '../../lib/symbol-drawings';
@@ -18,6 +18,7 @@ import { chartMenu } from '../../lib/chart-menu';
 import { openContextMenu } from '../../lib/context-menu';
 import { OneClickPanel } from './OneClickPanel';
 import { TradeOverlay } from './TradeOverlay';
+import { SigningIn } from '../ui/SigningIn';
 
 interface ChartWindowProps {
   chart: ChartConfig;
@@ -98,6 +99,7 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
   const isTradeOverlayShown = useStore(workspace, (state) => !state.isAnalysisMode || state.isAnalysisPositionsShown);
   const isCollectingTicks = useCollectingTicks(chart);
   const isLinked = useStore(session, (state) => state.link.state === 'open' && (state.status?.mode !== 'mt5-web' || !!state.account));
+  const signIn = useStore(session, signingIn);
   const profileId = useStore(session, (state) => state.profileId);
   const spec = useStore(session, (state) => state.symbols[chart.symbol]);
   const ask = useStore(session, (state) => state.ticks[chart.symbol]?.ask ?? 0);
@@ -320,8 +322,9 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
       <div className="chart-canvas" ref={container} data-tool={tool} />
       {isTradeOverlayShown && <TradeOverlay chart={instance} symbol={chart.symbol} digits={digits} />}
       {isOneClickEnabled && <OneClickPanel symbol={chart.symbol} digits={digits} />}
-      {!isLinked && <div className="chart-status">Waiting for connection</div>}
-      {isLinked && isCollectingTicks && <div className="chart-status">Building {chart.timeframe} bars from live quotes. Seconds charts start when OpenTerm5 receives the symbol's first quotes.</div>}
+      {signIn && <div className="chart-status"><SigningIn signIn={signIn} /></div>}
+      {!signIn && !isLinked && <div className="chart-status">Waiting for connection</div>}
+      {!signIn && isLinked && isCollectingTicks && <div className="chart-status">Building {chart.timeframe} bars from live quotes. Seconds charts start when OpenTerm5 receives the symbol's first quotes.</div>}
     </div>
   );
 }

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CopierConfig, CopierStatus, FollowerConfig, TradingWindow } from '../../../shared/automation';
-import { copierRiskTypes, guardActions } from '../../../shared/automation';
+import { copierRiskTypes, defaultEquityProtection, guardActions } from '../../../shared/automation';
 import { isListedSymbol, matchSymbol } from '../../../shared/symbol-match';
+import { lossBases, resetZones } from '../../../shared/trading-day';
 import { accountLabel, automation, automationStore } from '../../lib/automation';
 import { formatTime } from '../../lib/format';
 import { session } from '../../lib/session';
@@ -40,7 +41,7 @@ function newFollower(accountId: string): FollowerConfig {
   return {
     id: newId(), accountId, status: 'enabled', riskType: 'lotMultiplier', comment: 'copy', customComment: '', side: 'all',
     symbolMap: {}, magicFilter: { mode: 'off', values: [] }, commentFilter: { mode: 'off', values: [] }, symbolFilter: { mode: 'off', values: [] },
-    tradingHours: [], delay: { minMs: 0, maxMs: 0 }, lotFilter: { min: 0, max: 0 }, equityProtection: { minEquity: 0, maxDailyLossPercent: 0, action: 'blockNew' },
+    tradingHours: [], delay: { minMs: 0, maxMs: 0 }, lotFilter: { min: 0, max: 0 }, equityProtection: defaultEquityProtection,
     stopMode: 'price', riskValue: 100, lotRefiner: 0, fixedStopPips: 0, fixedTargetPips: 0, stopRefinePips: 0, targetRefinePips: 0, fixedMasterBalance: 0,
     maxOpenTrades: 0, isReversed: false, isStopCopied: true, isTargetCopied: true, isPendingCopied: false, isExpiryCopied: true, isStrictClose: false,
     isExistingCopied: false, isMinimumForced: false, isMaximumForced: false, isContractAligned: true, isSuffixAutoMapped: true,
@@ -198,8 +199,11 @@ function FollowerEditor({ follower, onChange }: FollowerEditorProps) {
       {tab === 'protection' && (
         <div className="form-grid">
           <NumberField label="Minimum equity" value={follower.equityProtection.minEquity} step={100} hint="Stop copying when follower equity falls below this. 0 is off." onChange={(minEquity) => set({ equityProtection: { ...follower.equityProtection, minEquity } })} />
-          <NumberField label="Max daily loss" value={follower.equityProtection.maxDailyLossPercent} step={0.5} suffix="%" hint="Of the day's starting equity. 0 is off." onChange={(maxDailyLossPercent) => set({ equityProtection: { ...follower.equityProtection, maxDailyLossPercent } })} />
+          <NumberField label="Max daily loss" value={follower.equityProtection.maxDailyLossPercent} step={0.5} suffix="%" hint="Of the day's starting value, measured as set below. 0 is off." onChange={(maxDailyLossPercent) => set({ equityProtection: { ...follower.equityProtection, maxDailyLossPercent } })} />
           <SelectField label="When tripped" value={follower.equityProtection.action} options={guardActions} onChange={(action) => set({ equityProtection: { ...follower.equityProtection, action } })} />
+          <SelectField label="Day resets on" value={follower.equityProtection.resetZone} options={resetZones} hint="Use the clock your firm's rules name." onChange={(resetZone) => set({ equityProtection: { ...follower.equityProtection, resetZone } })} />
+          <NumberField label="Day starts at" value={follower.equityProtection.resetHour} min={0} max={23} suffix=":00" onChange={(resetHour) => set({ equityProtection: { ...follower.equityProtection, resetHour: Math.min(23, Math.max(0, Math.round(resetHour))) } })} />
+          <SelectField label="Daily loss measured from" value={follower.equityProtection.lossBasis} options={lossBases} hint={lossBases.find((item) => item.key === follower.equityProtection.lossBasis)?.hint} onChange={(lossBasis) => set({ equityProtection: { ...follower.equityProtection, lossBasis } })} />
         </div>
       )}
     </div>
@@ -219,6 +223,7 @@ function CopierEditor({ draft, isSaved, onChange, onSaved, onDeleted }: CopierEd
   const view = useStore(automationStore, (state) => state.copier);
   const [selected, setSelected] = useState<string | null>(draft.followers[0]?.id ?? null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const stored = view.configs.find((config) => config.id === draft.id);
   const isDirty = !stored || JSON.stringify(stored) !== JSON.stringify(draft);
@@ -236,6 +241,15 @@ function CopierEditor({ draft, isSaved, onChange, onSaved, onDeleted }: CopierEd
     finally { setIsBusy(false); }
   };
 
+  const exportAudit = async () => {
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await automation.request('copier.exportAudit', { copierId: draft.id });
+      if (result.path) setNotice(`Saved ${result.entries} log entries to ${result.path}`);
+    } catch (reason) { setError((reason as Error).message); }
+  };
+
   return (
     <div className="page-scroll">
       <Section
@@ -243,12 +257,14 @@ function CopierEditor({ draft, isSaved, onChange, onSaved, onDeleted }: CopierEd
         detail="One master, any number of followers. Copies run while OpenTerm5 is open."
         actions={(
           <>
+            {isSaved && <button type="button" title="Save this copier's settings, copies and log, with ticket numbers a prop firm can check against the broker" onClick={exportAudit}>Export audit</button>}
             {isSaved && <button type="button" className="is-danger" onClick={() => { if (window.confirm(`Delete ${draft.name}? Open copies stay open on the follower accounts.`)) void automation.request('copier.remove', { id: draft.id }).then(onDeleted); }}>Delete</button>}
             <button type="button" className="is-primary" disabled={isBusy || !isDirty} onClick={save}>{isDirty ? 'Save changes' : 'Saved'}</button>
           </>
         )}
       >
         {error && <p className="banner is-bad">{error}</p>}
+        {notice && <p className="banner is-good">{notice}</p>}
         <div className="form-grid">
           <TextField label="Name" value={draft.name} placeholder="Prop firm copier" onChange={(name) => onChange({ ...draft, name })} />
           <SelectField label="Master account" value={draft.masterId} options={[{ key: '', label: 'Choose an account' }, ...accounts.map((profile) => ({ key: profile.id, label: `${profile.label} (${profile.tradeMode})` }))]} hint="Investor (read-only) passwords are enough for a master." onChange={(masterId) => onChange({ ...draft, masterId })} />
@@ -362,7 +378,7 @@ function CopierActivity({ copierId, nameOf }: CopierActivityProps) {
   );
 }
 
-export function CopyTradingPage() {
+export function TradeCopierPage() {
   const view = useStore(automationStore, (state) => state.copier);
   const accounts = useStore(session, (state) => state.accounts);
   const [selectedId, setSelectedId] = useState<string | null>(view.configs[0]?.id ?? null);

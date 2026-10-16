@@ -1,8 +1,9 @@
 import type { AccountProfile } from '../../shared/protocol';
-import { log, refreshSession, terminal } from './session';
+import { log, refreshSession, session, signingIn, terminal } from './session';
 import { openDialog } from './workspace';
 
 export async function connectProfile(profile: AccountProfile): Promise<void> {
+  if (signingIn(session.get())) return;
   if (!profile.hasPassword) { openDialog({ kind: 'login', profileId: profile.id }); return; }
   try {
     await terminal.request('accounts.connect', { id: profile.id });

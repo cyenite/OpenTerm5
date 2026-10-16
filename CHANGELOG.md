@@ -76,6 +76,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (your browser asks you to allow it), with a code from Tradescribe, or with an `openterm5://` link,
   which always asks before connecting. Self-hosters set the journaling platform under Tools >
   Options.
+- Equity guards can cap trade requests per trading day (FTMO allows 2,000). Every order, change, close
+  and delete from any source is counted per account; past the limit only closes and deletes go
+  through, and the Journal warns at 80%.
+- News blackout: an equity guard can block new trades for set minutes before and after economic
+  releases of a chosen impact, matched to the currencies each symbol depends on. The calendar comes
+  from ForexFactory, is downloaded only while a guard uses it, and the guard lists the week's releases.
+- Trade Copier: Export audit saves a copier's settings, copies and full log with tickets, times,
+  account logins and the client ID, so a trader can show a prop firm that they copied between their
+  own accounts.
 
 ### Changed
 
@@ -101,7 +110,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Objects, can now be undone on that chart. The Object Tree follows those changes.
 - The client ID (CID) sent to the broker at login is now kept between connections and restarts, as
   the official web terminal does. Before, every connection sent a new one, so brokers saw a new device
-  each time. Options: Connection shows the CID and can generate a new one.
+  each time.
+- New client IDs use a 128-bit random seed instead of the official web terminal's number up to
+  1,000,000, which strangers with the same screen, scaling and language can share. Prop firms have
+  closed accounts over shared CIDs. Ticking **Generate unique CID** when logging in replaces an older
+  CID once, in the background; the CID is not shown anywhere in the app.
+- Equity guards choose when the trading day starts: broker server time, Prague time (FTMO), New York,
+  UTC or this computer, at any hour. The daily loss can be measured from the balance at the reset (as
+  at FTMO), the equity, or the higher of the two (as at The5ers). New guards default to broker server
+  midnight and the higher value; saved guards keep their previous behaviour. Copier equity protection
+  has the same settings.
+- Copy Trading is now called Trade Copier (workspace tab, Ctrl+2 and the docs).
+- While the saved account signs in at startup or after an account switch, the window says so: the
+  account chip, status bar, Navigator, Market Watch, charts, Toolbox and Depth of Market show which
+  account is signing in, and login actions wait until it finishes. A failed sign-in stays visible
+  with its reason instead of only appearing in the Journal.
+- Drawing settings look and behave like TradingView's: a draggable dialog with Style, Text,
+  Coordinates and Visibility tabs, colour swatches with a palette, custom colours, opacity and
+  thickness, line style lists, bold and italic toggles, and a Template menu (Save as, Apply default,
+  remove a template). Edits show on the chart as you make them; Cancel puts the drawing back.
+  Visibility can be limited to a range of intervals in each band (for example M5 to M30).
+- The floating toolbar of a selected drawing follows TradingView: a drag handle (it stays where you
+  leave it), templates, line, background and text colours, width, style, settings, lock, remove and a
+  More menu. The drawing context menu gains Template, Visual order and Visibility on intervals
+  submenus.
+- Long and short positions start minimal: compact price labels, with the risk/reward stats shown only
+  while the position is selected. Compact stats mode and Always show stats are in its settings.
 
 ### Removed
 
@@ -109,6 +143,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A new drawing now starts with the style of the last one of its tool you restyled or applied a
+  template to, as in TradingView, instead of resetting to the default. It is remembered across
+  restarts.
 - On macOS the window controls no longer cover the File and View menus. They are centred on the top
   bar, and the bar stops leaving room for them in full screen. The account name stays on one line, and
   on narrow windows the top bar compacts instead of clipping.

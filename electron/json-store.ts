@@ -46,8 +46,18 @@ export class JsonLog<T> {
   }
 
   async tail(limit: number): Promise<T[]> {
+    return (await this.read(this.file)).slice(-limit);
+  }
+
+  // Includes the rotated file, oldest first.
+  async all(): Promise<T[]> {
+    await this.writing;
+    return [...await this.read(`${this.file}.1`), ...await this.read(this.file)];
+  }
+
+  private async read(file: string): Promise<T[]> {
     try {
-      const lines = (await fs.readFile(this.file, 'utf8')).trim().split('\n').slice(-limit);
+      const lines = (await fs.readFile(file, 'utf8')).trim().split('\n');
       return lines.flatMap((line) => { try { return [JSON.parse(line) as T]; } catch { return []; } });
     } catch { return []; }
   }

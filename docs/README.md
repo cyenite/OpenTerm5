@@ -10,7 +10,7 @@
   storage and how OpenTerm5 finds your broker.
 - [Risk and automation](user-guide/risk-and-automation.md): risk-based orders, the chart risk
   planner, position management, equity guards and one-click actions.
-- [Copy trading](user-guide/copy-trading.md): copying trades from a master account to followers.
+- [Trade Copier](user-guide/trade-copier.md): copying trades from a master account to followers.
 - [Signal API](user-guide/signal-api.md): the webhook API for TradingView alerts and bots.
 - [Keyboard shortcuts](user-guide/keyboard-shortcuts.md).
 - [Troubleshooting](troubleshooting.md).

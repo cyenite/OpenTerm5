@@ -1,4 +1,5 @@
 import { timeframeMs } from '../core/timeframes';
+import { visibilityBands, visibilityFrom, type Visibility } from '../drawings/settings';
 import { styleFor, toolDefinitions, type Level } from '../drawings/tools';
 import { restoreSettings, type ChartSettings } from '../settings';
 import type { MeridianChartTokens, ThemePatch } from '../themes';
@@ -134,8 +135,6 @@ const DAY = 86_400_000;
 // TradingView's line style numbers: solid, dotted, dashed, large dashed, sparse dotted.
 const lineStyles: readonly LineStyle[] = ['solid', 'dotted', 'dashed', 'dashed', 'dotted'];
 
-const visibilityKeys = ['seconds', 'minutes', 'hours', 'days', 'weeks', 'months'] as const;
-
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const finite = (value: unknown): number | undefined => (typeof value === 'number' && Number.isFinite(value) ? value : undefined);
@@ -254,10 +253,15 @@ function levelsOf(state: Readonly<Record<string, unknown>>, prefix: string): Lev
     .sort((left, right) => left.value - right.value);
 }
 
-function visibilityOf(value: unknown): Record<string, boolean> | undefined {
+// The same shape Meridian keeps: each band's flag with its From/To range.
+function visibilityOf(value: unknown): Visibility | undefined {
   if (!isRecord(value)) return undefined;
-  const visibility = Object.fromEntries(visibilityKeys.map((key) => [key, value[key] !== false]));
-  return Object.values(visibility).every(Boolean) ? undefined : visibility;
+  return visibilityFrom(Object.fromEntries(visibilityBands.map((band) => {
+    const from = Number(value[`${band.key}From`]);
+    const to = Number(value[`${band.key}To`]);
+    const range: [number, number] = [Number.isFinite(from) ? Math.max(1, Math.min(band.max, from)) : 1, Number.isFinite(to) ? Math.max(1, Math.min(band.max, to)) : band.max];
+    return [band.key, { isVisible: value[band.key] !== false, range: [Math.min(...range), Math.max(...range)] as const }];
+  })));
 }
 
 const horizontalAligns: Readonly<Record<string, string>> = { left: 'Left', center: 'Center', right: 'Right' };

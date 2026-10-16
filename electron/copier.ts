@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import type { CopierConfig, CopierLogEntry, FollowerConfig } from '../shared/automation';
+import { parseEquityProtection } from '../shared/automation';
 import type { Order, Position, SymbolSpec, TradeRequest, TradeResult, TradeSnapshot } from '../shared/protocol';
 import { orderType } from '../shared/protocol';
 import { floorToStep } from '../shared/risk';
+import { dayReference, tradingDayKey } from '../shared/trading-day';
 import { copyStops, copyVolume, isWithinHours, mapFollowerSymbol, passesFilters } from './copier-math';
 import type { SessionPool, TradingLink } from './session-pool';
-import { dayKey } from './trade-manager';
 
 export interface CopyMapping {
   id: string;
@@ -32,6 +33,7 @@ export interface Protection {
   reason?: string;
   trippedAt?: number;
   dayStartEquity: number;
+  dayStartBalance: number;
 }
 
 export interface CopierState {
@@ -45,7 +47,7 @@ export interface CopierDeps {
   load(): Promise<CopierState>;
   save(state: CopierState): Promise<void>;
   append(entry: CopierLogEntry): void;
-  canOpen(accountId: string, symbol: string, lots: number): string | null;
+  canOpen(accountId: string, symbol: string, lots: number): Promise<string | null>;
   now?: () => number;
   sleep?: (milliseconds: number) => Promise<void>;
   random?: () => number;
@@ -78,7 +80,12 @@ export class Copier extends EventEmitter {
   private sleep(milliseconds: number): Promise<void> { return milliseconds > 0 ? (this.deps.sleep ?? ((value) => new Promise((resolve) => setTimeout(resolve, value))))(milliseconds) : Promise.resolve(); }
 
   async init(): Promise<void> {
-    this.state = await this.deps.load();
+    const loaded = await this.deps.load();
+    this.state = {
+      ...loaded,
+      configs: loaded.configs.map((config) => ({ ...config, followers: config.followers.map((follower) => ({ ...follower, equityProtection: parseEquityProtection(follower.equityProtection) })) })),
+      protections: loaded.protections.map((item) => ({ ...item, dayStartBalance: item.dayStartBalance ?? item.dayStartEquity })),
+    };
     this.pool.on('trade', (accountId: string, snapshot: TradeSnapshot) => {
       this.snapshots.set(accountId, snapshot);
       for (const config of this.state.configs) {
@@ -99,7 +106,8 @@ export class Copier extends EventEmitter {
   }
 
   private log(entry: Omit<CopierLogEntry, 'id' | 'time'>): void {
-    const full: CopierLogEntry = { id: randomUUID(), time: this.now(), ...entry };
+    const follower = this.state.configs.find((config) => config.id === entry.copierId)?.followers.find((item) => item.id === entry.followerId);
+    const full: CopierLogEntry = { id: randomUUID(), time: this.now(), ...entry, ...(follower ? { accountId: follower.accountId } : {}) };
     this.logs.push(full);
     if (this.logs.length > 1000) this.logs.shift();
     this.deps.append(full);
@@ -133,7 +141,8 @@ export class Copier extends EventEmitter {
     if (visit(config.masterId, new Set())) throw new CopierError('These copiers would copy trades in a loop between accounts');
   }
 
-  async save(config: CopierConfig): Promise<CopierConfig> {
+  async save(input: CopierConfig): Promise<CopierConfig> {
+    const config = { ...input, followers: input.followers.map((follower) => ({ ...follower, equityProtection: parseEquityProtection(follower.equityProtection) })) };
     this.validate(config);
     const isNew = !this.state.configs.some((item) => item.id === config.id);
     this.state = { ...this.state, configs: isNew ? [...this.state.configs, config] : this.state.configs.map((item) => item.id === config.id ? config : item) };
@@ -286,17 +295,20 @@ export class Copier extends EventEmitter {
   private protection(follower: FollowerConfig, snapshot: TradeSnapshot): string | null {
     const settings = follower.equityProtection;
     const equity = snapshot.account?.equity;
+    const balance = snapshot.account?.balance;
     if (!(settings.minEquity > 0 || settings.maxDailyLossPercent > 0) || equity === undefined || !Number.isFinite(equity)) return null;
-    const today = dayKey(this.now(), 0);
+    const today = tradingDayKey(this.now(), settings.resetZone, settings.resetHour, snapshot.account?.utcOffsetSeconds);
     let state = this.state.protections.find((item) => item.followerId === follower.id);
     if (!state || state.dayKey !== today && !state.reason?.startsWith('equity')) {
-      state = { followerId: follower.id, dayKey: today, dayStartEquity: equity, ...(state?.trippedAt && state.reason?.startsWith('equity') ? { trippedAt: state.trippedAt, reason: state.reason } : {}) };
+      const dayStartBalance = balance !== undefined && Number.isFinite(balance) ? balance : equity;
+      state = { followerId: follower.id, dayKey: today, dayStartEquity: equity, dayStartBalance, ...(state?.trippedAt && state.reason?.startsWith('equity') ? { trippedAt: state.trippedAt, reason: state.reason } : {}) };
       this.state.protections = [...this.state.protections.filter((item) => item.followerId !== follower.id), state];
       this.persist();
     }
     if (state.trippedAt) return state.reason ?? 'equity protection tripped';
+    const reference = dayReference(settings.lossBasis, state.dayStartBalance, state.dayStartEquity);
     const reason = settings.minEquity > 0 && equity < settings.minEquity ? `equity ${equity.toFixed(2)} fell below ${settings.minEquity}`
-      : settings.maxDailyLossPercent > 0 && state.dayStartEquity - equity >= state.dayStartEquity * settings.maxDailyLossPercent / 100 ? `daily loss reached ${settings.maxDailyLossPercent}%` : null;
+      : settings.maxDailyLossPercent > 0 && reference - equity >= reference * settings.maxDailyLossPercent / 100 ? `daily loss reached ${settings.maxDailyLossPercent}%` : null;
     if (!reason) return null;
     this.state.protections = this.state.protections.map((item) => item.followerId === follower.id ? { ...item, trippedAt: this.now(), reason } : item);
     this.persist();
@@ -462,7 +474,7 @@ export class Copier extends EventEmitter {
       });
       if ('skip' in sizing) return fail('skipped', sizing.skip);
       const side = follower.isReversed ? (position.side === 'buy' ? 'sell' : 'buy') : position.side;
-      const blocked = this.deps.canOpen(follower.accountId, symbol, sizing.lots);
+      const blocked = await this.deps.canOpen(follower.accountId, symbol, sizing.lots);
       if (blocked) return fail('skipped', blocked);
       await this.delay(follower);
       const entry = side === 'buy' ? quote.ask : quote.bid;
@@ -559,7 +571,7 @@ export class Copier extends EventEmitter {
         stopDistance: order.sl ? Math.abs(order.priceOpen - order.sl) : undefined, limits: spec,
       });
       if ('skip' in sizing) return fail(sizing.skip);
-      const blocked = this.deps.canOpen(follower.accountId, symbol, sizing.lots);
+      const blocked = await this.deps.canOpen(follower.accountId, symbol, sizing.lots);
       if (blocked) return fail(blocked);
       const isBuy = orderType(order.type)!.isBuy;
       const side = isBuy ? 'buy' : 'sell';

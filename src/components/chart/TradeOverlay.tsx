@@ -5,7 +5,7 @@ import { orderType, type Order, type Position } from '../../../shared/protocol';
 import { placeRiskOrder } from '../../lib/automation';
 import { formatMoney, formatPrice, formatVolume } from '../../lib/format';
 import { riskPreferences, setRiskPreferences } from '../../lib/risk-preferences';
-import { closePosition, log, sendOrder, session } from '../../lib/session';
+import { closePosition, log, sendOrder, session, signingIn, signInName } from '../../lib/session';
 import { moneyAt, useMoneyPerUnit } from '../../lib/valuation';
 import { useStore } from '../../lib/store';
 import { useRiskPreview } from '../../lib/risk-preview';
@@ -148,6 +148,7 @@ export function TradeOverlay({ chart: controller, symbol, digits }: TradeOverlay
   // In analysis mode the overlay only shows positions and orders: no dragging, closing or planning.
   const isReadOnly = useStore(workspace, (state) => state.isAnalysisMode);
   const canTrade = useStore(session, (state) => !!state.account && state.status?.capabilities?.trading === true && state.link.state === 'open') && !isReadOnly;
+  const signIn = useStore(session, signingIn);
   const positions = useStore(session, (state) => state.positions);
   const orders = useStore(session, (state) => state.orders);
   const preferences = useStore(riskPreferences, (state) => state);
@@ -349,7 +350,7 @@ export function TradeOverlay({ chart: controller, symbol, digits }: TradeOverlay
   };
 
   const title = decision?.type ? `${orderType(decision.type)!.label}${decision.isMarket ? ' at market' : ''}` : 'Risk order';
-  const panelError = !canTrade ? 'Log in to an account that allows trading.' : decision?.error ?? previewError ?? undefined;
+  const panelError = signIn ? `Signing in to ${signInName(signIn)}…` : !canTrade ? 'Log in to an account that allows trading.' : decision?.error ?? previewError ?? undefined;
 
   return (
     <div className="trade-overlay" style={{ left: geometry.left, width: geometry.width }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>

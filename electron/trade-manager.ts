@@ -1,14 +1,24 @@
 import { EventEmitter } from 'node:events';
-import type { Position, SymbolSpec, TradeRequest, TradeResult, TradeSnapshot } from '../shared/protocol';
 import { orderType } from '../shared/protocol';
-import type { AccountGuard, BulkOutcome, BulkRequest, GuardState, PositionRule, RiskOrderOutcome, RiskOrderRequest } from '../shared/automation';
+import type { Account, Position, SymbolSpec, TradeRequest, TradeResult, TradeSnapshot } from '../shared/protocol';
+import type { AccountGuard, BulkOutcome, BulkRequest, GuardState, PositionRule, RequestCount, RiskOrderOutcome, RiskOrderRequest } from '../shared/automation';
+import { parseGuard } from '../shared/automation';
+import type { NewsEvent, NewsImpact } from '../shared/news';
+import { symbolCurrencies } from '../shared/news';
 import { distanceToPrice, floorToStep, planRisk } from '../shared/risk';
+import { dayReference, lossBases, tradingDayKey } from '../shared/trading-day';
 import type { SessionPool, TradingLink } from './session-pool';
 
 export interface ManagerState {
   rules: PositionRule[];
   guards: AccountGuard[];
   guardStates: GuardState[];
+  requestCounts: RequestCount[];
+}
+
+export interface NewsSource {
+  isCovering(time: number): boolean;
+  blackout(currencies: readonly string[], time: number, beforeMs: number, afterMs: number, minimum: NewsImpact): NewsEvent | undefined;
 }
 
 export interface ManagerStore {
@@ -18,38 +28,81 @@ export interface ManagerStore {
 
 const MAX_FAILURES = 3;
 const PENDING_RULE_DAYS = 30;
+const REQUEST_WARNING_SHARE = 0.8;
 
 const unknownOutcome = (error: unknown): TradeResult => ({ retcode: 0, isSuccess: false, comment: (error as Error).message });
+const loginOf = (accountId: string) => accountId.split('|').pop();
+const clockTime = (time: number) => new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-export function dayKey(time: number, resetHour: number): string {
-  const shifted = new Date(time - resetHour * 3_600_000);
-  return `${shifted.getFullYear()}-${shifted.getMonth() + 1}-${shifted.getDate()}`;
-}
+export const isExitRequest = (request: TradeRequest) => request.action === 'remove' || request.action === 'closeBy' || request.action === 'deal' && !!request.position;
 
 export class TradeManager extends EventEmitter {
   private rules: PositionRule[] = [];
   private guards: AccountGuard[] = [];
   private guardStates = new Map<string, GuardState>();
+  private requestCounts = new Map<string, RequestCount>();
   private readonly busy = new Set<string>();
   private readonly failures = new Map<string, number>();
   private readonly specs = new Map<string, SymbolSpec>();
   private readonly snapshots = new Map<string, TradeSnapshot>();
   private readonly closingAll = new Set<string>();
 
-  constructor(private readonly pool: SessionPool, private readonly store: ManagerStore, private readonly journal: (message: string) => void, private readonly now = () => Date.now()) {
+  constructor(
+    private readonly pool: SessionPool,
+    private readonly store: ManagerStore,
+    private readonly journal: (message: string) => void,
+    private readonly now = () => Date.now(),
+    private readonly news?: NewsSource,
+  ) {
     super();
   }
 
   async init(): Promise<void> {
     const state = await this.store.load();
     this.rules = state.rules;
-    this.guards = state.guards;
-    this.guardStates = new Map(state.guardStates.map((entry) => [entry.accountId, entry]));
+    this.guards = state.guards.map(parseGuard);
+    this.guardStates = new Map(state.guardStates.map((entry) => [entry.accountId, { ...entry, dayStartBalance: entry.dayStartBalance ?? entry.dayStartEquity }]));
+    this.requestCounts = new Map((state.requestCounts ?? []).map((entry) => [entry.accountId, entry]));
     this.pool.on('trade', (accountId: string, snapshot: TradeSnapshot) => void this.onTrade(accountId, snapshot));
   }
 
   state(): ManagerState {
-    return { rules: this.rules, guards: this.guards, guardStates: [...this.guardStates.values()] };
+    return { rules: this.rules, guards: this.guards, guardStates: [...this.guardStates.values()], requestCounts: [...this.requestCounts.values()] };
+  }
+
+  account(accountId: string): Account | null {
+    return this.snapshots.get(accountId)?.account ?? null;
+  }
+
+  private enabledGuard(accountId: string): AccountGuard | undefined {
+    return this.guards.find((item) => item.accountId === accountId && item.isEnabled);
+  }
+
+  // Without a guard, requests are counted per broker server day.
+  private tradingDay(accountId: string, guard = this.enabledGuard(accountId)): string {
+    const offset = this.snapshots.get(accountId)?.account?.utcOffsetSeconds;
+    return guard ? tradingDayKey(this.now(), guard.resetZone, guard.resetHour, offset) : tradingDayKey(this.now(), 'server', 0, offset);
+  }
+
+  private requestsToday(accountId: string, guard?: AccountGuard): number {
+    const entry = this.requestCounts.get(accountId);
+    return entry?.dayKey === this.tradingDay(accountId, guard) ? entry.count : 0;
+  }
+
+  // Every order.send from any source passes through here before it is sent. Exits stay
+  // allowed past the limit so a position can always be closed.
+  admit(accountId: string, request: TradeRequest): string | null {
+    const guard = this.enabledGuard(accountId);
+    const limit = guard?.maxDailyRequests;
+    const count = this.requestsToday(accountId, guard);
+    const isExit = isExitRequest(request);
+    if (limit && count >= limit && !isExit) return `Daily limit of ${limit} trade requests reached on ${loginOf(accountId)}. Closing positions and deleting orders still work; everything else waits for the next trading day.`;
+    const next = count + 1;
+    this.requestCounts.set(accountId, { accountId, dayKey: this.tradingDay(accountId, guard), count: next });
+    if (limit && next > limit) this.journal(`Trade request ${next} sent on ${loginOf(accountId)} over the daily limit of ${limit}, because it closes a position or deletes an order.`);
+    else if (limit && next === Math.ceil(limit * REQUEST_WARNING_SHARE)) this.journal(`${next} of ${limit} daily trade requests used on ${loginOf(accountId)}.`);
+    this.persist();
+    return null;
   }
 
   private persist(): void {
@@ -69,7 +122,8 @@ export class TradeManager extends EventEmitter {
   }
 
   setGuard(guard: AccountGuard): void {
-    this.guards = [...this.guards.filter((item) => item.accountId !== guard.accountId), guard];
+    const parsed = parseGuard(guard);
+    this.guards = [...this.guards.filter((item) => item.accountId !== guard.accountId), parsed];
     this.persist();
   }
 
@@ -81,8 +135,8 @@ export class TradeManager extends EventEmitter {
 
   // Opening trades from any source (manual, risk ticket, webhook, copier) pass
   // through here, so a tripped guard blocks them all.
-  canOpen(accountId: string, symbol?: string, lots = 0): string | null {
-    const guard = this.guards.find((item) => item.accountId === accountId && item.isEnabled);
+  async canOpen(accountId: string, symbol?: string, lots = 0): Promise<string | null> {
+    const guard = this.enabledGuard(accountId);
     if (!guard) return null;
     const state = this.guardStates.get(accountId);
     if (state?.trippedAt) return `Equity guard tripped: ${state.reason}. Reset it in Automation to trade again.`;
@@ -91,6 +145,15 @@ export class TradeManager extends EventEmitter {
     if (guard.maxLotsPerSymbol && symbol) {
       const open = positions.filter((position) => position.symbol === symbol).reduce((sum, position) => sum + position.volume, 0);
       if (open + lots > guard.maxLotsPerSymbol + 1e-9) return `Equity guard allows at most ${guard.maxLotsPerSymbol} lots on ${symbol}.`;
+    }
+    if (guard.maxDailyRequests && this.requestsToday(accountId, guard) >= guard.maxDailyRequests) return `Daily limit of ${guard.maxDailyRequests} trade requests reached.`;
+    const beforeMs = (guard.newsMinutesBefore ?? 0) * 60_000;
+    const afterMs = (guard.newsMinutesAfter ?? 0) * 60_000;
+    if (symbol && this.news && (beforeMs || afterMs)) {
+      const link = this.pool.link(accountId);
+      const spec = link ? await this.spec(link, accountId, symbol).catch(() => undefined) : undefined;
+      const event = this.news.blackout(symbolCurrencies(symbol, spec), this.now(), beforeMs, afterMs, guard.newsImpact);
+      if (event) return `News blackout for ${symbol}: ${event.currency} ${event.title} at ${clockTime(event.time)}. New trades open again at ${clockTime(event.time + afterMs)}.`;
     }
     return null;
   }
@@ -196,28 +259,34 @@ export class TradeManager extends EventEmitter {
   }
 
   private checkGuard(accountId: string, snapshot: TradeSnapshot): void {
-    const guard = this.guards.find((item) => item.accountId === accountId && item.isEnabled);
+    const guard = this.enabledGuard(accountId);
     const equity = snapshot.account?.equity;
+    const balance = snapshot.account?.balance;
     if (!guard || equity === undefined || !Number.isFinite(equity)) return;
-    const today = dayKey(this.now(), guard.resetHour);
+    const today = this.tradingDay(accountId, guard);
     let state = this.guardStates.get(accountId);
     if (!state || state.dayKey !== today) {
       const isDrawdownTrip = state?.reason?.startsWith('drawdown');
-      state = { accountId, dayKey: today, dayStartEquity: equity, peakEquity: Math.max(equity, state?.peakEquity ?? equity), ...(isDrawdownTrip ? { trippedAt: state!.trippedAt, reason: state!.reason } : {}) };
+      state = {
+        accountId, dayKey: today, dayStartedAt: this.now(), dayStartEquity: equity, dayStartBalance: balance !== undefined && Number.isFinite(balance) ? balance : equity,
+        peakEquity: Math.max(equity, state?.peakEquity ?? equity), ...(isDrawdownTrip ? { trippedAt: state!.trippedAt, reason: state!.reason } : {}),
+      };
       this.guardStates.set(accountId, state);
       this.persist();
     }
     if (equity > state.peakEquity) state.peakEquity = equity;
     if (state.trippedAt) return;
-    const loss = state.dayStartEquity - equity;
+    const reference = dayReference(guard.lossBasis, state.dayStartBalance, state.dayStartEquity);
+    const loss = reference - equity;
+    const basis = lossBases.find((item) => item.key === guard.lossBasis)!.label.toLowerCase();
     const reason =
       guard.dailyLossMoney && loss >= guard.dailyLossMoney ? `daily loss ${loss.toFixed(2)} reached the ${guard.dailyLossMoney} limit` :
-      guard.dailyLossPercent && loss >= state.dayStartEquity * guard.dailyLossPercent / 100 ? `daily loss reached ${guard.dailyLossPercent}% of the day's starting equity` :
+      guard.dailyLossPercent && loss >= reference * guard.dailyLossPercent / 100 ? `daily loss reached ${guard.dailyLossPercent}% of the ${basis}` :
       guard.maxDrawdownPercent && state.peakEquity - equity >= state.peakEquity * guard.maxDrawdownPercent / 100 ? `drawdown reached ${guard.maxDrawdownPercent}% from the equity peak` :
       guard.dailyProfitMoney && -loss >= guard.dailyProfitMoney ? `daily profit target ${guard.dailyProfitMoney} reached` : undefined;
     if (!reason) return;
     this.guardStates.set(accountId, { ...state, trippedAt: this.now(), reason });
-    this.journal(`Equity guard tripped on ${accountId.split('|').pop()}: ${reason}. New trades are blocked.`);
+    this.journal(`Equity guard tripped on ${loginOf(accountId)}: ${reason}. New trades are blocked.`);
     this.emit('tripped', accountId, reason);
     this.persist();
     if (guard.action === 'closeAll' && !this.closingAll.has(accountId)) {
@@ -271,7 +340,7 @@ export class TradeManager extends EventEmitter {
     } else if (request.kind === 'reverse') {
       const position = snapshot.positions.find((item) => item.ticket === request.ticket);
       if (!position) throw new Error('Position is no longer open');
-      const blocked = this.canOpen(accountId, position.symbol, 0);
+      const blocked = await this.canOpen(accountId, position.symbol, 0);
       if (blocked) throw new Error(blocked);
       const closed = await closing(position);
       if (closed.isSuccess) await send(position.ticket, position.symbol, { action: 'deal', symbol: position.symbol, volume: position.volume, type: position.side === 'buy' ? 'sell' : 'buy', comment: position.comment });
@@ -310,7 +379,7 @@ export class TradeManager extends EventEmitter {
     if (!plan.isValid) throw new Error(plan.warnings.join(' '));
     const outcome: RiskOrderOutcome = { lots: plan.lots, warnings: plan.warnings, results: [], riskMoney: plan.riskMoney, stopLoss, entry, takeProfits: plan.legs.map((leg) => leg.takeProfit), isDryRun: !!request.isDryRun };
     if (request.isDryRun) return outcome;
-    const blocked = this.canOpen(accountId, request.symbol, plan.lots);
+    const blocked = await this.canOpen(accountId, request.symbol, plan.lots);
     if (blocked) throw new Error(blocked);
     const management = request.management ?? {};
     const isStealth = !!management.isStealth;
