@@ -193,6 +193,8 @@ button:active:not(:disabled) {
   margin: 0;
   padding: 3px 0;
   list-style: none;
+  /* A submenu sits inside its parent entry; without this it inherits the hovered entry's accent text. */
+  color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
@@ -1218,7 +1220,7 @@ button:disabled {
   color: var(--accent-text);
 }
 
-.menu-entry:hover:not(.is-disabled) .menu-shortcut {
+.menu-entry:hover:not(.is-disabled) > .menu-shortcut {
   color: rgb(255 255 255 / 0.8);
 }
 

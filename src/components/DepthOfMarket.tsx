@@ -57,6 +57,8 @@ export class DepthOfMarket extends Component<DepthOfMarketProps, DepthOfMarketSt
 
   componentWillUnmount(): void {
     this.epoch++;
+    // StrictMode remounts this same instance in development; the next mount must subscribe again.
+    this.isSubscribed = false;
     this.offBook?.();
     this.offSession?.();
     void terminal.request('book.unsubscribe', { symbol: this.props.symbol }).catch(() => {});
