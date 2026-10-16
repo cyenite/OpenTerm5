@@ -149,6 +149,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - On macOS the window controls no longer cover the File and View menus. They are centred on the top
   bar, and the bar stops leaving room for them in full screen. The account name stays on one line, and
   on narrow windows the top bar compacts instead of clipping.
+- In light themes, hovering an item in a submenu (Indicators, Panels, the menu bar, context menus) no
+  longer turns the other items' text white, which made the submenu unreadable.
 
 ## [0.2.0] - 2026-10-14
 
