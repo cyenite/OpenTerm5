@@ -16,6 +16,7 @@ import { startDrawingTemplates } from './lib/drawing-templates';
 import './styles.css';
 
 document.body.classList.add(`platform-${window.terminal.platform}`);
+window.terminal.on('fullScreen', (isFullScreen) => document.body.classList.toggle('is-full-screen', isFullScreen));
 startTheming();
 registerMt5Studies();
 startTickBars();

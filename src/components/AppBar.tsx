@@ -67,13 +67,13 @@ function ModeSwitch({ isAnalysis }: ModeSwitchProps) {
   const choose = (isWanted: boolean) => { if (isWanted !== isAnalysis) toggleAnalysisMode(); };
   return (
     <div className="mode-switch" role="radiogroup" aria-label="Mode">
-      <button type="button" role="radio" aria-checked={!isAnalysis} className={isAnalysis ? '' : 'is-active'} onClick={() => choose(false)} {...hintProps({ title: 'Trade', shortcut: 'Ctrl+Shift+A', description: 'The full terminal: order tickets, one-click trading, the toolbox and every workspace.' })}>
+      <button type="button" role="radio" aria-checked={!isAnalysis} aria-label="Trade" className={isAnalysis ? '' : 'is-active'} onClick={() => choose(false)} {...hintProps({ title: 'Trade', shortcut: 'Ctrl+Shift+A', description: 'The full terminal: order tickets, one-click trading, the toolbox and every workspace.' })}>
         <Icon name="trade" size={14} />
-        Trade
+        <span className="mode-switch-label">Trade</span>
       </button>
-      <button type="button" role="radio" aria-checked={isAnalysis} className={isAnalysis ? 'is-active' : ''} onClick={() => choose(true)} {...hintProps({ title: 'Analysis', shortcut: 'Ctrl+Shift+A', description: 'A chart-first layout without trading controls. Accounts, copiers and signals keep running.' })}>
+      <button type="button" role="radio" aria-checked={isAnalysis} aria-label="Analysis" className={isAnalysis ? 'is-active' : ''} onClick={() => choose(true)} {...hintProps({ title: 'Analysis', shortcut: 'Ctrl+Shift+A', description: 'A chart-first layout without trading controls. Accounts, copiers and signals keep running.' })}>
         <Icon name="analysis" size={14} />
-        Analysis
+        <span className="mode-switch-label">Analysis</span>
       </button>
     </div>
   );
