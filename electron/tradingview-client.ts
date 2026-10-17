@@ -1,4 +1,4 @@
-import type { TradingViewAccount, TradingViewChartSettings, TradingViewChartSettingsScan, TradingViewDrawings, TradingViewDrawingSet, TradingViewDrawingTemplate, TradingViewLineToolData, TradingViewPointData, TradingViewScan, TradingViewSkippedLayout, TradingViewSource, TradingViewSymbol } from '../shared/tradingview';
+import type { TradingViewAccount, TradingViewChartSettings, TradingViewChartSettingsScan, TradingViewDrawings, TradingViewDrawingSet, TradingViewDrawingTemplate, TradingViewLineToolData, TradingViewPointData, TradingViewScan, TradingViewScript, TradingViewScriptListing, TradingViewScriptPage, TradingViewSkippedLayout, TradingViewSource, TradingViewSymbol } from '../shared/tradingview';
 
 interface LineToolRecord extends TradingViewLineToolData {
   ownerSource?: string;
@@ -14,6 +14,29 @@ export const tradingViewSite = 'https://www.tradingview.com';
 const sharedChartId = '_shared';
 
 const defaultStorage = 'https://charts-storage.tradingview.com/charts-storage/';
+
+// TradingView's Pine service; its public script page asks it for the source (2026-10-16 build).
+const pineFacade = 'https://pine-facade.tradingview.com/pine-facade';
+
+// `script.access` on a script page for an open-source script; protected and invite-only scripts
+// run on TradingView's servers and their source is never sent.
+const publicAccess = 1;
+
+// The popular list (TradingView's default `latest_popular` order, open-source scripts only) stops
+// at 1000 scripts, 24 to a page. Its `next` links drop the type filter, so pages carry it again.
+const SCRIPTS_PER_PAGE = 24;
+
+export const scriptListPages = Math.ceil(1000 / SCRIPTS_PER_PAGE);
+
+const isScriptId = (value: unknown): value is string => typeof value === 'string' && /^PUB;[0-9a-f]{32}$/i.test(value);
+
+interface ScriptPage {
+  version: number;
+  url: string;
+  name: string;
+  author: string;
+  scriptId: string;
+}
 
 interface ChartPage {
   storageUrl: string;
@@ -155,6 +178,79 @@ export function parseSources(payload: unknown): LineToolRecord[] {
 }
 
 // Storage can key a symbol with its settings: ={"symbol":"FX:EURUSD","adjustment":"splits"}.
+// The script page's address on www.tradingview.com, from any TradingView script link.
+export function scriptPageUrl(link: string): string {
+  let url: URL;
+  try {
+    url = new URL(link.trim());
+  } catch {
+    throw new TradingViewError('Paste the address of a TradingView script page.');
+  }
+  const isTradingView = url.protocol === 'https:' && (url.hostname === 'tradingview.com' || url.hostname.endsWith('.tradingview.com'));
+  const path = /^\/script\/[A-Za-z0-9]+(?:-[^/]*)?\/?$/.exec(url.pathname)?.[0];
+  if (!isTradingView || !path) throw new TradingViewError('Paste the address of a TradingView script page, such as https://www.tradingview.com/script/AbCd1234-Name/.');
+  return `${tradingViewSite}${path.endsWith('/') ? path : `${path}/`}`;
+}
+
+// The published script behind a page: the idea record the page's init data carries.
+function scriptIdea(value: unknown, depth = 0): Record<string, unknown> | null {
+  if (!isRecord(value) || depth > 6) return null;
+  if (isRecord(value.script) && typeof value.script.script_id_part === 'string') return value;
+  for (const child of Object.values(value)) {
+    const idea = scriptIdea(child, depth + 1);
+    if (idea) return idea;
+  }
+  return null;
+}
+
+export function parseScriptPage(html: string, url: string): ScriptPage {
+  for (const match of html.matchAll(/<script type="application\/prs\.init-data\+json">([\s\S]*?)<\/script>/g)) {
+    let data: unknown;
+    try { data = JSON.parse(match[1]); } catch { continue; }
+    const idea = scriptIdea(data);
+    if (!idea) continue;
+    const script = idea.script as Record<string, unknown>;
+    const scriptId = String(script.script_id_part);
+    const version = finite(script.version_maj) ?? Number(text(script.version_maj));
+    if (!isScriptId(scriptId) || !Number.isInteger(version) || version < 1) break;
+    if (script.access !== publicAccess) throw new TradingViewError("This script's source is protected or invite-only. TradingView shares the source of open-source scripts only.");
+    return { version, url, name: text(idea.name) ?? 'TradingView script', author: (isRecord(idea.user) ? text(idea.user.username) : undefined) ?? '', scriptId };
+  }
+  throw new TradingViewError('TradingView sent a page without a published script on it.');
+}
+
+// The listing in a scripts page's init data: open-source indicators with what fetching their source
+// needs. `before` is how many scripts earlier pages held, for each script's rank.
+export function parseScriptList(html: string, before: number): TradingViewScriptPage {
+  for (const match of html.matchAll(/<script type="application\/prs\.init-data\+json">([\s\S]*?)<\/script>/g)) {
+    let data: unknown;
+    try { data = JSON.parse(match[1]); } catch { continue; }
+    if (!isRecord(data)) continue;
+    for (const block of Object.values(data)) {
+      const ideas = isRecord(block) && isRecord(block.data) && isRecord(block.data.data) ? block.data.data.ideas : undefined;
+      if (!isRecord(ideas) || !isRecord(ideas.data) || !Array.isArray(ideas.data.items)) continue;
+      const scripts = ideas.data.items.flatMap((item, index): TradingViewScriptListing[] => {
+        if (!isRecord(item) || item.script_access !== publicAccess || item.script_type !== 'indicator' || !isScriptId(item.script_id_part)) return [];
+        const version = Number(text(item.version));
+        const url = text(item.chart_url);
+        if (!Number.isInteger(version) || version < 1 || !url?.startsWith(`${tradingViewSite}/script/`)) return [];
+        return [{ rank: before + index + 1, likes: finite(item.likes_count) ?? 0, version, url, name: text(item.name) ?? 'TradingView script', author: (isRecord(item.user) ? text(item.user.username) : undefined) ?? '', scriptId: item.script_id_part }];
+      });
+      return { total: finite(ideas.data.total) ?? 0, hasMore: typeof ideas.data.next === 'string' && !!ideas.data.next, scripts };
+    }
+  }
+  throw new TradingViewError('TradingView sent a scripts page without its list.');
+}
+
+export function parseScriptSource(body: unknown): string {
+  if (isRecord(body) && body.success === false) {
+    const reason = text(body.reason);
+    throw new TradingViewError(`TradingView would not send the script's source${reason ? `: ${reason}` : ''}.`);
+  }
+  if (!isRecord(body) || typeof body.source !== 'string' || !body.source.trim()) throw new TradingViewError("TradingView did not send the script's source. Only open-source scripts can be imported.");
+  return body.source;
+}
+
 export function displaySymbol(storageSymbol: string): string {
   if (!storageSymbol.startsWith('=')) return storageSymbol;
   try {
@@ -340,6 +436,25 @@ export class TradingViewClient {
     if (typeof content !== 'string') throw new TradingViewError(`TradingView sent no colours for the theme "${name}".`);
     try { return JSON.parse(content); }
     catch { throw new TradingViewError(`TradingView sent unreadable colours for the theme "${name}".`); }
+  }
+
+  // Open-source scripts are public: neither request needs the signed-in session.
+  async script(link: string): Promise<TradingViewScript> {
+    const url = scriptPageUrl(link);
+    const page = parseScriptPage(await this.text(url, 'the script page'), url);
+    return { ...page, source: await this.scriptSource(page.scriptId, page.version) };
+  }
+
+  // A page of the popular open-source indicators, from 1 to `scriptListPages`.
+  async scriptList(page: number): Promise<TradingViewScriptPage> {
+    if (!Number.isInteger(page) || page < 1 || page > scriptListPages) throw new TradingViewError(`The popular list has pages 1 to ${scriptListPages}.`);
+    const path = page === 1 ? '/scripts/' : `/scripts/page-${page}/`;
+    return parseScriptList(await this.text(`${tradingViewSite}${path}?script_type=indicators`, 'the popular scripts'), (page - 1) * SCRIPTS_PER_PAGE);
+  }
+
+  async scriptSource(scriptId: string, version: number): Promise<string> {
+    if (!isScriptId(scriptId) || !Number.isInteger(version) || version < 1) throw new TradingViewError('That is not a published TradingView script.');
+    return parseScriptSource(await this.json(`${pineFacade}/get/${encodeURIComponent(scriptId)}/${version}?no_4xx=true`, "the script's source"));
   }
 
   private async sourceTools(account: TradingViewAccount, source: TradingViewSource): Promise<LineToolRecord[]> {

@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="https://github.com/cyenite/OpenTerm5/actions/workflows/ci.yml"><img src="https://github.com/cyenite/OpenTerm5/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
   <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-2962ff" alt="Platforms: Linux, macOS, Windows">
   <a href="https://github.com/cyenite/OpenTerm5/releases"><img src="https://img.shields.io/github/v/release/cyenite/OpenTerm5?label=download" alt="Latest release"></a>
 </p>
@@ -44,6 +44,8 @@ usually pay for as Expert Advisors, VPS add-ons or monthly subscriptions come bu
 > risk and may not be suitable for all investors. OpenTerm5 is provided "as is", without warranty of
 > any kind. Test every feature on a demo account before using it with real money. You are responsible
 > for every order placed from your accounts.
+
+<sub>OpenTerm5 is an independent open-source project and is not affiliated with, endorsed by or sponsored by MetaQuotes Ltd. See [Licence](#-licence) for trademark notices.</sub>
 
 ---
 
@@ -198,6 +200,12 @@ TradingView theme.
 - Candles, hollow candles, bars, line, area, baseline and Heikin Ashi.
 - 86 Meridian studies (DEMA, TEMA, KAMA, ALMA, Ichimoku, SuperTrend, TTM Squeeze, Connors RSI, Fisher
   Transform and many more) next to MetaTrader's own indicator formulas.
+- One Indicators dialog, as in TradingView, for every indicator (built-in, MetaTrader and Pine), with
+  search, favourites and a favourites menu on the toolbar; `/` opens it.
+- Pine Script v5 and v6 indicators, run by [PineTS](https://github.com/LuxAlgo/PineTS): paste a
+  TradingView script link (open-source scripts only) or the source, or import TradingView's popular list. Plots, fills (gradients too),
+  shapes, bar and background colours, lines, boxes, labels, polylines, tables and `request.security()`
+  are drawn; each script keeps its author and licence.
 - 82 drawing tools in six groups, with favourites, a magnet, text on lines, templates and per-timeframe
   visibility.
 - Layouts of 1 to 16 charts per tab with symbol, interval, crosshair, time, date range and drawing
@@ -313,8 +321,14 @@ If OpenTerm5 saves you a subscription or two, a ⭐ on the repo is a lovely way 
 
 ## 📄 Licence
 
-OpenTerm5 is released under the [MIT License](LICENSE). Third-party components and their licences are
-listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+OpenTerm5 is released under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only).
+Versions up to and including 0.3.0 were released under the MIT License and remain available under it.
+The move to AGPL lets OpenTerm5 run Pine Script indicators with [PineTS](https://github.com/LuxAlgo/PineTS),
+which is itself AGPL-3.0. Third-party components and their licences are listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+Pine Script indicators you import keep their own authors' licences. OpenTerm5 shows each script's
+licence and author when you import it; the script is stored on your computer only.
 
 MetaTrader and MetaQuotes are trademarks of MetaQuotes Ltd. TradingView is a trademark of TradingView,
 Inc. OpenTerm5 is an independent project and is not affiliated with, endorsed by or sponsored by

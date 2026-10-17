@@ -3,7 +3,10 @@ import type { MenuItem } from './MenuBar';
 import { connectProfile, removeProfile } from '../lib/accounts';
 import { togglePanel } from '../lib/commands';
 import { openContextMenu } from '../lib/context-menu';
-import { studyGroups } from '../lib/indicator-menu';
+import { indicatorFavorites } from '../lib/indicator-favorites';
+import { entryLabel } from '../lib/indicator-catalog';
+import { favoriteIndicators } from '../lib/indicator-menu';
+import { pineScripts } from '../lib/pine/pine-scripts';
 import { session } from '../lib/session';
 import { useStore } from '../lib/store';
 import { activeChart, addIndicator, openDialog, workspace } from '../lib/workspace';
@@ -56,6 +59,9 @@ export function Navigator() {
   const isSigningIn = signIn?.state === 'signing-in';
   const chartId = useStore(workspace, (state) => activeChart(state)?.id);
   const attach = (kind: string) => chartId && addIndicator(chartId, kind);
+  // Favourites are read from the stores below; these re-render the tree when they change.
+  useStore(pineScripts, (state) => state.scripts);
+  useStore(indicatorFavorites, (state) => state.types);
 
   return (
     <Panel title="Navigator" onClose={() => togglePanel('isNavigatorShown')}>
@@ -91,20 +97,19 @@ export function Navigator() {
               <TreeNode label="Manage accounts" icon="⋯" onOpen={() => openDialog({ kind: 'accounts' })} />
             </TreeNode>
             <TreeNode label="Indicators" icon="ƒ">
-              {studyGroups().map((group) => (
-                <TreeNode key={group.label} label={group.label} icon="▤" isInitiallyCollapsed>
-                  {group.studies.map((study) => (
-                    <TreeNode
-                      key={study.type}
-                      label={study.title}
-                      icon="ƒ"
-                      title="Click to attach to the active chart"
-                      onOpen={() => attach(study.type)}
-                      menu={() => [{ label: 'Attach to Chart', isDisabled: !chartId, action: () => attach(study.type) }]}
-                    />
-                  ))}
-                </TreeNode>
-              ))}
+              <TreeNode label="Favorites" icon="★">
+                {favoriteIndicators().map((entry) => (
+                  <TreeNode
+                    key={entry.type}
+                    label={entryLabel(entry)}
+                    icon="ƒ"
+                    title="Click to attach to the active chart"
+                    onOpen={() => attach(entry.type)}
+                    menu={() => [{ label: 'Attach to Chart', isDisabled: !chartId, action: () => attach(entry.type) }]}
+                  />
+                ))}
+              </TreeNode>
+              <TreeNode label="All indicators" icon="⋯" title="Open the Indicators dialog" onOpen={() => openDialog({ kind: 'indicators' })} />
             </TreeNode>
           </TreeNode>
         </ul>

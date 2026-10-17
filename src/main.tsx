@@ -13,6 +13,8 @@ import { startTheming } from './lib/theme';
 import { startImportedThemes } from './lib/custom-themes';
 import { startSymbolDrawings } from './lib/symbol-drawings';
 import { startDrawingTemplates } from './lib/drawing-templates';
+import { startPineScripts } from './lib/pine/pine-scripts';
+import { startIndicatorFavorites } from './lib/indicator-favorites';
 import './styles.css';
 
 document.body.classList.add(`platform-${window.terminal.platform}`);
@@ -26,6 +28,8 @@ startWatchlists();
 startSymbolDrawings();
 startDrawingTemplates();
 startImportedThemes();
+startPineScripts();
+startIndicatorFavorites();
 startAutomation();
 startJournaling();
 

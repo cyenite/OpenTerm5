@@ -23,6 +23,7 @@ import { openContextMenu } from '../../lib/context-menu';
 import { OneClickPanel } from './OneClickPanel';
 import { TradeOverlay } from './TradeOverlay';
 import { SigningIn } from '../ui/SigningIn';
+import { pineScriptsReady } from '../../lib/pine/pine-scripts';
 
 interface ChartWindowProps {
   chart: ChartConfig;
@@ -210,7 +211,8 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
       return true;
     });
 
-    void meridian.ready().then(() => {
+    // Pine studies are only known once the script store has loaded.
+    void Promise.all([meridian.ready(), pineScriptsReady]).then(() => {
       // Saved studies are added afresh; the chart assigns their ids, written back below.
       for (const indicator of chartRef.current.indicators) {
         if (!meridian.addIndicator(indicator.kind, Object.keys(indicator.params).length ? indicator.params : undefined)) {

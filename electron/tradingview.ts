@@ -2,7 +2,7 @@ import { app, BrowserWindow, session, type Session } from 'electron';
 import type { TerminalMethods } from '../shared/protocol';
 import type { TradingViewAccount } from '../shared/tradingview';
 import { chromeUserAgent } from './browser-socket';
-import { TradingViewClient, tradingViewSite } from './tradingview-client';
+import { TradingViewClient, tradingViewSite, type Fetcher } from './tradingview-client';
 
 // The TradingView sign-in lives in its own partition: its cookies never reach the trading
 // terminal's pages or the broker session, and the renderer only ever sees what the client parses.
@@ -19,6 +19,20 @@ function tradingViewSession(): Session {
 }
 
 const client = () => new TradingViewClient((url, init) => tradingViewSession().fetch(url, init));
+
+// Script reads go one at a time, at least this far apart: importing the popular list is about a
+// thousand of them, and TradingView answers bursts with 429.
+const SCRIPT_GAP_MS = 1000;
+
+let scriptQueue: Promise<unknown> = Promise.resolve();
+
+const pacedFetch: Fetcher = (url, init) => {
+  const turn = scriptQueue.then(() => tradingViewSession().fetch(url, init));
+  scriptQueue = turn.catch(() => undefined).then(() => new Promise((resolve) => setTimeout(resolve, SCRIPT_GAP_MS)));
+  return turn;
+};
+
+const scriptClient = () => new TradingViewClient(pacedFetch);
 
 // The user signs in on TradingView's own page (email, Google, Apple and so on); the window closes
 // once the session cookie TradingView sets makes its chart page report a signed-in user.
@@ -79,6 +93,12 @@ export async function handleTradingView(method: string, params: unknown, parent?
     case 'tradingview.themes': return client().themes();
     case 'tradingview.theme': return client().theme((params as TerminalMethods['tradingview.theme'][0]).name);
     case 'tradingview.chartSettings': return client().chartSettings();
+    case 'tradingview.script': return scriptClient().script((params as TerminalMethods['tradingview.script'][0]).url);
+    case 'tradingview.scriptList': return scriptClient().scriptList((params as TerminalMethods['tradingview.scriptList'][0]).page);
+    case 'tradingview.scriptSource': {
+      const { scriptId, version } = params as TerminalMethods['tradingview.scriptSource'][0];
+      return scriptClient().scriptSource(scriptId, version);
+    }
     default: throw new Error(`Unknown TradingView request ${method}.`);
   }
 }

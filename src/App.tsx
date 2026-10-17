@@ -12,6 +12,7 @@ import { PriceAlertsDialog } from './components/dialogs/PriceAlertsDialog';
 import { AccountsDialog } from './components/dialogs/AccountsDialog';
 import { WorkspacePresetDialog } from './components/dialogs/WorkspacePresetDialog';
 import { TradingViewDialog } from './components/dialogs/TradingViewDialog';
+import { IndicatorsDialog } from './components/dialogs/IndicatorsDialog';
 import { useEffect } from 'react';
 import { AppBar } from './components/AppBar';
 import { ChartWorkspace } from './components/ChartWorkspace';
@@ -58,6 +59,7 @@ function ActiveDialog({ dialog }: ActiveDialogProps) {
     case 'template': return <WorkspacePresetDialog chartId={dialog.chartId} />;
     case 'alerts': return <PriceAlertsDialog />;
     case 'tradingview': return <TradingViewDialog />;
+    case 'indicators': return <IndicatorsDialog initialSection={dialog.section} />;
     case 'about':
       return <AboutDialog />;
   }

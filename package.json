@@ -22,7 +22,7 @@
     "url": "git+https://github.com/cyenite/OpenTerm5.git"
   },
   "author": "The OpenTerm5 contributors",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "private": true,
   "engines": {
     "node": ">=22.12"
@@ -34,7 +34,7 @@
     "build": "tsc -p tsconfig.json --noEmit && vite build && tsc -p tsconfig.electron.build.json",
     "start": "electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
-    "test": "tsx --test src/lib/*.test.ts electron/*.test.ts shared/*.test.ts packages/meridian-charts/src/*.test.ts packages/meridian-charts/src/*/*.test.ts",
+    "test": "tsx --test src/lib/*.test.ts src/lib/*/*.test.ts electron/*.test.ts shared/*.test.ts packages/meridian-charts/src/*.test.ts packages/meridian-charts/src/*/*.test.ts",
     "probe:mt5-web": "tsx scripts/mt5-web-probe.ts",
     "dist": "npm run build && electron-builder",
     "dist:linux": "npm run build && electron-builder --linux",
@@ -58,6 +58,7 @@
     "cross-env": "10.1.0",
     "electron": "44.7.0",
     "electron-builder": "26.17.0",
+    "pinets": "0.11.1",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
     "vite": "8.3.4",

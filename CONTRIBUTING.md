@@ -124,5 +124,5 @@ For user-visible changes, add an entry under **Unreleased** in [CHANGELOG.md](CH
 
 ## Licence
 
-OpenTerm5 is released under the [MIT License](LICENSE). By contributing, you agree that your
-contributions are licensed under the same terms.
+OpenTerm5 is released under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only).
+By contributing, you agree that your contributions are licensed under the same terms.
