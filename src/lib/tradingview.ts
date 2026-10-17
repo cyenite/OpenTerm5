@@ -1,7 +1,7 @@
 import { drawingToolInfo, type ChartSettings } from '@meridian/charts';
 import { fromTradingViewChartSettings, fromTradingViewTemplate, fromTradingViewTheme, tradingViewDrawingId, tradingViewToolTypes } from '@meridian/charts/interop/tradingview';
 import { matchSymbol } from '../../shared/symbol-match';
-import type { TradingViewAccount, TradingViewScan, TradingViewSkippedLayout, TradingViewSymbol } from '../../shared/tradingview';
+import type { TradingViewAccount, TradingViewScan, TradingViewScript, TradingViewScriptPage, TradingViewSkippedLayout, TradingViewSymbol } from '../../shared/tradingview';
 import { saveImportedTheme } from './custom-themes';
 import { addDrawingTemplates } from './drawing-templates';
 import { log, session, terminal } from './session';
@@ -42,6 +42,12 @@ export const signOutOfTradingView = (): Promise<boolean> => terminal.request('tr
 export const tradingViewSymbols = (): Promise<TradingViewScan> => terminal.request('tradingview.symbols', {});
 
 export const tradingViewThemes = (): Promise<string[]> => terminal.request('tradingview.themes', {});
+
+export const tradingViewScript = (url: string): Promise<TradingViewScript> => terminal.request('tradingview.script', { url });
+
+export const tradingViewScriptList = (page: number): Promise<TradingViewScriptPage> => terminal.request('tradingview.scriptList', { page });
+
+export const tradingViewScriptSource = (scriptId: string, version: number): Promise<string> => terminal.request('tradingview.scriptSource', { scriptId, version });
 
 function tickSize(target: string): number | undefined {
   const spec = session.get().symbols[target];

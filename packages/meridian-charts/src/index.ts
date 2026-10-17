@@ -27,4 +27,4 @@ export {
 export { iconSvg } from './ui/icons';
 export { DrawingToolbar, type CursorMode, type MagnetMode, type ToolbarActions, type ToolbarState } from './ui/toolbar';
 export { ensureStyles } from './ui/styles';
-export type { Bar, BarRange, DataProvider, DrawingPoint, DrawingStyle, DrawingTemplate, DrawingTemplateStore, InputValue, LineStyle, PriceStyle, SerializedDrawing, StudyBand, StudyDefinition, StudyInput, StudyLevel, StudyOutput, StudyPlot, SymbolInfo } from './types';
+export type { Bar, BarRange, DataProvider, DrawingPoint, DrawingStyle, DrawingTemplate, DrawingTemplateStore, InputValue, LineStyle, PriceStyle, SerializedDrawing, StudyBand, StudyBox, StudyDefinition, StudyExtend, StudyGradient, StudyHorizontalAlign, StudyInput, StudyLabel, StudyLabelStyle, StudyLevel, StudyLine, StudyMarker, StudyMarkerLocation, StudyObjects, StudyOutput, StudyPlot, StudyPolyline, StudyRequest, StudyShape, StudySize, StudyTable, StudyTableCell, StudyVerticalAlign, SymbolInfo } from './types';

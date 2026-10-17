@@ -105,6 +105,8 @@ export function handleShortcut(event: KeyboardEvent): boolean {
     if (isCtrl && event.shiftKey && key === 'a') return toggleAnalysisMode;
     // Analysis mode has no order ticket, depth, pages or terminal panels; their keys stay free.
     if (isAnalysis && (event.key === 'F9' || event.altKey && key === 'b' || isCtrl && (key === 't' || key === 'n' || !!pageForKey(key)))) return undefined;
+    // TradingView's key for the Indicators dialog.
+    if (event.key === '/' && !isCtrl && !event.altKey) return () => openDialog({ kind: 'indicators' });
     if (event.key === 'F9') return () => newOrder();
     if (event.key === 'F11') return toggleFullScreen;
     if (event.key === 'F4' && isCtrl) return closeActiveChart;

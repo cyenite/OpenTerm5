@@ -10,9 +10,11 @@ import { applyDrawingFields, drawingFields, isShownOn, lookOf, templateOf, visib
 import { hitShape, paintShapes, ShapeList, type Pt } from './drawings/shapes';
 import { styleFor, toolDefinitions, type CreateEnv, type ToolDefinition, type ToolEnv } from './drawings/tools';
 import { applySettingsFields, backgroundGradientOf, defaultSettings, restoreSettings, settingsFields, themeSettings, type ChartSettings } from './settings';
+import { shiftOutput } from './studies/output';
+import { isVisibleColor, paintMarkers, paintObjects, paintTables, type StudyView } from './studies/paint';
 import { getStudy, resolveInputs, studyCaption } from './studies/registry';
 import { listThemes, type MeridianTheme } from './themes';
-import type { Bar, DataProvider, DrawingPoint, DrawingStyle, DrawingTemplate, DrawingTemplateStore, InputValue, PriceStyle, SerializedDrawing, StudyDefinition, StudyOutput } from './types';
+import type { Bar, DataProvider, DrawingPoint, DrawingStyle, DrawingTemplate, DrawingTemplateStore, InputValue, PriceStyle, SerializedDrawing, StudyBand, StudyDefinition, StudyOutput, StudyPlot, StudyRequest } from './types';
 import { askTemplateName, confirmRemove, fieldValues, openDialog, type Field, type TemplateListActions } from './ui/dialog';
 import { Legend, type LegendEntry, type LegendValue } from './ui/legend';
 import { openMenu, separator, type MenuEntry } from './ui/menu';
@@ -182,6 +184,68 @@ interface StudyState {
   isVisible: boolean;
   paneId: string;
   output: StudyOutput | null;
+  // A study computed by the host: the latest request, and the one whose result is on screen.
+  revision: number;
+  shownRevision: number;
+  // How many bars the output was computed on. One computed on more bars than the chart now has
+  // (a replay that went back) would show bars not yet revealed, so it is dropped.
+  outputBars: number;
+  error: string | null;
+  // Aborts the study's requests once its bars no longer apply: another symbol or timeframe, or
+  // the study removed.
+  controller: AbortController | null;
+}
+
+// A legend or data window value, with the plot it belongs to.
+interface StudyValue extends LegendValue {
+  title: string;
+}
+
+const shownPlots = (output: StudyOutput): StudyPlot[] => output.plots.filter((plot) => !plot.isHidden);
+
+// A colour input's opacity is edited beside it in the picker, under the input's key plus this.
+const OPACITY_KEY = ':opacity';
+
+// '#rrggbbaa' as '#rrggbb' and an opacity from 0 to 100; other colours are fully opaque.
+function splitColor(color: string): [string, number] {
+  const match = /^(#[0-9a-f]{6})([0-9a-f]{2})$/i.exec(color);
+  return match ? [match[1], Math.round((parseInt(match[2], 16) / 255) * 100)] : [color, 100];
+}
+
+function joinColors(definition: StudyDefinition, values: Record<string, InputValue>): Record<string, InputValue> {
+  const joined = { ...values };
+  for (const input of definition.inputs) {
+    if (input.type !== 'color') continue;
+    const opacity = Number(values[`${input.key}${OPACITY_KEY}`] ?? 100);
+    const color = String(values[input.key]);
+    if (opacity < 100 && /^#[0-9a-f]{6}$/i.test(color)) joined[input.key] = `${color}${Math.round((Math.max(0, opacity) / 100) * 255).toString(16).padStart(2, '0')}`;
+  }
+  return joined;
+}
+
+function splitColors(definition: StudyDefinition, values: Record<string, InputValue>): Record<string, InputValue> {
+  const split = { ...values };
+  for (const input of definition.inputs) {
+    if (input.type !== 'color') continue;
+    [split[input.key], split[`${input.key}${OPACITY_KEY}`]] = splitColor(String(values[input.key]));
+  }
+  return split;
+}
+
+// Prices of a study's objects and absolute markers near the view, so a pane holding only objects
+// still has a scale.
+function objectPrices(output: StudyOutput, from: number, to: number): number[] {
+  const prices: number[] = [];
+  const isNear = (index: number) => index >= from - 1 && index <= to + 1;
+  for (const marker of output.markers ?? []) if (marker.location === 'absolute' && marker.price !== undefined && isNear(marker.index)) prices.push(marker.price);
+  const objects = output.objects;
+  if (objects) {
+    for (const line of objects.lines) if (isNear(line.startIndex) || isNear(line.endIndex)) prices.push(line.startPrice, line.endPrice);
+    for (const box of objects.boxes) if (Math.min(box.leftIndex, box.rightIndex) <= to + 1 && Math.max(box.leftIndex, box.rightIndex) >= from - 1) prices.push(box.topPrice, box.bottomPrice);
+    for (const label of objects.labels) if (label.location === 'price' && isNear(label.index)) prices.push(label.price);
+    for (const polyline of objects.polylines) for (const point of polyline.points) if (isNear(point.index)) prices.push(point.price);
+  }
+  return prices.filter(Number.isFinite);
 }
 
 interface Draft {
@@ -303,6 +367,9 @@ export class MeridianChart {
   private digits: number | null;
   private precision = 5;
   private barList: Bar[] = [];
+  // Older bars put in front since the series was loaded, to realign host study results that
+  // were requested before a page of history arrived.
+  private prependedBars = 0;
   private displayBars: Bar[] = [];
   private panes: Pane[] = [];
   private studies: StudyState[] = [];
@@ -457,6 +524,7 @@ export class MeridianChart {
 
   destroy(): void {
     this.generation++;
+    for (const study of this.studies) study.controller?.abort();
     cancelAnimationFrame(this.frame);
     clearInterval(this.countdownTimer);
     this.unsubscribe?.();
@@ -960,7 +1028,7 @@ export class MeridianChart {
       paneId = `pane-${id}`;
       this.panes.push(this.makePane(paneId, 1));
     }
-    const study: StudyState = { id, definition, inputs: resolveInputs(definition, inputs), isVisible, paneId, output: null };
+    const study: StudyState = { id, definition, inputs: resolveInputs(definition, inputs), isVisible, paneId, output: null, revision: 0, shownRevision: 0, outputBars: 0, error: null, controller: null };
     this.compute(study);
     this.studies.push(study);
     return study;
@@ -969,6 +1037,7 @@ export class MeridianChart {
   private removeStudy(id: string): void {
     const study = this.studies.find((candidate) => candidate.id === id);
     if (!study) return;
+    study.controller?.abort();
     this.studies = this.studies.filter((candidate) => candidate !== study);
     if (study.paneId !== 'price' && !this.studies.some((candidate) => candidate.paneId === study.paneId)) {
       const pane = this.panes.find((candidate) => candidate.id === study.paneId);
@@ -1001,22 +1070,27 @@ export class MeridianChart {
       const value = study.inputs[input.key];
       if (input.type === 'bool') return { key: input.key, label: input.title, type: 'checkbox', value: value === true };
       if (input.type === 'int' || input.type === 'float') return { key: input.key, label: input.title, type: 'number', value: Number(value), min: input.min, max: input.max, step: input.step ?? (input.type === 'int' ? 1 : undefined) };
-      if (input.type === 'color') return { key: input.key, label: input.title, type: 'color', value: String(value) };
+      if (input.type === 'color') {
+        const [color, opacity] = splitColor(String(value));
+        return { key: input.key, label: input.title, type: 'color', value: color, opacity: { key: `${input.key}${OPACITY_KEY}`, value: opacity } };
+      }
       if (input.type === 'source') return { key: input.key, label: input.title, type: 'select', value: String(value), options: ['Close', 'Open', 'High', 'Low', 'HL2', 'HLC3', 'OHLC4'] };
+      if (input.type === 'text') return { key: input.key, label: input.title, type: 'text', value: String(value) };
+      if (input.type === 'time') return { key: input.key, label: input.title, type: 'datetime', value: Number(value) };
       return { key: input.key, label: input.title, type: 'select', value: String(value), options: input.options ?? [String(value)] };
-    });
+    }).map((field, index) => (study.definition.inputs[index].row ? { ...field, row: study.definition.inputs[index].row } : field));
     this.closeDialog?.();
     this.closeDialog = openDialog(this.root, {
       title: study.definition.title,
       fields,
       onApply: (values) => {
         this.checkpoint();
-        study.inputs = resolveInputs(study.definition, values as Record<string, InputValue>);
+        study.inputs = resolveInputs(study.definition, joinColors(study.definition, values as Record<string, InputValue>));
         this.compute(study);
         this.emit('indicators');
         this.invalidate();
       },
-      onDefaults: () => resolveInputs(study.definition, {}),
+      onDefaults: () => splitColors(study.definition, resolveInputs(study.definition, {})),
     });
   }
 
@@ -1144,6 +1218,15 @@ export class MeridianChart {
       return;
     }
     this.barList = sorted;
+    // Another symbol or timeframe: an output computed elsewhere no longer lines up with any bar.
+    this.prependedBars = 0;
+    for (const study of this.studies) {
+      if (!study.definition.computeAsync) continue;
+      study.controller?.abort();
+      study.controller = null;
+      study.output = null;
+      study.outputBars = 0;
+    }
     this.timeScale.setTimes(sorted.map((bar) => bar.time), this.interval);
     this.updateDisplayBars();
     this.recomputeStudies();
@@ -1188,6 +1271,12 @@ export class MeridianChart {
         const older = page.filter((bar) => bar.time < oldest).sort((left, right) => left.time - right.time);
         if (!older.length) { this.isHistoryExhausted = true; return; }
         this.barList = [...older, ...this.barList];
+        this.prependedBars += older.length;
+        for (const study of this.studies) {
+          if (!study.output || !study.definition.computeAsync) continue;
+          study.output = shiftOutput(study.output, older.length);
+          study.outputBars += older.length;
+        }
         this.timeScale.setTimes(this.barList.map((bar) => bar.time), this.interval, older.length);
         this.updateDisplayBars();
         this.recomputeStudies();
@@ -1230,11 +1319,49 @@ export class MeridianChart {
   }
 
   private compute(study: StudyState): void {
+    const { definition } = study;
+    if (definition.computeAsync) return this.computeLater(study, definition.computeAsync);
     try {
-      study.output = study.definition.compute(this.barList, study.inputs);
+      study.output = definition.compute(this.barList, study.inputs);
     } catch {
       study.output = null;
     }
+  }
+
+  // Asks the host for a run. The last output stays on screen until a newer one arrives; ticks can
+  // come faster than a script runs, so a result is shown even if newer requests are pending.
+  private computeLater(study: StudyState, computeAsync: (request: StudyRequest) => Promise<StudyOutput>): void {
+    if (study.outputBars > this.barList.length || !this.barList.length) {
+      study.output = null;
+      study.outputBars = 0;
+    }
+    if (!this.barList.length) return;
+    const revision = ++study.revision;
+    const bars = this.barList.slice();
+    const inputs = { ...study.inputs };
+    const prepended = this.prependedBars;
+    study.controller ??= new AbortController();
+    const { signal } = study.controller;
+    computeAsync({ bars, symbol: this.symbol, timeframe: this.timeframe, inputs, signal }).then(
+      (output) => {
+        const shift = this.prependedBars - prepended;
+        const isStale = revision <= study.shownRevision || bars.length + shift > this.barList.length || JSON.stringify(inputs) !== JSON.stringify(study.inputs);
+        if (signal.aborted || isStale) return;
+        study.output = shiftOutput(output, shift);
+        study.outputBars = bars.length + shift;
+        study.shownRevision = revision;
+        study.error = null;
+        this.invalidate();
+      },
+      (error: unknown) => {
+        if (signal.aborted || revision !== study.revision) return;
+        study.output = null;
+        study.outputBars = 0;
+        study.shownRevision = revision;
+        study.error = error instanceof Error ? error.message : String(error);
+        this.invalidate();
+      },
+    );
   }
 
   private recomputeStudies(): void {
@@ -1421,7 +1548,7 @@ export class MeridianChart {
     const isOnPricePane = point && point.x >= 0 && point.x < this.plotWidth && this.barList.length && this.paneAt(point.y) === this.panes[0];
     const price = isOnPricePane ? this.panes[0].scale.yToPrice(point.y) : null;
     const hover: MeridianHover = bar
-      ? { time: bar.time, price, ohlc: bar, readout: { groups: this.studies.filter((study) => study.isVisible).map((study) => ({ name: studyCaption(study.definition, study.inputs), rows: this.studyValues(study, index!).map((value, position) => ({ label: study.output!.plots[position]?.title ?? '', value: value.text, color: value.color })) })) } }
+      ? { time: bar.time, price, ohlc: bar, readout: { groups: this.studies.filter((study) => study.isVisible).map((study) => ({ name: studyCaption(study.definition, study.inputs), rows: this.studyValues(study, index!).map((value) => ({ label: value.title, value: value.text, color: value.color })) })) } }
       : { time: null, price, ohlc: null, readout: null };
     for (const listener of this.listeners.hover) listener(hover);
   }
@@ -2511,11 +2638,12 @@ export class MeridianChart {
     });
   }
 
-  private studyValues(study: StudyState, index: number): LegendValue[] {
+  private studyValues(study: StudyState, index: number): StudyValue[] {
+    if (study.error) return [{ title: 'Error', text: `⚠ ${study.error.length > 120 ? `${study.error.slice(0, 119)}…` : study.error}`, color: this.theme.chart.down }];
     if (!study.output) return [];
-    return study.output.plots.map((plot) => {
+    return shownPlots(study.output).map((plot) => {
       const value = plot.values[index - (plot.offset ?? 0)];
-      return { text: value === null || value === undefined ? '∅' : this.formatStudy(study, value), color: plot.colors?.[index - (plot.offset ?? 0)] ?? plot.color };
+      return { title: plot.title, text: value === null || value === undefined ? '∅' : this.formatStudy(study, value), color: plot.colors?.[index - (plot.offset ?? 0)] ?? plot.color };
     });
   }
 
@@ -2542,7 +2670,7 @@ export class MeridianChart {
     for (const study of this.studies) {
       if (!study.isVisible || !study.output) continue;
       const range = ranges.get(study.paneId) ?? [Infinity, -Infinity];
-      for (const plot of study.output.plots) {
+      for (const plot of shownPlots(study.output)) {
         const offset = plot.offset ?? 0;
         for (let index = from; index <= to; index++) {
           const value = plot.values[index - offset];
@@ -2552,7 +2680,11 @@ export class MeridianChart {
         }
         if (plot.kind === 'histogram' || plot.kind === 'columns') { range[0] = Math.min(range[0], 0); range[1] = Math.max(range[1], 0); }
       }
-      if (study.paneId !== 'price') for (const level of study.output.levels ?? []) { range[0] = Math.min(range[0], level.price); range[1] = Math.max(range[1], level.price); }
+      if (study.paneId !== 'price') {
+        for (const level of study.output.levels ?? []) { range[0] = Math.min(range[0], level.price); range[1] = Math.max(range[1], level.price); }
+        // A pane of objects alone (boxes, lines) still needs a scale.
+        for (const price of objectPrices(study.output, from, to)) { range[0] = Math.min(range[0], price); range[1] = Math.max(range[1], price); }
+      }
       ranges.set(study.paneId, range);
     }
     const base = this.barList[Math.max(0, Math.min(from, this.barList.length - 1))]?.close;
@@ -2643,6 +2775,7 @@ export class MeridianChart {
       ctx.beginPath();
       ctx.rect(0, pane.top, this.plotWidth, pane.height);
       ctx.clip();
+      for (const study of this.studies) if (study.isVisible && study.paneId === pane.id) this.paintStudyBackground(study, pane, from, to);
       if (pane.id === 'price') {
         if (hasBars) {
           if (this.isVolumeShown) this.paintVolume(pane, from, to);
@@ -2813,6 +2946,7 @@ export class MeridianChart {
     const colors = this.colors();
     const { isBodyVisible, isWickVisible, isBorderVisible } = this.chartSettings;
     const isHollow = this.priceStyle === 'hollow';
+    const barColors = this.studyBarColors(start, end);
     const fill = (color: string, left: number, top: number, width: number, height: number) => {
       if (width <= 0 || height <= 0) return;
       ctx.fillStyle = color;
@@ -2827,12 +2961,16 @@ export class MeridianChart {
       fill(color, left + width - size, top + size, size, height - size * 2);
     };
     for (const isUp of [true, false]) {
-      const bodyColor = isUp ? colors.up : colors.down;
-      const wickColor = isUp ? colors.wickUp : colors.wickDown;
-      const borderColor = isUp ? colors.borderUp : colors.borderDown;
+      const baseBodyColor = isUp ? colors.up : colors.down;
+      const baseWickColor = isUp ? colors.wickUp : colors.wickDown;
+      const baseBorderColor = isUp ? colors.borderUp : colors.borderDown;
       for (let index = start; index <= end; index++) {
         const bar = bars[index];
         if ((bar.close >= bar.open) !== isUp) continue;
+        const override = barColors?.[index - start];
+        const bodyColor = override ?? baseBodyColor;
+        const wickColor = override ?? baseWickColor;
+        const borderColor = override ?? baseBorderColor;
         const center = Math.round(this.timeScale.indexToX(index) * ratio);
         const wickLeft = center - Math.floor(wick / 2);
         const high = Math.round(scale.priceToY(bar.high) * ratio);
@@ -2896,6 +3034,10 @@ export class MeridianChart {
       const upper = plotByKey.get(band.from);
       const lower = plotByKey.get(band.to);
       if (!upper || !lower) continue;
+      if (band.colors || band.gradients) {
+        this.paintBandSegments(band, upper, lower, scale, start, end);
+        continue;
+      }
       ctx.fillStyle = band.color;
       let run: { x: number; top: number; bottom: number }[] = [];
       const flush = () => {
@@ -2919,8 +3061,8 @@ export class MeridianChart {
     for (const level of output.levels ?? []) {
       const y = this.crisp(scale.priceToY(level.price));
       ctx.strokeStyle = level.color;
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = level.width ?? 1;
+      ctx.setLineDash(level.lineStyle === 'solid' ? [] : level.lineStyle === 'dotted' ? [1, 3] : [4, 4]);
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(this.plotWidth, y);
@@ -2928,9 +3070,29 @@ export class MeridianChart {
       ctx.setLineDash([]);
     }
     const width = Math.max(1, Math.floor(this.timeScale.spacing * 0.6));
-    for (const plot of output.plots) {
+    for (const plot of shownPlots(output)) {
       const offset = plot.offset ?? 0;
       const kind = plot.kind ?? 'line';
+      if (kind === 'area') this.paintPlotArea(plot, scale, start, end);
+      if (kind === 'cross') {
+        const half = Math.max(2, Math.min(4, this.timeScale.spacing / 3));
+        ctx.lineWidth = plot.width ?? 1;
+        ctx.setLineDash([]);
+        for (let index = start; index <= end; index++) {
+          const value = plot.values[index - offset];
+          if (value === null || value === undefined) continue;
+          const x = this.timeScale.indexToX(index);
+          const y = scale.priceToY(value);
+          ctx.strokeStyle = plot.colors?.[index - offset] ?? plot.color;
+          ctx.beginPath();
+          ctx.moveTo(x - half, y);
+          ctx.lineTo(x + half, y);
+          ctx.moveTo(x, y - half);
+          ctx.lineTo(x, y + half);
+          ctx.stroke();
+        }
+        continue;
+      }
       if (kind === 'histogram' || kind === 'columns') {
         const zero = scale.priceToY(Math.max(scale.min, Math.min(scale.max, 0)));
         for (let index = start; index <= end; index++) {
@@ -2973,16 +3135,129 @@ export class MeridianChart {
         if (value === null || value === undefined) { flush(); previous = null; continue; }
         const point = { x: this.timeScale.indexToX(index), y: scale.priceToY(value) };
         const pointColor = plot.colors?.[index - offset] ?? plot.color;
+        // A step holds the previous value until this bar, then rises or falls to it.
+        const step = kind === 'stepline' && previous ? { x: point.x, y: previous.y } : null;
         if (pointColor !== color) {
+          if (step) path.push(step);
           flush();
-          if (previous) path.push(previous);
+          if (step) path.push(step);
+          else if (previous) path.push(previous);
           color = pointColor;
-        }
+        } else if (step) path.push(step);
         path.push(point);
         previous = point;
       }
       flush();
       ctx.setLineDash([]);
+    }
+    const view = this.studyView(pane);
+    if (output.objects) paintObjects(view, output.objects);
+    if (output.markers?.length) paintMarkers(view, output.markers, from, to);
+    if (output.objects?.tables.length) paintTables(view, output.objects.tables);
+  }
+
+  private studyView(pane: Pane): StudyView {
+    const { scale } = pane;
+    return {
+      top: pane.top,
+      width: this.plotWidth,
+      height: pane.height,
+      spacing: this.timeScale.spacing,
+      font: this.theme.chart.fontFamily,
+      isPricePane: pane.id === 'price',
+      bars: this.displayBars,
+      ctx: this.context,
+      indexToX: (index) => this.timeScale.indexToX(index),
+      priceToY: (price) => scale.priceToY(price),
+    };
+  }
+
+  // Pine's bgcolor: a column per bar behind everything else in the study's pane.
+  private paintStudyBackground(study: StudyState, pane: Pane, from: number, to: number): void {
+    const backgrounds = study.output?.backgrounds;
+    if (!backgrounds) return;
+    const ctx = this.context;
+    const spacing = this.timeScale.spacing;
+    for (let index = Math.max(0, from - 1); index <= to + 1; index++) {
+      const color = backgrounds[index];
+      if (!isVisibleColor(color)) continue;
+      ctx.fillStyle = color;
+      const left = Math.floor(this.timeScale.indexToX(index) - spacing / 2);
+      ctx.fillRect(left, pane.top, Math.ceil(this.timeScale.indexToX(index) + spacing / 2) - left, pane.height);
+    }
+  }
+
+  // Candle colours set by overlay studies (Pine's barcolor), the later study winning, for the
+  // bars from `start` to `end`; null when no study colours any.
+  private studyBarColors(start: number, end: number): (string | null)[] | null {
+    let colors: (string | null)[] | null = null;
+    for (const study of this.studies) {
+      const barColors = study.isVisible && study.paneId === 'price' ? study.output?.barColors : undefined;
+      if (!barColors) continue;
+      colors ??= new Array<string | null>(end - start + 1).fill(null);
+      for (let index = start; index <= end; index++) {
+        const color = barColors[index];
+        if (color) colors[index - start] = color;
+      }
+    }
+    return colors;
+  }
+
+  // A band coloured bar by bar, each stretch to the next bar in its bar's colour or gradient.
+  private paintBandSegments(band: StudyBand, upper: StudyPlot, lower: StudyPlot, scale: PriceScale, start: number, end: number): void {
+    const ctx = this.context;
+    const at = (plot: StudyPlot, index: number) => plot.values[index - (plot.offset ?? 0)];
+    for (let index = start; index < end; index++) {
+      const [top, bottom, nextTop, nextBottom] = [at(upper, index), at(lower, index), at(upper, index + 1), at(lower, index + 1)];
+      if (top == null || bottom == null || nextTop == null || nextBottom == null) continue;
+      const gradient = band.gradients?.[index];
+      const color = band.colors?.[index];
+      let fill: string | CanvasGradient;
+      if (gradient) {
+        if (!isVisibleColor(gradient.topColor) && !isVisibleColor(gradient.bottomColor)) continue;
+        const topY = scale.priceToY(gradient.topPrice);
+        const bottomY = scale.priceToY(gradient.bottomPrice);
+        if (Math.abs(bottomY - topY) < 0.5) fill = gradient.topColor;
+        else {
+          fill = ctx.createLinearGradient(0, topY, 0, bottomY);
+          fill.addColorStop(0, gradient.topColor);
+          fill.addColorStop(1, gradient.bottomColor);
+        }
+      } else if (isVisibleColor(color)) fill = color;
+      else continue;
+      const x = this.timeScale.indexToX(index);
+      const nextX = this.timeScale.indexToX(index + 1);
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      ctx.moveTo(x, scale.priceToY(top));
+      ctx.lineTo(nextX, scale.priceToY(nextTop));
+      ctx.lineTo(nextX, scale.priceToY(nextBottom));
+      ctx.lineTo(x, scale.priceToY(bottom));
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  // Pine's area style: the plot's colour filled down (or up) to zero, under its line.
+  private paintPlotArea(plot: StudyPlot, scale: PriceScale, start: number, end: number): void {
+    const ctx = this.context;
+    const offset = plot.offset ?? 0;
+    const zero = scale.priceToY(Math.max(scale.min, Math.min(scale.max, 0)));
+    for (let index = start; index < end; index++) {
+      const value = plot.values[index - offset];
+      const next = plot.values[index + 1 - offset];
+      const color = plot.colors?.[index - offset] ?? plot.color;
+      if (value == null || next == null || !isVisibleColor(color)) continue;
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath();
+      ctx.moveTo(this.timeScale.indexToX(index), zero);
+      ctx.lineTo(this.timeScale.indexToX(index), scale.priceToY(value));
+      ctx.lineTo(this.timeScale.indexToX(index + 1), scale.priceToY(next));
+      ctx.lineTo(this.timeScale.indexToX(index + 1), zero);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -3076,7 +3351,7 @@ export class MeridianChart {
       if (!settings.isStudyLabelsShown || !study.isVisible || !study.output) continue;
       const target = this.panes.find((candidate) => candidate.id === study.paneId);
       if (!target) continue;
-      for (const plot of study.output.plots) {
+      for (const plot of shownPlots(study.output)) {
         const index = this.barList.length - 1 - (plot.offset ?? 0);
         const value = plot.values[Math.min(index, plot.values.length - 1)];
         if (value === null || value === undefined || plot.kind === 'circles') continue;

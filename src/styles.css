@@ -3714,3 +3714,290 @@ button.is-link {
   padding-top: 14px;
   border-top: 0.5px solid var(--border-soft);
 }
+
+.tool-split {
+  display: inline-flex;
+  align-items: center;
+}
+
+.tool-split > .tool-button.has-menu:not(.has-text) {
+  padding-left: 2px;
+  padding-right: 2px;
+}
+
+.indicators-dialog {
+  display: flex;
+  flex-direction: column;
+  height: min(640px, calc(100vh - 120px));
+}
+
+.indicators-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  margin-bottom: 12px;
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: var(--control-shadow);
+  color: var(--muted);
+}
+
+.indicators-search:focus-within {
+  box-shadow: var(--control-shadow), var(--focus);
+}
+
+.indicators-search input {
+  flex: 1;
+  min-height: 36px;
+  padding: 0;
+  font-size: 14px;
+  background: none;
+  box-shadow: none;
+  color: var(--text);
+}
+
+.indicators-search input:focus {
+  box-shadow: none;
+}
+
+.indicators-body {
+  display: grid;
+  grid-template-columns: 196px 1fr;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+.indicators-sidebar {
+  overflow: auto;
+}
+
+.indicators-group {
+  padding: 12px 10px 6px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.indicators-sidebar > div:first-child .indicators-group {
+  padding-top: 2px;
+}
+
+/* Flat, as TradingView's sidebar and row icons are: no control outline. */
+.indicators-section,
+.indicator-star,
+.indicator-action {
+  border: 0;
+  box-shadow: none;
+}
+
+.indicators-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  background: none;
+  text-align: left;
+}
+
+.indicators-section:hover {
+  background: var(--hover);
+}
+
+.indicators-section.is-active {
+  background: var(--selection);
+  font-weight: 600;
+}
+
+.indicators-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: normal;
+  color: var(--muted);
+}
+
+.indicators-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.indicators-header {
+  display: flex;
+  padding: 0 8px 0 40px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.indicators-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+}
+
+.indicator-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 6px;
+  border-radius: var(--radius-small);
+  cursor: pointer;
+}
+
+.indicator-row.is-highlighted {
+  background: var(--hover);
+}
+
+.indicator-row.is-disabled {
+  cursor: default;
+}
+
+.indicator-star,
+.indicator-action {
+  display: inline-flex;
+  padding: 3px;
+  background: none;
+  color: var(--muted);
+  opacity: 0;
+}
+
+.indicator-row.is-highlighted .indicator-star,
+.indicator-row.is-highlighted .indicator-action,
+.indicator-star:focus-visible,
+.indicator-action:focus-visible,
+.indicator-star.is-favorite {
+  opacity: 1;
+}
+
+.indicator-star.is-favorite {
+  color: #f5b400;
+}
+
+.indicator-star.is-favorite .icon path {
+  fill: currentColor;
+}
+
+.indicator-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.indicator-badge {
+  flex: none;
+  padding: 0 4px;
+  border-radius: var(--radius-small);
+  border: 1px solid var(--border);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
+  color: var(--muted);
+}
+
+.indicator-author {
+  flex: none;
+  width: 150px;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.indicator-confirm {
+  flex: none;
+  padding: 2px 8px;
+}
+
+.indicators-empty {
+  padding: 24px 8px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.indicators-toolbar {
+  justify-content: flex-end;
+}
+
+.indicators-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.indicators-import {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.indicators-import textarea {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.indicators-import-actions,
+.indicators-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.indicators-import-actions > span {
+  flex: 1;
+  font-size: 12px;
+}
+
+.indicators-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--surface-alt);
+}
+
+.indicators-bar-row > .is-muted:first-child {
+  flex: 1;
+}
+
+.indicators-bar progress {
+  flex: none;
+  width: 120px;
+}
+
+.indicators-bar [role='status'] {
+  flex: 1;
+  font-size: 12px;
+}
+
+.indicators-skipped summary {
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.indicators-skipped ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+.indicators-footer {
+  min-height: 18px;
+  padding-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+

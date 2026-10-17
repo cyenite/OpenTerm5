@@ -11,6 +11,7 @@ import { hasSync, makeTab, steppedChartId, syncPeers, tabActiveChartId, visibleC
 import { replayModes, replaySpeeds, type ReplayMode, type ReplaySpeed } from './replay-model';
 import { isReplayingChart, replay, replayTradingHint } from './replay-session';
 import { applyTemplate, captureProfile, captureTemplate, restoreProfiles, restoreTemplates, restoreWorkspaceCharts, type ChartProfile, type ChartTemplate } from './presets';
+import type { IndicatorSection } from './indicator-catalog';
 
 export type { Drawing, IndicatorConfig } from './chart-model';
 
@@ -86,6 +87,7 @@ export type Dialog =
   | { kind: 'profile' }
   | { kind: 'template'; chartId: string }
   | { kind: 'tradingview' }
+  | { kind: 'indicators'; section?: IndicatorSection }
   | { kind: 'about' };
 
 export interface WorkspaceState {

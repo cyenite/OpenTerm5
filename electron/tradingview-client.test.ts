@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { displaySymbol, parseChartPage, parseLayoutList, TradingViewClient, unescapeHtml } from './tradingview-client';
+import { displaySymbol, parseChartPage, parseLayoutList, parseScriptList, parseScriptPage, parseScriptSource, scriptListPages, scriptPageUrl, TradingViewClient, unescapeHtml } from './tradingview-client';
 
 const signedInPage = `<html><head><link rel="chart-storage" href="https://charts-storage.tradingview.com/charts-storage" crossorigin="use-credentials">
 <link rel="chart-storage-notifications" href="https://example.invalid/notify"></head><body><script>
@@ -191,4 +191,76 @@ test('chart settings come from every chart of every layout, and a refused layout
 test('chart settings ask a signed-out session to sign in', async () => {
   const guest = new TradingViewClient(async () => new Response(guestPage, { status: 200 }));
   await assert.rejects(guest.chartSettings(), /Sign in to TradingView first/);
+});
+
+// Shaped like the 2026-10-16 script page: the published script sits in the idea record of one of
+// several init-data blocks.
+const scriptPage = (access: number) => `<html><body>
+<script type="application/prs.init-data+json">{"aB1":{"data":{"context":{"user":{"is_authenticated":false}}}}}</script>
+<script type="application/prs.init-data+json">{"D852iY":{"ssrIdeaData":{"name":"CKD - Conformal Kernel Direction","user":{"username":"builtbyuba"},
+"script":{"id":7223040,"content":"","access":${access},"script_id_part":"PUB;8d48bf62d4dd4d4a83480b6ce9159801","version_maj":3,"script_type":"study"}}}}</script>
+</body></html>`;
+
+test('script links from any TradingView site lead to the script page on www', () => {
+  assert.equal(scriptPageUrl('https://in.tradingview.com/script/6SgfnZ2H-CKD-Conformal-Kernel-Direction'), 'https://www.tradingview.com/script/6SgfnZ2H-CKD-Conformal-Kernel-Direction/');
+  assert.equal(scriptPageUrl(' https://www.tradingview.com/script/R85TX24V/ '), 'https://www.tradingview.com/script/R85TX24V/');
+  assert.throws(() => scriptPageUrl('https://www.tradingview.com/chart/AbCd1234/'), /script page/);
+  assert.throws(() => scriptPageUrl('https://tradingview.example.com/script/AbCd1234/'), /script page/);
+  assert.throws(() => scriptPageUrl('not a link'), /script page/);
+});
+
+test('a script page names its published script, and protected scripts are refused', () => {
+  const url = 'https://www.tradingview.com/script/6SgfnZ2H-CKD/';
+  assert.deepEqual(parseScriptPage(scriptPage(1), url), { version: 3, url, name: 'CKD - Conformal Kernel Direction', author: 'builtbyuba', scriptId: 'PUB;8d48bf62d4dd4d4a83480b6ce9159801' });
+  assert.throws(() => parseScriptPage(scriptPage(2), url), /protected or invite-only/);
+  assert.throws(() => parseScriptPage('<html></html>', url), /without a published script/);
+});
+
+test("the Pine service's answer gives the source or TradingView's reason", () => {
+  assert.equal(parseScriptSource({ source: '//@version=6\nindicator("x")', scriptAccess: 'open_no_auth' }), '//@version=6\nindicator("x")');
+  assert.throws(() => parseScriptSource({ success: false, reason: 'Script not found' }), /Script not found/);
+  assert.throws(() => parseScriptSource({ scriptAccess: 'protected' }), /open-source scripts/);
+});
+
+test('a script is read from its page and then from the Pine service, without signing in', async () => {
+  const requests: string[] = [];
+  const client = new TradingViewClient(async (url) => {
+    requests.push(url);
+    if (url.startsWith('https://www.tradingview.com/script/')) return new Response(scriptPage(1), { status: 200 });
+    return new Response(JSON.stringify({ source: '//@version=6\nindicator("CKD")', version: '3.0' }), { status: 200 });
+  });
+  const script = await client.script('https://www.tradingview.com/script/6SgfnZ2H-CKD/');
+  assert.equal(script.source, '//@version=6\nindicator("CKD")');
+  assert.deepEqual(requests, ['https://www.tradingview.com/script/6SgfnZ2H-CKD/', 'https://pine-facade.tradingview.com/pine-facade/get/PUB%3B8d48bf62d4dd4d4a83480b6ce9159801/3?no_4xx=true']);
+});
+
+// Shaped like the 2026-10-16 listing: items under `<key>.data.data.ideas.data`.
+const listItem = (id: string, extra: Record<string, unknown> = {}) => ({ name: `Script ${id}`, chart_url: `https://www.tradingview.com/script/${id}-Name/`, script_type: 'indicator', script_access: 1, script_id_part: `PUB;${id.padEnd(32, '0')}`, version: '2', likes_count: 685, user: { username: 'author' }, ...extra });
+const listPage = (items: unknown[], next: string | null) => `<script type="application/prs.init-data+json">${JSON.stringify({ k9: { data: { context: {}, data: { ideas: { data: { items, total: 1000, next }, params: {} } } } } })}</script>`;
+
+test('a popular list page gives open-source indicators with their rank, and skips the rest', () => {
+  const page = parseScriptList(listPage([listItem('aa'), listItem('bb', { script_type: 'strategy' }), listItem('cc', { script_access: 2 }), listItem('dd', { version: 'x' }), listItem('ee')], '/scripts/page-3/'), 48);
+  assert.deepEqual(page.scripts.map((script) => [script.rank, script.scriptId.slice(0, 6), script.version, script.likes, script.author]), [[49, 'PUB;aa', 2, 685, 'author'], [53, 'PUB;ee', 2, 685, 'author']]);
+  assert.equal(page.total, 1000);
+  assert.equal(page.hasMore, true);
+  assert.equal(parseScriptList(listPage([], null), 0).hasMore, false);
+  assert.throws(() => parseScriptList('<html></html>', 0), /without its list/);
+});
+
+test('list pages keep the indicator filter, and sources come from the Pine service', async () => {
+  const requests: string[] = [];
+  const client = new TradingViewClient(async (url) => {
+    requests.push(url);
+    return url.includes('pine-facade') ? new Response(JSON.stringify({ source: '//@version=6' })) : new Response(listPage([listItem('aa')], null));
+  });
+  await client.scriptList(1);
+  await client.scriptList(2);
+  assert.equal(await client.scriptSource('PUB;aa000000000000000000000000000000', 2), '//@version=6');
+  assert.deepEqual(requests, [
+    'https://www.tradingview.com/scripts/?script_type=indicators',
+    'https://www.tradingview.com/scripts/page-2/?script_type=indicators',
+    'https://pine-facade.tradingview.com/pine-facade/get/PUB%3Baa000000000000000000000000000000/2?no_4xx=true',
+  ]);
+  await assert.rejects(client.scriptList(scriptListPages + 1), /pages 1 to 42/);
+  await assert.rejects(client.scriptSource('USER;abc', 1), /not a published/);
 });

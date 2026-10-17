@@ -18,6 +18,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of the symbol in the tab or in every tab.
 - One drawing toolbar for the whole layout, as in TradingView: the tool, magnet, lock and hide apply
   to every chart, and a drawing goes on whichever chart is clicked.
+- An Indicators dialog as in TradingView, holding every indicator: built-in studies, MetaTrader's
+  formulas and Pine scripts. It has search, a sidebar by source (Favorites, My scripts, Technicals,
+  Popular), stars for favourites, and a click to add; `/` opens it. The chevron beside the toolbar's
+  Indicators button lists favourites, as does Insert > Favorite Indicators.
+- Pine Script indicators (v5 and v6), run with LuxAlgo's PineTS in a background worker. Import an
+  open-source script from its TradingView link, or paste the source, in the Indicators dialog's My
+  scripts. Plots, fills (including gradients), hlines, plotshape, plotchar, plotarrow, bgcolor,
+  barcolor, lines, boxes, labels, polylines, linefills, tables and request.security() draw on the
+  chart, with inputs in the study's settings. Each script shows its author and licence. Strategies,
+  libraries, scripts that import TradingView libraries, plotcandle and plotbar are not supported yet.
+- Import TradingView's popular open-source indicators in one go (Indicators dialog > Popular, top 50
+  to 1000), in its Popular-list order. Requests are spaced a second apart and pause when TradingView asks.
+  The import runs in the background and can be cancelled, and running it again carries on or picks up
+  new versions. Scripts are stored in IndexedDB.
 - Bar replay runs every chart of a layout on one clock (or only the active chart). It has a replay
   bar under the charts, an update interval, speeds from 10x to 0.1x, and starts from a bar, a date,
   the first available bar or a random bar. Shift+Right steps and Shift+Down plays. Longer timeframes
@@ -25,6 +39,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- OpenTerm5 is now licensed under the GNU Affero General Public License v3.0 (AGPL-3.0-only), as
+  PineTS requires. Releases up to 0.3.0 remain available under the MIT License.
 - MT5 floating chart windows, Cascade, Tile and Arrange Icons give way to layout tabs. Saved
   workspaces and profiles migrate: tabbed charts open as a tab each, floating windows as one layout.
 - New charts (File > New Chart, Market Watch, the + button) open in a tab of their own. Dropping a

@@ -120,11 +120,7 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
     {
       label: 'Insert',
       items: [
-        {
-          label: 'Indicators',
-          isDisabled: !hasChart,
-          items: indicatorMenuItems(chart?.id),
-        },
+        ...indicatorMenuItems(chart?.id),
         {
           label: 'Objects',
           isDisabled: !hasChart,

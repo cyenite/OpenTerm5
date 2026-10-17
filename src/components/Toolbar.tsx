@@ -3,7 +3,8 @@ import { newOrder, setChartType, setTimeframe, showSymbol, toggleDepth, toggleFu
 import { chartInstance, chartUi } from '../lib/chart-instances';
 import { defaultSymbol } from '../lib/broker-symbols';
 import { openMenuAt } from '../lib/context-menu';
-import { indicatorMenuItems } from '../lib/indicator-menu';
+import { indicatorFavorites } from '../lib/indicator-favorites';
+import { favoriteIndicatorItems, toggleIndicatorsDialog } from '../lib/indicator-menu';
 import { chartTimeframes } from '../lib/mt5-timeframes';
 import { session, signingIn } from '../lib/session';
 import { useStore } from '../lib/store';
@@ -52,6 +53,23 @@ export function ToolButton({ hint, icon, text, isActive, isPrimary, isDisabled, 
       {text && <span className="tool-text">{text}</span>}
       {hasMenu && <Icon name="chevron" size={12} />}
     </button>
+  );
+}
+
+interface IndicatorsButtonProps {
+  chartId: string | undefined;
+}
+
+// TradingView's pair: the button toggles the Indicators dialog, and the arrow beside it, shown
+// once something is starred, lists the favourites.
+function IndicatorsButton({ chartId }: IndicatorsButtonProps) {
+  const hasFavorites = useStore(indicatorFavorites, (state) => state.types.length > 0);
+  const isOpen = useStore(workspace, (state) => state.dialog?.kind === 'indicators');
+  return (
+    <span className="tool-split">
+      <ToolButton icon="indicators" text="Indicators" textLevel={2} isActive={isOpen} hint={{ title: 'Indicators', shortcut: '/', description: 'Every indicator in one place: built-in studies, MetaTrader formulas and Pine scripts.' }} onClick={toggleIndicatorsDialog} />
+      {hasFavorites && <ToolButton hasMenu hint={{ title: 'Favorite Indicators', description: 'The indicators you starred in the Indicators dialog.' }} onClick={(event) => menuBelow(event, favoriteIndicatorItems(chartId))} />}
+    </span>
   );
 }
 
@@ -229,7 +247,7 @@ export function Toolbar() {
       <span className="toolbar-divider" />
       <ToolGroup label="Chart">
         <ChartTypePicker />
-        <ToolButton icon="indicators" text="Indicators" textLevel={2} hasMenu isDisabled={!hasChart} hint={{ title: 'Indicators', description: 'Add a study to the active chart.' }} onClick={(event) => chart && menuBelow(event, indicatorMenuItems(chart.id))} />
+        <IndicatorsButton chartId={chart?.id} />
         <ToolButton icon="alert" text="Alert" textLevel={1} hint={{ title: 'Price Alerts', description: 'Get notified when price reaches a level.' }} onClick={() => openDialog({ kind: 'alerts' })} />
         <ReplayButton isDisabled={!ui} />
       </ToolGroup>

@@ -100,3 +100,32 @@ export interface TradingViewChartSettingsScan {
   readonly charts: readonly TradingViewChartSettings[];
   readonly skippedLayouts: readonly TradingViewSkippedLayout[];
 }
+
+// An open-source TradingView script, read from its public page and TradingView's Pine service.
+export interface TradingViewScript {
+  readonly version: number;
+  readonly url: string;
+  readonly name: string;
+  readonly author: string;
+  readonly source: string;
+  // TradingView's id for the published script, `PUB;` and 32 hex digits.
+  readonly scriptId: string;
+}
+
+// One script in TradingView's list of popular open-source indicators.
+export interface TradingViewScriptListing {
+  // Position in the list, from 1.
+  readonly rank: number;
+  readonly likes: number;
+  readonly version: number;
+  readonly url: string;
+  readonly name: string;
+  readonly author: string;
+  readonly scriptId: string;
+}
+
+export interface TradingViewScriptPage {
+  readonly total: number;
+  readonly hasMore: boolean;
+  readonly scripts: readonly TradingViewScriptListing[];
+}

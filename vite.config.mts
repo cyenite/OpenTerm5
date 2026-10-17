@@ -19,5 +19,7 @@ export default defineConfig({
     ],
   },
   server: { port: 5199, strictPort: true },
+  // The Pine runtime worker loads PineTS with a dynamic import, which classic workers cannot do.
+  worker: { format: 'es' },
   build: { outDir: 'dist', emptyOutDir: true, chunkSizeWarningLimit: 1200 },
 });

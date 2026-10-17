@@ -47,6 +47,10 @@ const paths = {
   pause: <path d="M8 5v14M16 5v14" />,
   stepForward: <><path d="M5 5v14l10-7z" /><path d="M19 5v14" /></>,
   close: <path d="M6 6l12 12M18 6 6 18" />,
+  star: <path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" />,
+  user: <><circle cx="12" cy="8" r="4" /><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0" /></>,
+  flame: <path d="M12 21a6.5 6.5 0 0 0 6.5-6.5c0-4-3.5-6-4-10.5-2.5 2-3.2 4.3-3 6.5-1.3-.6-2.2-1.8-2.5-3.3C7.2 9.5 5.5 11.8 5.5 14.5A6.5 6.5 0 0 0 12 21z" />,
+  search: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.5 15.5 5 5" /></>,
 } as const;
 
 export type IconName = keyof typeof paths;

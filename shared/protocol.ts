@@ -1,4 +1,4 @@
-import type { TradingViewAccount, TradingViewChartSettingsScan, TradingViewDrawings, TradingViewDrawingTemplate, TradingViewScan, TradingViewSymbol } from './tradingview';
+import type { TradingViewAccount, TradingViewChartSettingsScan, TradingViewDrawings, TradingViewDrawingTemplate, TradingViewScan, TradingViewScript, TradingViewScriptPage, TradingViewSymbol } from './tradingview';
 import type { Valuation } from './valuation';
 
 export const timeframes = [
@@ -277,6 +277,10 @@ export interface TerminalMethods {
   'tradingview.themes': [Record<string, never>, string[]];
   'tradingview.theme': [{ name: string }, unknown];
   'tradingview.chartSettings': [Record<string, never>, TradingViewChartSettingsScan];
+  // Needs no sign-in: open-source scripts are public.
+  'tradingview.script': [{ url: string }, TradingViewScript];
+  'tradingview.scriptList': [{ page: number }, TradingViewScriptPage];
+  'tradingview.scriptSource': [{ scriptId: string; version: number }, string];
   'terminal.status': [Record<string, never>, TerminalStatus];
   'account.info': [Record<string, never>, Account | null];
   'account.login': [{ login: number; password: string; otp?: string; server?: string; webEndpoint?: string; label?: string; isPasswordSaved?: boolean; isUniqueClientIdRequested?: boolean }, Account];

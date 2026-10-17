@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "description": "Meridian charts: a canvas chart engine with studies, drawing tools and a theme system, shared by Meridian and OpenTerm5.",
   "private": true,
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts"
