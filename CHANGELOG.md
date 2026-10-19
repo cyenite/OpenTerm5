@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-19
+
 ### Added
 
 - TradingView-style chart layouts. Each tab in the chart bar holds one of 55 layouts of 1 to 16
@@ -338,7 +340,8 @@ First public release of OpenTerm5 (previously developed as Terminal5), under the
 - **Project files:** documentation under `docs/`, a contributing guide, code of conduct, security
   policy, issue and pull request templates, and CI on Linux, macOS and Windows.
 
-[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/cyenite/OpenTerm5/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/cyenite/OpenTerm5/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/cyenite/OpenTerm5/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/cyenite/OpenTerm5/compare/v0.1.1...v0.1.2
