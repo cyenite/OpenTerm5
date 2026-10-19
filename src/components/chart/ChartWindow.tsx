@@ -24,9 +24,8 @@ import { OneClickPanel } from './OneClickPanel';
 import { TradeOverlay } from './TradeOverlay';
 import { SigningIn } from '../ui/SigningIn';
 import { pineScriptsReady } from '../../lib/pine/pine-scripts';
-import { activeBacktest, backtest, useIsBacktestingChart } from '../../lib/backtest/runtime';
+import { activeBacktest, backtest, endBacktest, useIsBacktestingChart } from '../../lib/backtest/runtime';
 import { netOf } from '../../lib/backtest/stats';
-import { BacktestOverlay, BacktestTradePanel } from '../backtest/BacktestOverlay';
 
 interface ChartWindowProps {
   chart: ChartConfig;
@@ -91,7 +90,9 @@ export function chartEngineItems(chartId: string, symbol: string, price: number 
     separator,
     ...(price !== null && hasAccount ? [{ label: `Add Alert at ${formatPrice(price, digits)}`, action: () => addAlert(symbol, price, digits) }, separator] : []),
     { label: 'Object Tree', isChecked: instance.isObjectTreeShown(), action: () => instance.toggleObjectTree() },
-    { label: replay.get().session ? 'Exit Bar Replay' : 'Bar Replay', action: () => (replay.get().session ? exitReplay() : startReplay(chartId)) },
+    replay.get().session?.purpose === 'backtest'
+      ? { label: 'End Backtest Session', action: endBacktest }
+      : { label: replay.get().session ? 'Exit Bar Replay' : 'Bar Replay', action: () => (replay.get().session ? exitReplay() : startReplay(chartId)) },
     { label: 'Chart Settings...', action: () => instance.openChartSettings() },
     separator,
   ];
@@ -366,11 +367,9 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
       onMouseDown={() => focusChart(chart.id)}
     >
       <div className="chart-canvas" ref={container} data-tool={tool} />
-      {isBacktesting && <BacktestOverlay chart={instance} symbol={chart.symbol} digits={digits} />}
-      {isBacktesting && <BacktestTradePanel symbol={chart.symbol} digits={digits} />}
-      {!isBacktesting && isTradeOverlayShown && <TradeOverlay chart={instance} symbol={chart.symbol} digits={digits} isReplaying={isReplaying} />}
-      {!isBacktesting && isOneClickEnabled && !isReplaying && <OneClickPanel symbol={chart.symbol} digits={digits} />}
-      {!isBacktesting && isOneClickEnabled && isReplaying && <div className="one-click-off" role="status">{replayTradingHint}</div>}
+      {(isTradeOverlayShown || isBacktesting) && <TradeOverlay chart={instance} symbol={chart.symbol} digits={digits} isReplaying={isReplaying} isBacktesting={isBacktesting} />}
+      {isOneClickEnabled && (!isReplaying || isBacktesting) && <OneClickPanel symbol={chart.symbol} digits={digits} isBacktesting={isBacktesting} />}
+      {isOneClickEnabled && isReplaying && !isBacktesting && <div className="one-click-off" role="status">{replayTradingHint}</div>}
       {signIn && <div className="chart-status"><SigningIn signIn={signIn} /></div>}
       {!signIn && !isLinked && <div className="chart-status">Waiting for connection</div>}
       {!signIn && isLinked && isCollectingTicks && <div className="chart-status">Building {chart.timeframe} bars from live quotes. Seconds charts start when OpenTerm5 receives the symbol's first quotes.</div>}

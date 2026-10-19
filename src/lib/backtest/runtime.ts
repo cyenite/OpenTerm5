@@ -1,7 +1,9 @@
-import { planRisk, type RiskMode } from '../../../shared/risk';
-import { activeTab, activeChart, setChartSymbol, workspace } from '../workspace';
+import type { BulkOutcome, BulkRequest, RiskOrderOutcome, RiskOrderRequest } from '../../../shared/automation';
+import type { Account, Order, Position, TradeRequest, TradeResult } from '../../../shared/protocol';
+import { planRiskOrder } from '../../../shared/risk-order';
+import { activeTab, activeChart, isTradeDialog, setChartSymbol, toggleAnalysisMode, workspace, type WorkspaceState } from '../workspace';
 import { visibleChartIds } from '../chart-tabs';
-import { exitReplay, pickReplayStart, replay, replayFrom, replayInterval, setReplayLimit } from '../replay';
+import { exitReplay, pickReplayStart, replay, replayFrom, replayInterval } from '../replay';
 import { timeframeSeconds } from '../mt5-timeframes';
 import { log, session, terminal } from '../session';
 import { Store, useStore } from '../store';
@@ -10,33 +12,34 @@ import { nextSessionOpenOnChart, type MarketSessionKey } from '../market-session
 import type { ServerClock } from '../server-clock';
 import * as engine from './engine';
 import { clearFeed, feedSeries } from './feed';
-import type { Book, Side, SimPosition, SimOrder, SymbolTerms } from './model';
+import type { Book, SimPosition, SimOrder, SymbolTerms } from './model';
 import { bidAt, type Series } from './series';
 import { makeSession, restartedSession, restoreSession, simulationOf, type BacktestSession, type NewSession } from './session-model';
 import { deleteSessionRecord, loadSessionRecords, saveSessionRecord } from './storage';
 import { tradesCsv } from './stats';
+import { simAccount, simOrders, simPositions, tradeResult } from './venue-model';
 
 // The running backtest. It follows the bar replay's clock: each time the replay moves on, the
 // bars that ended on the way fill, stop and expire the session's orders. The clock only moves
 // forward; a replay picked further back is put back where the backtest stands.
 
-export const backtestPanelTabs = [
+// The Backtest panel's sections, in the order it shows them; each folds on its own.
+export const backtestSections = [
+  { key: 'performance', label: 'Performance' },
   { key: 'positions', label: 'Positions' },
   { key: 'orders', label: 'Orders' },
-  { key: 'history', label: 'History' },
-  { key: 'statistics', label: 'Statistics' },
+  { key: 'trades', label: 'Trades' },
   { key: 'journal', label: 'Journal' },
 ] as const;
 
-export type BacktestPanelTab = (typeof backtestPanelTabs)[number]['key'];
+export type BacktestSection = (typeof backtestSections)[number]['key'];
 
 export interface BacktestState {
   readonly activeId: string | null;
   // Starting resumes the replay, which may first load history.
   readonly isStarting: boolean;
   readonly notice: string | null;
-  readonly panelTab: BacktestPanelTab;
-  readonly isPanelCollapsed: boolean;
+  readonly collapsedSections: readonly BacktestSection[];
   // Bids at the active session's time, for every symbol it prices.
   readonly bids: Readonly<Record<string, number>>;
   // Why a symbol cannot be backtested, by symbol.
@@ -44,14 +47,15 @@ export interface BacktestState {
   readonly sessions: readonly BacktestSession[];
 }
 
-const PANEL_KEY = 'openterm.backtest-panel.v1';
+const PANEL_KEY = 'openterm.backtest-panel.v2';
 
-function savedPanel(): Pick<BacktestState, 'panelTab' | 'isPanelCollapsed'> {
+function savedPanel(): Pick<BacktestState, 'collapsedSections'> {
   try {
-    const saved = JSON.parse(localStorage.getItem(PANEL_KEY) ?? 'null') as Partial<BacktestState> | null;
-    return { panelTab: backtestPanelTabs.find((tab) => tab.key === saved?.panelTab)?.key ?? 'positions', isPanelCollapsed: saved?.isPanelCollapsed === true };
+    const saved = JSON.parse(localStorage.getItem(PANEL_KEY) ?? 'null') as { collapsedSections?: unknown } | null;
+    const collapsed = Array.isArray(saved?.collapsedSections) ? saved.collapsedSections : ['journal'];
+    return { collapsedSections: backtestSections.map((section) => section.key).filter((key) => collapsed.includes(key)) };
   } catch {
-    return { panelTab: 'positions', isPanelCollapsed: false };
+    return { collapsedSections: ['journal'] };
   }
 }
 
@@ -89,11 +93,10 @@ function updateSession(id: string, patch: Partial<BacktestSession>, extra: Parti
   save(id);
 }
 
-export function setBacktestPanel(patch: Partial<Pick<BacktestState, 'panelTab' | 'isPanelCollapsed'>>): void {
-  backtest.set(patch);
-  const { panelTab, isPanelCollapsed } = backtest.get();
+export function toggleBacktestSection(section: BacktestSection): void {
+  backtest.set((state) => ({ collapsedSections: state.collapsedSections.includes(section) ? state.collapsedSections.filter((key) => key !== section) : [...state.collapsedSections, section] }));
   try {
-    localStorage.setItem(PANEL_KEY, JSON.stringify({ panelTab, isPanelCollapsed }));
+    localStorage.setItem(PANEL_KEY, JSON.stringify({ collapsedSections: backtest.get().collapsedSections }));
   } catch {
     // The panel's layout is a convenience.
   }
@@ -240,7 +243,8 @@ replay.subscribe(() => {
   if (!state.activeId || state.isStarting) return;
   const current = replay.get().session;
   if (!current) {
-    suspend('The replay ended, so the backtest was saved. Resume it from Backtesting.');
+    suspend('The backtest ended with its charts, and was saved.');
+    restoreFocus();
     return;
   }
   if (current.time === null || current.isSelecting || current.time === clock) return;
@@ -259,6 +263,93 @@ terminal.on('accountChanged', () => {
   backtest.set({ problems: {} });
 });
 
+// The interface modes, in the order the app bar offers them. Backtest mode gives the whole
+// interface over to backtesting: Analysis mode's chart-first layout without the watchlist, the
+// Backtest panel open and the backtest's controls on the charts. The settings it replaced are kept,
+// on disk too, and put back when the mode ends (with the session, or by choosing another mode), or
+// at the next start if OpenTerm5 closed during it.
+export const interfaceModes = [
+  { key: 'trade', label: 'Trade', icon: 'trade', description: 'The full terminal: order tickets, one-click trading, the toolbox and every workspace.' },
+  { key: 'analysis', label: 'Analysis', icon: 'analysis', description: 'A chart-first layout without trading controls. Accounts, copiers and signals keep running.' },
+  { key: 'backtest', label: 'Backtest', icon: 'backtest', description: 'Replay history and trade it on a simulated account, with the session statistics beside the charts.' },
+] as const;
+
+export type InterfaceMode = (typeof interfaceModes)[number]['key'];
+
+export const modeOf = (state: Pick<WorkspaceState, 'isAnalysisMode' | 'isBacktestMode'>): InterfaceMode => (state.isBacktestMode ? 'backtest' : state.isAnalysisMode ? 'analysis' : 'trade');
+
+const FOCUS_KEY = 'openterm.backtest-focus.v1';
+
+type FocusSettings = Pick<WorkspaceState, 'isAnalysisMode' | 'isMarketWatchShown' | 'isBacktestPanelShown'>;
+
+let replacedSettings: FocusSettings | null = null;
+
+function savedFocus(): FocusSettings | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FOCUS_KEY) ?? 'null') as Partial<FocusSettings> | null;
+    const isValid = saved && typeof saved.isAnalysisMode === 'boolean' && typeof saved.isMarketWatchShown === 'boolean' && typeof saved.isBacktestPanelShown === 'boolean';
+    return isValid ? { isAnalysisMode: saved.isAnalysisMode!, isMarketWatchShown: saved.isMarketWatchShown!, isBacktestPanelShown: saved.isBacktestPanelShown! } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function enterBacktestMode(): void {
+  if (workspace.get().isBacktestMode) return;
+  // Bar replay and a backtest share the clock; the backtest takes it.
+  if (replay.get().session) exitReplay();
+  if (!replacedSettings) {
+    const { isAnalysisMode, isMarketWatchShown, isBacktestPanelShown } = workspace.get();
+    replacedSettings = { isAnalysisMode, isMarketWatchShown, isBacktestPanelShown };
+    try {
+      localStorage.setItem(FOCUS_KEY, JSON.stringify(replacedSettings));
+    } catch {
+      // The settings are still kept for this run.
+    }
+  }
+  workspace.set((state) => ({
+    isBacktestMode: true,
+    page: 'trading',
+    isAnalysisMode: true,
+    isMarketWatchShown: false,
+    isBacktestPanelShown: true,
+    depthSymbol: null,
+    tool: state.tool === 'riskOrder' ? 'cursor' : state.tool,
+    dialog: state.dialog && isTradeDialog(state.dialog) ? null : state.dialog,
+  }));
+}
+
+function restoreFocus(): void {
+  const settings = replacedSettings ?? savedFocus();
+  replacedSettings = null;
+  try {
+    localStorage.removeItem(FOCUS_KEY);
+  } catch {
+    // Nothing was kept on disk.
+  }
+  workspace.set((state) => ({ ...settings ?? {}, isBacktestMode: false, tool: state.tool === 'riskOrder' ? 'cursor' : state.tool }));
+}
+
+// Leaves Backtest mode, saving and ending any running session first.
+export function exitBacktestMode(): void {
+  if (backtest.get().activeId) {
+    suspend(null);
+    exitReplay();
+  }
+  if (workspace.get().isBacktestMode || replacedSettings || savedFocus()) restoreFocus();
+}
+
+export function chooseMode(mode: InterfaceMode): void {
+  if (mode === 'backtest') {
+    enterBacktestMode();
+    return;
+  }
+  if (workspace.get().isBacktestMode) exitBacktestMode();
+  if (workspace.get().isAnalysisMode !== (mode === 'analysis')) toggleAnalysisMode();
+}
+
+if (savedFocus()) restoreFocus();
+
 function suspend(notice: string | null): void {
   const id = backtest.get().activeId;
   if (!id) return;
@@ -275,7 +366,12 @@ async function start(id: string): Promise<void> {
   if (!session.get().account) throw new Error('Log in to an account first: a backtest replays its symbols and history.');
   const target = backtest.get().sessions.find((candidate) => candidate.id === id);
   if (!target) throw new Error('This backtest no longer exists.');
-  if (backtest.get().activeId) endBacktest();
+  // Another session ends without leaving Backtest mode.
+  if (backtest.get().activeId) {
+    suspend(null);
+    exitReplay();
+  }
+  enterBacktestMode();
   backtest.set({ activeId: id, isStarting: true, notice: null, bids: {}, problems: {} });
   clock = null;
   try {
@@ -288,7 +384,7 @@ async function start(id: string): Promise<void> {
       await settle();
     }
     const requested = target.book.time ?? target.startTime;
-    const started = await replayFrom(requested, target.endTime);
+    const started = await replayFrom(requested, target.endTime, 'backtest');
     if (started === null) throw new Error('Open a chart to backtest on.');
     if (target.book.time === null && started > requested + 86_400_000) {
       backtest.set({ notice: `The charts' history starts later than the session, so it begins at the first available bar.` });
@@ -313,12 +409,9 @@ export function resumeBacktest(id: string): Promise<void> {
   return start(id);
 }
 
-// Saves the session and leaves the replay.
+// Saves the session, returns the charts to live and leaves Backtest mode.
 export function endBacktest(): void {
-  const id = backtest.get().activeId;
-  if (!id) return;
-  suspend(null);
-  exitReplay();
+  exitBacktestMode();
 }
 
 export function deleteBacktest(id: string): void {
@@ -339,13 +432,6 @@ export async function restartBacktest(id: string): Promise<void> {
   if (backtest.get().activeId === id) endBacktest();
   updateSession(id, restartedSession(target, Date.now()));
   await start(id);
-}
-
-export function setBacktestEnd(endTime: number | null): void {
-  const current = activeBacktest(backtest.get());
-  if (!current) return;
-  updateSession(current.id, { endTime });
-  setReplayLimit(endTime);
 }
 
 let cachedClock: { key: string; clock: Promise<ServerClock> } | null = null;
@@ -464,25 +550,6 @@ export function backtestQuote(state: BacktestState, symbol: string): BacktestQuo
   return { ...engine.quoteOf(terms, bid), digits: terms.digits };
 }
 
-// Lots for a risk-sized trade in the running backtest, as the live risk ticket sizes them.
-export function backtestRiskLots(symbol: string, side: Side, entry: number, stopLoss: number, mode: RiskMode, value: number): { lots: number; riskMoney: number; error: string | null } {
-  const state = backtest.get();
-  const current = activeBacktest(state);
-  const terms = current?.terms[symbol];
-  if (!current || !terms) return { lots: 0, riskMoney: 0, error: `${symbol} is not priced in this backtest yet.` };
-  const figures = engine.accountFigures(current.book, simulationOf(current), state.bids);
-  const plan = planRisk({
-    side, mode, value, entry, stopLoss,
-    limits: { digits: terms.digits, point: terms.point, volumeMin: terms.volumeMin, volumeMax: terms.volumeMax, volumeStep: terms.volumeStep },
-    takeProfits: [],
-    equity: figures.equity,
-    balance: figures.balance,
-    moneyPerUnit: engine.moneyPerUnit(simulationOf(current), terms, stopLoss || entry),
-    commissionPerLot: current.settings.commissionPerLot * 2,
-  });
-  return { lots: plan.lots, riskMoney: plan.riskMoney, error: plan.isValid ? null : plan.warnings[0] ?? 'The trade cannot be sized.' };
-}
-
 export function downloadBacktestTrades(target: BacktestSession): void {
   const csv = tradesCsv(target.book.trades, (symbol) => target.terms[symbol]?.digits ?? 5);
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
@@ -498,4 +565,122 @@ export function reportBacktest(error: string | null): void {
   if (!error) return;
   backtest.set({ notice: error });
   log(error, 'Backtest');
+}
+
+// Tickets the last action opened: new positions, else new pending orders.
+function newTickets(before: Book, after: Book): number[] {
+  const known = new Set([...before.positions.map((position) => position.ticket), ...before.orders.map((order) => order.ticket)]);
+  return [...after.positions.map((position) => position.ticket), ...after.orders.map((order) => order.ticket)].filter((ticket) => !known.has(ticket));
+}
+
+// A risk order on the backtest, planned exactly as the live trade manager plans one: the same
+// entry, stop, R targets, split across parts, and management for each part.
+export async function backtestRiskOrder(request: RiskOrderRequest): Promise<RiskOrderOutcome> {
+  if (!request.isDryRun) await queue;
+  const problem = await prepareSymbol(request.symbol);
+  if (problem) throw new Error(problem);
+  const state = backtest.get();
+  const current = activeBacktest(state);
+  const terms = current?.terms[request.symbol];
+  const bid = state.bids[request.symbol];
+  if (!current || !terms || bid === undefined) throw new Error(`${request.symbol} has no price at this point of the backtest.`);
+  const simulation = simulationOf(current);
+  const quote = engine.quoteOf(terms, bid);
+  const figures = engine.accountFigures(current.book, simulation, state.bids);
+  const planned = planRiskOrder(request, {
+    quote,
+    limits: { digits: terms.digits, point: terms.point, volumeMin: terms.volumeMin, volumeMax: terms.volumeMax, volumeStep: terms.volumeStep },
+    equity: figures.equity,
+    balance: figures.balance,
+    moneyPerUnit: engine.moneyPerUnit(simulation, terms, quote.bid),
+  });
+  const outcome: RiskOrderOutcome = { lots: planned.plan.lots, warnings: planned.plan.warnings, results: [], riskMoney: planned.plan.riskMoney, stopLoss: planned.stopLoss, entry: planned.entry, takeProfits: planned.legs.map((leg) => leg.takeProfit), isDryRun: !!request.isDryRun };
+  if (request.isDryRun) return outcome;
+  for (const leg of planned.legs) {
+    const levels = planned.isStealth ? {} : { sl: planned.stopLoss, tp: leg.takeProfit };
+    const before = activeBacktest(backtest.get())!.book;
+    const error = act((book, session) => planned.isPending
+      ? engine.placePending(book, simulationOf(session), backtest.get().bids, { type: request.type as engine.PendingRequest['type'], symbol: request.symbol, volume: leg.lots, price: planned.entry, comment: request.comment, rule: leg.rule, ...levels, ...(request.expiration ? { expiration: request.expiration * 1000 } : {}) })
+      : engine.placeMarket(book, simulationOf(session), backtest.get().bids, { side: planned.side, symbol: request.symbol, volume: leg.lots, comment: request.comment, rule: leg.rule, ...levels }));
+    const after = activeBacktest(backtest.get())!.book;
+    outcome.results.push(tradeResult(error, newTickets(before, after)[0]));
+    if (error) break;
+  }
+  return outcome;
+}
+
+export async function backtestBulk(request: BulkRequest): Promise<BulkOutcome[]> {
+  await queue;
+  const current = activeBacktest(backtest.get());
+  if (!current) throw new Error('No backtest is running.');
+  const { book, results } = engine.bulkAction(current.book, simulationOf(current), backtest.get().bids, request.kind, request.symbol, request.ticket);
+  if (book !== current.book) {
+    updateSession(current.id, { book });
+    for (const line of book.journal.slice(current.book.journal.length)) log(line.message, 'Backtest');
+  }
+  return results.map((result) => ({ ticket: result.ticket, symbol: result.symbol, result: tradeResult(result.error) }));
+}
+
+// A broker trade request carried out on the backtest.
+export async function backtestTrade(request: TradeRequest): Promise<TradeResult> {
+  const before = activeBacktest(backtest.get())?.book;
+  const run = async (): Promise<string | null> => {
+    switch (request.action) {
+      case 'deal': {
+        if (request.position) {
+          const position = before?.positions.find((candidate) => candidate.ticket === request.position);
+          return closeBacktestPosition(request.position, request.volume !== undefined && position && request.volume < position.volume ? request.volume : undefined);
+        }
+        return backtestMarket({ side: request.type === 'sell' ? 'sell' : 'buy', symbol: request.symbol ?? '', volume: request.volume ?? 0, sl: request.sl, tp: request.tp, comment: request.comment });
+      }
+      case 'pending':
+        return backtestPending({ type: request.type as engine.PendingRequest['type'], symbol: request.symbol ?? '', volume: request.volume ?? 0, price: request.price ?? 0, stopLimit: request.stoplimit, sl: request.sl, tp: request.tp, comment: request.comment, expiration: request.expiration ? request.expiration * 1000 : 0 });
+      case 'sltp':
+        return modifyBacktestPosition(request.position ?? 0, request.sl ?? 0, request.tp ?? 0);
+      case 'modify': {
+        const order = before?.orders.find((candidate) => candidate.ticket === request.order);
+        return modifyBacktestOrder(request.order ?? 0, { price: request.price ?? order?.price ?? 0, stopLimit: request.stoplimit ?? order?.stopLimit ?? 0, sl: request.sl ?? 0, tp: request.tp ?? 0, expiration: request.expiration ? request.expiration * 1000 : 0 });
+      }
+      case 'remove':
+        return cancelBacktestOrder(request.order ?? 0);
+      case 'closeBy':
+        return 'Close By is not available in a backtest.';
+    }
+  };
+  const error = await run();
+  const after = activeBacktest(backtest.get())?.book;
+  return tradeResult(error, before && after ? newTickets(before, after)[0] : undefined);
+}
+
+export interface BacktestView {
+  readonly account: Account;
+  readonly orders: readonly Order[];
+  readonly positions: readonly Position[];
+  readonly quotes: Readonly<Record<string, { readonly bid: number; readonly ask: number }>>;
+}
+
+// The simulated account in the live protocol's shapes, recomputed only when the book or the bids
+// change.
+let mirrored: { book: Book | null; bids: Readonly<Record<string, number>> | null; view: BacktestView | null } = { book: null, bids: null, view: null };
+
+export function backtestView(state: BacktestState): BacktestView | null {
+  const current = activeBacktest(state);
+  if (!current) return null;
+  if (mirrored.book === current.book && mirrored.bids === state.bids && mirrored.view) return mirrored.view;
+  const simulation = simulationOf(current);
+  const quotes = Object.fromEntries(Object.entries(state.bids).flatMap(([symbol, bid]) => current.terms[symbol] ? [[symbol, engine.quoteOf(current.terms[symbol], bid)]] : []));
+  const view = { account: simAccount(current, simulation, state.bids), orders: simOrders(current.book, state.bids), positions: simPositions(current.book, simulation, state.bids), quotes };
+  mirrored = { book: current.book, bids: state.bids, view };
+  return view;
+}
+
+// Account money per lot for a move of 1.0 in the symbol's price, at its current backtest price;
+// null until the session prices the symbol.
+export function useBacktestMoneyPerUnit(symbol: string): number | null {
+  return useStore(backtest, (state) => {
+    const current = activeBacktest(state);
+    const terms = current?.terms[symbol];
+    const bid = state.bids[symbol];
+    return current && terms && bid !== undefined ? engine.moneyPerUnit(simulationOf(current), terms, bid) : null;
+  });
 }

@@ -90,8 +90,7 @@ export type Dialog =
   | { kind: 'tradingview' }
   | { kind: 'indicators'; section?: IndicatorSection }
   | { kind: 'backtests' }
-  // Backtest tickets trade the simulated account, so analysis mode does not withhold them.
-  | { kind: 'backtestOrder'; symbol: string; type?: OrderTypeKey; price?: number }
+  // Backtest dialogs change the simulated account, so analysis mode does not withhold them.
   | { kind: 'backtestPosition'; ticket: number }
   | { kind: 'backtestOrderEdit'; ticket: number }
   | { kind: 'about' };
@@ -122,6 +121,10 @@ export interface WorkspaceState {
   isChartBarShown: boolean;
   isMarketWatchShown: boolean;
   isTradeAssistantShown: boolean;
+  isBacktestPanelShown: boolean;
+  // Backtest mode: the interface given over to backtesting, set and cleared by the backtest runtime
+  // (which keeps the settings it replaced); not saved, so OpenTerm5 always starts outside it.
+  isBacktestMode: boolean;
   // Trade mode keeps the chart's drawing rail closed unless asked; analysis mode always shows it.
   isTradeDrawingToolbarShown: boolean;
   isOneClickEnabled: boolean;
@@ -183,6 +186,8 @@ function initialState(): WorkspaceState {
     isChartBarShown: true,
     isMarketWatchShown: true,
     isTradeAssistantShown: false,
+    isBacktestPanelShown: false,
+    isBacktestMode: false,
     isTradeDrawingToolbarShown: false,
     isOneClickEnabled: false,
     hasAcceptedOneClick: false,
@@ -202,7 +207,7 @@ function initialState(): WorkspaceState {
       const drawingSync = drawingSyncs.find((candidate) => candidate.key === saved.drawingSync)?.key ?? defaults.drawingSync;
       const replayMode = replayModes.find((candidate) => candidate.key === saved.replayMode)?.key ?? defaults.replayMode;
       const replaySpeed = replaySpeeds.find((candidate) => candidate.key === saved.replaySpeed)?.key ?? defaults.replaySpeed;
-      const restored = { ...defaults, ...saved, ...charts, drawingSync, dock: restoreDockLayout(saved.dock), replayMode, replaySpeed, profiles: restoreProfiles(saved.profiles), templates: restoreTemplates(saved.templates), dialog: null, depthSymbol: null, tool: 'cursor' as const, isChartMaximized: false };
+      const restored = { ...defaults, ...saved, ...charts, drawingSync, dock: restoreDockLayout(saved.dock), replayMode, replaySpeed, profiles: restoreProfiles(saved.profiles), templates: restoreTemplates(saved.templates), dialog: null, depthSymbol: null, tool: 'cursor' as const, isChartMaximized: false, isBacktestMode: false };
       if (!restored.profiles.some((profile) => profile.name === restored.activeProfile)) restored.activeProfile = 'Default';
       if (!restored.profiles.some((profile) => profile.name === 'Default')) restored.profiles = [captureProfile(restored, 'Default'), ...restored.profiles];
       if (saved.defaultChartSettings === undefined) delete restored.defaultChartSettings;
@@ -219,7 +224,7 @@ export const workspace = new Store<WorkspaceState>(initialState());
 
 workspace.subscribe(() => {
   const state = workspace.get();
-  const { dialog, depthSymbol, tool, isChartMaximized, ...persisted } = state;
+  const { dialog, depthSymbol, tool, isChartMaximized, isBacktestMode, ...persisted } = state;
   persisted.profiles = state.profiles.map((profile) => profile.name === state.activeProfile ? captureProfile(state, profile.name) : profile);
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));

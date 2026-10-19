@@ -2,14 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { plannerRiskModes, type BulkKind, type RiskOrderOutcome, type RiskOrderRequest } from '../../shared/automation';
 import { orderType, type Position } from '../../shared/protocol';
 import { distanceUnits } from '../../shared/risk';
-import { placeRiskOrder, runBulkTrades } from '../lib/automation';
 import { defaultSymbol } from '../lib/broker-symbols';
 import { togglePanel } from '../lib/commands';
 import { formatMoney, formatPrice, formatVolume } from '../lib/format';
 import { replayTradingHint, useIsReplayingChart } from '../lib/replay-session';
-import { useRiskPreview } from '../lib/risk-preview';
+import { useRiskPreview, type RiskPreviewer } from '../lib/risk-preview';
 import { riskPreferences, setRiskPreferences } from '../lib/risk-preferences';
-import { closePosition, session } from '../lib/session';
+import { session } from '../lib/session';
+import { useIsBacktestingChart } from '../lib/backtest/runtime';
+import { useVenue, type Venue } from '../lib/trading-venue';
 import { useStore } from '../lib/store';
 import { assistantEntry, assistantPlan, assistantPreferences, assistantRequest, assistantTabs, chartSides, closeScopes, entryKinds, partialVolume, type AssistantPlan, type AssistantPreferences } from '../lib/trade-assistant';
 import { activeChart, workspace } from '../lib/workspace';
@@ -23,19 +24,16 @@ interface Outcome {
 
 const setPreferences = (patch: Partial<AssistantPreferences>) => assistantPreferences.set(patch);
 
-function useCanTrade(): boolean {
-  return useStore(session, (state) => !!state.account && state.status?.isTradeAllowed === true && state.status?.capabilities?.trading === true && state.link.state === 'open');
-}
-
 interface SummaryProps {
   symbol: string;
+  venue: Venue;
 }
 
-function Summary({ symbol }: SummaryProps) {
-  const tick = useStore(session, (state) => state.ticks[symbol]);
+function Summary({ symbol, venue }: SummaryProps) {
+  const tick = venue.quotes[symbol];
   const point = useStore(session, (state) => state.symbols[symbol]?.point);
-  const account = useStore(session, (state) => state.account);
-  const positions = useStore(session, (state) => state.positions.filter((position) => position.symbol === symbol));
+  const account = venue.account;
+  const positions = venue.positions.filter((position) => position.symbol === symbol);
   const spread = tick && point ? Math.round((tick.ask - tick.bid) / point) : null;
   const profit = positions.reduce((sum, position) => sum + position.profit + position.swap, 0);
   const lots = positions.reduce((sum, position) => sum + (position.side === 'buy' ? position.volume : -position.volume), 0);
@@ -129,8 +127,8 @@ function PreviewTable({ digits, currency, buy, sell, buyProblem, sellProblem }: 
 
 // While a changed request is being priced the preview is empty; the last result for the symbol
 // stays meanwhile, or the chart's plan lines would vanish under a drag on every step.
-function useSteadyPreview(request: RiskOrderRequest, refresh: unknown, symbol: string) {
-  const current = useRiskPreview(request, refresh);
+function useSteadyPreview(request: RiskOrderRequest, refresh: unknown, symbol: string, previewer: RiskPreviewer) {
+  const current = useRiskPreview(request, refresh, previewer);
   const last = useRef<{ symbol: string; result: typeof current } | null>(null);
   if (current.preview || current.problem) last.current = { symbol, result: current };
   return !current.preview && !current.problem && last.current?.symbol === symbol ? last.current.result : current;
@@ -138,16 +136,17 @@ function useSteadyPreview(request: RiskOrderRequest, refresh: unknown, symbol: s
 
 interface SectionProps {
   symbol: string;
+  venue: Venue;
   canTrade: boolean;
   onOutcome: (outcome: Outcome) => void;
 }
 
-function TradeSection({ symbol, canTrade, onOutcome }: SectionProps) {
+function TradeSection({ symbol, venue, canTrade, onOutcome }: SectionProps) {
   const preferences = useStore(assistantPreferences, (state) => state);
   const risk = useStore(riskPreferences, (state) => state);
-  const tick = useStore(session, (state) => state.ticks[symbol]);
+  const tick = venue.quotes[symbol];
   const digits = useStore(session, (state) => state.symbols[symbol]?.digits ?? 5);
-  const currency = useStore(session, (state) => state.account?.currency ?? '');
+  const currency = venue.account?.currency ?? '';
   const price = useStore(assistantEntry, (state) => state.price);
   const [busySide, setBusySide] = useState<'buy' | 'sell' | null>(null);
   const isPending = preferences.entry !== 'market';
@@ -162,8 +161,8 @@ function TradeSection({ symbol, canTrade, onOutcome }: SectionProps) {
   const buyRequest = assistantRequest({ side: 'buy', symbol, risk, preferences, price });
   const sellRequest = assistantRequest({ side: 'sell', symbol, risk, preferences, price });
   const refresh = isPending ? tick?.bid === undefined : `${tick?.bid}:${tick?.ask}`;
-  const buy = useSteadyPreview(buyRequest, refresh, symbol);
-  const sell = useSteadyPreview(sellRequest, refresh, symbol);
+  const buy = useSteadyPreview(buyRequest, refresh, symbol, venue.previewRisk);
+  const sell = useSteadyPreview(sellRequest, refresh, symbol, venue.previewRisk);
   const charted = preferences.chartSide === 'buy' ? buy : preferences.chartSide === 'sell' ? sell : null;
   const plan: AssistantPlan | null = charted?.preview && !charted.problem && preferences.chartSide !== 'off' ? {
     side: preferences.chartSide,
@@ -186,7 +185,7 @@ function TradeSection({ symbol, canTrade, onOutcome }: SectionProps) {
     setBusySide(side);
     onOutcome({ text: `${label}…`, isGood: null });
     try {
-      const outcome = await placeRiskOrder(label, request);
+      const outcome = await venue.placeRiskOrder(label, request);
       const failed = outcome.results.length ? outcome.results.find((result) => !result.isSuccess) : { comment: 'no order was sent' };
       onOutcome(failed
         ? { text: `${label} failed: ${failed.comment}`, isGood: false }
@@ -236,11 +235,11 @@ const closeActions: { kind: BulkKind; label: string; isConfirmed?: boolean }[] =
   { kind: 'breakEvenAll', label: 'Break-even' },
 ];
 
-function CloseSection({ symbol, canTrade, onOutcome }: SectionProps) {
+function CloseSection({ symbol, venue, canTrade, onOutcome }: SectionProps) {
   const preferences = useStore(assistantPreferences, (state) => state);
   const scope = preferences.scope === 'symbol' ? symbol : undefined;
-  const positions = useStore(session, (state) => state.positions.filter((position) => !scope || position.symbol === scope));
-  const orders = useStore(session, (state) => state.orders.filter((order) => !scope || order.symbol === scope));
+  const positions = venue.positions.filter((position) => !scope || position.symbol === scope);
+  const orders = venue.orders.filter((order) => !scope || order.symbol === scope);
   const [isBusy, setIsBusy] = useState(false);
   const where = scope ?? 'every symbol';
 
@@ -250,7 +249,7 @@ function CloseSection({ symbol, canTrade, onOutcome }: SectionProps) {
     setIsBusy(true);
     onOutcome({ text: `${label}…`, isGood: null });
     try {
-      const outcomes = await runBulkTrades(label, { kind: action.kind, ...(scope ? { symbol: scope } : {}) });
+      const outcomes = await venue.runBulk(label, { kind: action.kind, ...(scope ? { symbol: scope } : {}) });
       const failed = outcomes.filter((outcome) => !outcome.result.isSuccess);
       onOutcome(failed.length
         ? { text: `${label}: ${failed.length} of ${outcomes.length} failed: ${failed[0].result.comment}`, isGood: false }
@@ -271,7 +270,7 @@ function CloseSection({ symbol, canTrade, onOutcome }: SectionProps) {
     setIsBusy(true);
     onOutcome({ text: `${label}…`, isGood: null });
     try {
-      const results = await Promise.all(parts.filter(([, volume]) => volume !== null).map(([position, volume]) => closePosition(position, volume!)));
+      const results = await Promise.all(parts.filter(([, volume]) => volume !== null).map(([position, volume]) => venue.closePosition(position, volume!)));
       const failed = results.filter((result) => !result.isSuccess);
       const notes = [failed.length ? `${failed.length} failed: ${failed[0].comment}` : '', skipped ? `${skipped} too small to split` : ''].filter(Boolean).join(', ');
       onOutcome({ text: `${label}: ${results.length - failed.length} done${notes ? `, ${notes}` : ''}`, isGood: !failed.length && !skipped });
@@ -302,13 +301,17 @@ function CloseSection({ symbol, canTrade, onOutcome }: SectionProps) {
   );
 }
 
-function ManageSection() {
+interface ManageSectionProps {
+  venue: Venue;
+}
+
+function ManageSection({ venue }: ManageSectionProps) {
   const preferences = useStore(assistantPreferences, (state) => state);
   const risk = useStore(riskPreferences, (state) => state);
-  const currency = useStore(session, (state) => state.account?.currency ?? '');
+  const currency = venue.account?.currency ?? '';
   return (
     <div className="assistant-section">
-      <p className="is-muted">Applies to trades placed from the Trade Assistant. OpenTerm5 manages them while it runs.</p>
+      <p className="is-muted">{venue.kind === 'backtest' ? 'Applies to trades placed from the Trade Assistant. The backtest manages them bar by bar, as OpenTerm5 does live.' : 'Applies to trades placed from the Trade Assistant. OpenTerm5 manages them while it runs.'}</p>
       <Switch label="Break-even after first target" hint="With several targets, later parts move their stop to entry when the first fills." isOn={preferences.isBreakEvenAfterFirst} onChange={(isBreakEvenAfterFirst) => setPreferences({ isBreakEvenAfterFirst })} />
       <NumberField label="Break-even at" value={preferences.breakEvenR} step={0.25} suffix="R" hint="Moves the stop to entry at this profit. 0 is off." onChange={(breakEvenR) => setPreferences({ breakEvenR })} />
       <NumberField label="Trailing stop" value={preferences.trailing} step={10} suffix="pts" hint="Starts once in profit by the same distance. 0 is off." onChange={(trailing) => setPreferences({ trailing })} />
@@ -323,7 +326,10 @@ export function TradeAssistant() {
   const chart = useStore(workspace, activeChart);
   const symbol = chart?.symbol ?? defaultSymbol();
   const isReplaying = useIsReplayingChart(chart?.id);
-  const canTrade = useCanTrade() && !isReplaying;
+  // On a chart in the running backtest the assistant trades the backtest's simulated account.
+  const isBacktesting = useIsBacktestingChart(chart?.id);
+  const venue = useVenue(isBacktesting);
+  const canTrade = venue.canTrade && (!isReplaying || isBacktesting);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   return (
     <Panel title="Trade Assistant" dock="tradeAssistant" onClose={() => togglePanel('isTradeAssistantShown')}>
@@ -336,11 +342,12 @@ export function TradeAssistant() {
           ))}
         </div>
         <div className="scroll">
-          <Summary symbol={symbol} />
-          {isReplaying && <p className="assistant-outcome is-bad">{replayTradingHint}.</p>}
-          {tab === 'trade' && <TradeSection symbol={symbol} canTrade={canTrade} onOutcome={setOutcome} />}
-          {tab === 'close' && <CloseSection symbol={symbol} canTrade={canTrade} onOutcome={setOutcome} />}
-          {tab === 'manage' && <ManageSection />}
+          {isBacktesting && <p className="assistant-venue" role="status">{venue.label}</p>}
+          <Summary symbol={symbol} venue={venue} />
+          {isReplaying && !isBacktesting && <p className="assistant-outcome is-bad">{replayTradingHint}.</p>}
+          {tab === 'trade' && <TradeSection symbol={symbol} venue={venue} canTrade={canTrade} onOutcome={setOutcome} />}
+          {tab === 'close' && <CloseSection symbol={symbol} venue={venue} canTrade={canTrade} onOutcome={setOutcome} />}
+          {tab === 'manage' && <ManageSection venue={venue} />}
           {outcome && (
             <p className={`assistant-outcome${outcome.isGood === true ? ' is-good' : outcome.isGood === false ? ' is-bad' : ''}`} role="status">
               {outcome.text}

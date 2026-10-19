@@ -2,7 +2,7 @@ import type { MenuItem } from '../components/MenuBar';
 import { formatPrice } from './format';
 import { indicatorMenuItems, studyTitle } from './indicator-menu';
 import { session } from './session';
-import { setChartType, setTimeframe, toggleDepth, zoom } from './commands';
+import { placeBacktestOrder, setChartType, setTimeframe, toggleDepth, zoom } from './commands';
 import { visibleChartIds } from './chart-tabs';
 import { isLinkGroupShown, layoutMenuItems, linkGroupMenuItems, syncMenuItems } from './layout-menu';
 import {
@@ -19,7 +19,7 @@ import {
 } from './workspace';
 import { chartTimeframes } from './mt5-timeframes';
 import { isReplayingChart, replay, replayTradingHint } from './replay-session';
-import { activeBacktest, backtest, backtestQuote, closeBacktestPositions, isBacktestingChart, reportBacktest } from './backtest/runtime';
+import { activeBacktest, backtest, closeBacktestPositions, isBacktestingChart, reportBacktest } from './backtest/runtime';
 
 const separator: MenuItem = { label: '', isSeparator: true };
 
@@ -41,27 +41,14 @@ function tradingItems(chartId: string, symbol: string, price: number | undefined
   return pending.length ? [...items, separator, ...pending] : items;
 }
 
-// The live Trading submenu's entries, for the backtest's simulated account at the replay price.
-function backtestItems(symbol: string, price: number | undefined, digits: number): MenuItem[] {
-  const state = backtest.get();
-  const quote = backtestQuote(state, symbol);
-  const positions = activeBacktest(state)?.book.positions.filter((position) => position.symbol === symbol) ?? [];
-  const items: MenuItem[] = [
-    { label: 'New Order', shortcut: 'F9', action: () => openDialog({ kind: 'backtestOrder', symbol }) },
-    { label: 'Buy by Market', action: () => openDialog({ kind: 'backtestOrder', symbol, type: 'buy' }) },
-    { label: 'Sell by Market', action: () => openDialog({ kind: 'backtestOrder', symbol, type: 'sell' }) },
+// The backtest's entries in place of the live Trading submenu. Orders are planned on the chart
+// with the Risk Order tool.
+function backtestItems(symbol: string): MenuItem[] {
+  const positions = activeBacktest(backtest.get())?.book.positions.filter((position) => position.symbol === symbol) ?? [];
+  return [
+    { label: 'Place Order', shortcut: 'F9', action: placeBacktestOrder },
     { label: `Close All ${symbol}`, isDisabled: !positions.length, action: () => reportBacktest(closeBacktestPositions((position) => position.symbol === symbol)) },
   ];
-  if (price === undefined || !quote) return items;
-  const level = Number(price.toFixed(digits));
-  const label = formatPrice(level, digits);
-  const at = (type: 'buyLimit' | 'sellLimit' | 'buyStop' | 'sellStop') => () => openDialog({ kind: 'backtestOrder', symbol, type, price: level });
-  const pending: MenuItem[] = level < quote.bid
-    ? [{ label: `Buy Limit at ${label}`, action: at('buyLimit') }, { label: `Sell Stop at ${label}`, action: at('sellStop') }]
-    : level > quote.ask
-      ? [{ label: `Sell Limit at ${label}`, action: at('sellLimit') }, { label: `Buy Stop at ${label}`, action: at('buyStop') }]
-      : [];
-  return pending.length ? [...items, separator, ...pending] : items;
 }
 
 // Mirrors MT5's chart context menu, with TradingView's layout commands in place of MT5's window
@@ -87,7 +74,7 @@ export function chartMenu(chartId: string, price?: number): MenuItem[] {
   // running backtest it trades the backtest instead, in either mode.
   const isBacktesting = isBacktestingChart(chartId);
   const trading: MenuItem[] = isBacktesting
-    ? [{ label: 'Backtest', items: backtestItems(chart.symbol, price, digits) }, separator]
+    ? [{ label: 'Backtest', items: backtestItems(chart.symbol) }, separator]
     : state.isAnalysisMode ? [] : [
       isReplayingChart(replay.get().session, chartId)
         ? { label: replayTradingHint, isDisabled: true }

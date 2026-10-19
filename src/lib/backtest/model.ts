@@ -1,4 +1,7 @@
 import type { OrderTypeKey } from '../../../shared/protocol';
+import type { LegRule } from '../../../shared/risk-order';
+
+export type { LegRule };
 
 export type Side = 'buy' | 'sell';
 
@@ -78,6 +81,9 @@ export interface SimPosition {
   // The best and worst prices the position could have closed at.
   readonly bestPrice: number;
   readonly worstPrice: number;
+  // Management from a risk order (break-even, trailing, hidden stops), as the live trade manager
+  // keeps it; null without any. Sessions saved before rules existed have none.
+  readonly rule: LegRule | null;
 }
 
 export interface SimOrder {
@@ -94,6 +100,8 @@ export interface SimOrder {
   readonly stopLimit: number;
   // 0 is good till cancelled.
   readonly expiration: number;
+  // Handed to the position the order opens.
+  readonly rule: LegRule | null;
 }
 
 export interface SimDeal {

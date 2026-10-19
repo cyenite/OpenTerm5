@@ -2,11 +2,12 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { plannerRiskModes, type RiskOrderOutcome, type RiskOrderRequest } from '../../../shared/automation';
 import { decidePlan, validateDrag, type PlanLines } from '../../../shared/order-plan';
 import { orderType, type Order, type Position } from '../../../shared/protocol';
-import { placeRiskOrder } from '../../lib/automation';
 import { formatMoney, formatPrice, formatVolume } from '../../lib/format';
 import { replayTradingHint } from '../../lib/replay-session';
 import { riskPreferences, setRiskPreferences } from '../../lib/risk-preferences';
-import { closePosition, log, sendOrder, session, signingIn, signInName } from '../../lib/session';
+import { log, session, signingIn, signInName } from '../../lib/session';
+import { useBacktestMoneyPerUnit } from '../../lib/backtest/runtime';
+import { useVenue } from '../../lib/trading-venue';
 import { moneyAt, useMoneyPerUnit } from '../../lib/valuation';
 import { useStore } from '../../lib/store';
 import { useRiskPreview } from '../../lib/risk-preview';
@@ -25,6 +26,8 @@ interface PlannerPanelProps {
   error?: string;
   title: string;
   preview: RiskOrderOutcome | null;
+  currency: string;
+  balance: number;
   isBusy: boolean;
   isMarketForced: boolean;
   onMarket: (isOn: boolean) => void;
@@ -32,10 +35,8 @@ interface PlannerPanelProps {
   onCancel: () => void;
 }
 
-function PlannerPanel({ symbol, lines, digits, error, title, preview, isBusy, isMarketForced, onMarket, onPlace, onCancel }: PlannerPanelProps) {
+function PlannerPanel({ symbol, lines, digits, error, title, preview, currency, balance, isBusy, isMarketForced, onMarket, onPlace, onCancel }: PlannerPanelProps) {
   const preferences = useStore(riskPreferences, (state) => state);
-  const currency = useStore(session, (state) => state.account?.currency ?? '');
-  const balance = useStore(session, (state) => state.account?.balance ?? 0);
   const mode = plannerRiskModes.find((item) => item.key === preferences.mode)!;
   const reward = preview && lines.target ? preview.takeProfits[0] && Math.abs(preview.takeProfits[0] - preview.entry) / Math.abs(preview.entry - preview.stopLoss) : 0;
   return (
@@ -76,25 +77,31 @@ interface TradeOverlayProps {
   symbol: string;
   digits: number;
   isReplaying: boolean;
+  // The chart takes part in the running backtest, so the overlay trades its simulated account.
+  isBacktesting: boolean;
 }
 
-export function TradeOverlay({ chart: controller, symbol, digits, isReplaying }: TradeOverlayProps) {
+export function TradeOverlay({ chart: controller, symbol, digits, isReplaying, isBacktesting }: TradeOverlayProps) {
+  const venue = useVenue(isBacktesting);
   const tool = useStore(workspace, (state) => state.tool);
-  const tick = useStore(session, (state) => state.ticks[symbol]);
+  const tick = venue.quotes[symbol];
   const spec = useStore(session, (state) => state.symbols[symbol]);
   // In analysis mode, and on a replaying chart, the overlay only shows positions and orders: no
   // dragging, closing or planning.
-  const isReadOnly = useStore(workspace, (state) => state.isAnalysisMode) || isReplaying;
-  const canTrade = useStore(session, (state) => !!state.account && state.status?.capabilities?.trading === true && state.link.state === 'open') && !isReadOnly;
+  const isAnalysisMode = useStore(workspace, (state) => state.isAnalysisMode);
+  // A backtest trades a simulated account, so its charts trade in replay and in analysis mode.
+  const isReadOnly = !isBacktesting && (isAnalysisMode || isReplaying);
+  const canTrade = venue.canTrade && !isReadOnly;
   const signIn = useStore(session, signingIn);
-  const positions = useStore(session, (state) => state.positions);
-  const orders = useStore(session, (state) => state.orders);
+  const { positions, orders } = venue;
   const preferences = useStore(riskPreferences, (state) => state);
-  const currency = useStore(session, (state) => state.account?.currency ?? '');
+  const currency = venue.account?.currency ?? '';
   const isOneClick = useStore(workspace, (state) => state.isOneClickEnabled);
   const assistant = useStore(assistantPlan, (state) => state.plan?.symbol === symbol ? state.plan : null);
   const focusState = useStore(tradeFocus, (state) => state);
-  const moneyPerUnit = useMoneyPerUnit(symbol);
+  const liveMoneyPerUnit = useMoneyPerUnit(symbol);
+  const backtestMoneyPerUnit = useBacktestMoneyPerUnit(symbol);
+  const moneyPerUnit = isBacktesting ? backtestMoneyPerUnit : liveMoneyPerUnit;
   const [plan, setPlan] = useState<Partial<PlanLines>>({});
   const [isMarketForced, setIsMarketForced] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
@@ -139,7 +146,7 @@ export function TradeOverlay({ chart: controller, symbol, digits, isReplaying }:
     ...(plan.target ? { takeProfits: [{ distance: { unit: 'price', value: plan.target }, share: 100 }] } : {}),
     commissionPerLot: preferences.commissionPerLot || undefined,
   } : null;
-  const { preview, problem: previewError, setProblem: setPreviewError } = useRiskPreview(request, decision?.isMarket ? Math.round((tick?.bid ?? 0) / point / 5) : undefined);
+  const { preview, problem: previewError, setProblem: setPreviewError } = useRiskPreview(request, decision?.isMarket ? Math.round((tick?.bid ?? 0) / point / 5) : undefined, venue.previewRisk);
 
   const lines: OverlayLine[] = [];
   if (hasPlan) {
@@ -190,7 +197,7 @@ export function TradeOverlay({ chart: controller, symbol, digits, isReplaying }:
     title: `#${position.ticket} ${position.side} ${formatVolume(position.volume)} ${kind === 'sl' ? 'stop loss' : 'take profit'}`,
     moneyAt: positionMoney(position),
     onDrop: (value) => sendLevel(`pos-${position.ticket}-${kind}`, value, validateDrag({ kind, side: position.side, price: value, reference: quoteFor(position.side) }), async (next) => {
-      const result = await sendOrder({ action: 'sltp', symbol: position.symbol, position: position.ticket, sl: kind === 'sl' ? next : position.sl, tp: kind === 'tp' ? next : position.tp });
+      const result = await venue.sendOrder({ action: 'sltp', symbol: position.symbol, position: position.ticket, sl: kind === 'sl' ? next : position.sl, tp: kind === 'tp' ? next : position.tp });
       log(`#${position.ticket} ${kind} to ${formatPrice(next, digits)}: ${result.isSuccess ? 'done' : result.comment}`, 'Trades');
       if (!result.isSuccess) throw new Error(result.comment);
     }),
@@ -213,8 +220,9 @@ export function TradeOverlay({ chart: controller, symbol, digits, isReplaying }:
       .catch((failure: Error) => fail(failure.message));
   };
   const closeFromChart = (position: Position) => {
-    if (!isOneClick && !window.confirm(`Close #${position.ticket} ${position.side} ${formatVolume(position.volume)} ${position.symbol}?`)) return;
-    void closePosition(position).then((result) => log(`close #${position.ticket} from chart: ${result.isSuccess ? 'done' : result.comment}`, 'Trades'));
+    // A backtest closes without asking: nothing real is at stake.
+    if (!isOneClick && !isBacktesting && !window.confirm(`Close #${position.ticket} ${position.side} ${formatVolume(position.volume)} ${position.symbol}?`)) return;
+    void venue.closePosition(position).then((result) => log(`close #${position.ticket} from chart: ${result.isSuccess ? 'done' : result.comment}`, 'Trades'));
   };
   const entryLine = (position: Position): OverlayLine => ({
     id: `pos-${position.ticket}-entry`, role: 'position', price: position.priceOpen, isDraggable: false,
@@ -239,7 +247,7 @@ export function TradeOverlay({ chart: controller, symbol, digits, isReplaying }:
       onDrop: (value) => {
         const error = validateDrag({ kind, side, price: value, reference: order.priceOpen });
         const apply = async (next: number) => {
-          const result = await sendOrder({ action: 'modify', order: order.ticket, symbol: order.symbol, price: kind === 'price' ? next : order.priceOpen, sl: kind === 'sl' ? next : order.sl, tp: kind === 'tp' ? next : order.tp, expiration: order.expiration });
+          const result = await venue.sendOrder({ action: 'modify', order: order.ticket, symbol: order.symbol, price: kind === 'price' ? next : order.priceOpen, sl: kind === 'sl' ? next : order.sl, tp: kind === 'tp' ? next : order.tp, expiration: order.expiration });
           log(`Order #${order.ticket} ${kind} to ${formatPrice(next, digits)}: ${result.isSuccess ? 'done' : result.comment}`, 'Trades');
           if (!result.isSuccess) throw new Error(result.comment);
         };
@@ -349,7 +357,7 @@ export function TradeOverlay({ chart: controller, symbol, digits, isReplaying }:
     if (!request) return;
     setIsBusy(true);
     try {
-      const outcome = await placeRiskOrder(`Risk ${orderType(request.type)?.label.toLowerCase() ?? request.type} ${preview?.lots ?? ''} ${symbol}`.replace(/\s+/g, ' '), request);
+      const outcome = await venue.placeRiskOrder(`Risk ${orderType(request.type)?.label.toLowerCase() ?? request.type} ${preview?.lots ?? ''} ${symbol}`.replace(/\s+/g, ' '), request);
       const failed = outcome.results.find((result) => !result.isSuccess);
       log(`${request.type} ${outcome.lots} ${symbol} from chart, risk ${formatMoney(outcome.riskMoney)}: ${failed ? failed.comment : 'done'}`, 'Trades');
       if (!failed) { setPlan({}); setIsMarketForced(false); if (workspace.get().tool === 'riskOrder') workspace.set({ tool: 'cursor' }); }
@@ -360,7 +368,7 @@ export function TradeOverlay({ chart: controller, symbol, digits, isReplaying }:
   };
 
   const title = decision?.type ? `${orderType(decision.type)!.label}${decision.isMarket ? ' at market' : ''}` : 'Risk order';
-  const panelError = signIn ? `Signing in to ${signInName(signIn)}…` : !canTrade ? 'Log in to an account that allows trading.' : decision?.error ?? previewError ?? undefined;
+  const panelError = signIn && !isBacktesting ? `Signing in to ${signInName(signIn)}…` : !canTrade ? 'Log in to an account that allows trading.' : decision?.error ?? previewError ?? undefined;
 
   return (
     <div className="trade-overlay" style={{ left: geometry.left, width: geometry.width }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={loseDrag}>
@@ -387,7 +395,7 @@ export function TradeOverlay({ chart: controller, symbol, digits, isReplaying }:
       })}
       {isReplaying && tool === 'riskOrder' && <span className="overlay-prompt" role="status">{replayTradingHint}</span>}
       {hasPlan && plan.stop !== undefined && (
-        <PlannerPanel symbol={symbol} lines={plan as PlanLines} digits={digits} error={panelError} title={title} preview={preview} isBusy={isBusy} isMarketForced={isMarketForced} onMarket={setIsMarketForced} onPlace={() => void submit()} onCancel={() => { setPlan({}); setIsMarketForced(false); if (workspace.get().tool === 'riskOrder') workspace.set({ tool: 'cursor' }); }} />
+        <PlannerPanel symbol={symbol} lines={plan as PlanLines} digits={digits} error={panelError} title={title} preview={preview} currency={currency} balance={venue.account?.balance ?? 0} isBusy={isBusy} isMarketForced={isMarketForced} onMarket={setIsMarketForced} onPlace={() => void submit()} onCancel={() => { setPlan({}); setIsMarketForced(false); if (workspace.get().tool === 'riskOrder') workspace.set({ tool: 'cursor' }); }} />
       )}
     </div>
   );

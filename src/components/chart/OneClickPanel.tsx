@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { formatPrice, formatVolume, roundToStep } from '../../lib/format';
-import { log, sendOrder, session } from '../../lib/session';
+import { log, session } from '../../lib/session';
+import { useVenue } from '../../lib/trading-venue';
 import { useStore } from '../../lib/store';
 
 interface QuickTradePanelProps {
@@ -60,19 +61,21 @@ export function QuickTradePanel({ bid, ask, digits, volumeMin, volumeMax, volume
 interface OneClickPanelProps {
   symbol: string;
   digits: number;
+  // The chart takes part in the running backtest, so the panel trades its simulated account.
+  isBacktesting: boolean;
 }
 
-export function OneClickPanel({ symbol, digits }: OneClickPanelProps) {
-  const tick = useStore(session, (state) => state.ticks[symbol]);
+export function OneClickPanel({ symbol, digits, isBacktesting }: OneClickPanelProps) {
+  const venue = useVenue(isBacktesting);
+  const tick = venue.quotes[symbol];
   const spec = useStore(session, (state) => state.symbols[symbol]);
-  const canTrade = useStore(session, (state) => !!state.account && state.status?.isTradeAllowed === true && state.status?.capabilities?.trading === true && state.link.state === 'open');
 
   const trade = async (side: 'buy' | 'sell', volume: number) => {
-    const result = await sendOrder({ action: 'deal', symbol, type: side, volume });
+    const result = await venue.sendOrder({ action: 'deal', symbol, type: side, volume });
     if (!result.isSuccess) {
       log(`one click ${side} ${formatVolume(volume)} ${symbol} failed: ${result.comment}`, 'Trades');
     }
   };
 
-  return <QuickTradePanel bid={tick?.bid} ask={tick?.ask} digits={digits} volumeMin={spec?.volumeMin ?? 0.01} volumeMax={spec?.volumeMax ?? 100} volumeStep={spec?.volumeStep ?? 0.01} canTrade={canTrade} onTrade={trade} />;
+  return <QuickTradePanel bid={tick?.bid} ask={tick?.ask} digits={digits} volumeMin={spec?.volumeMin ?? 0.01} volumeMax={spec?.volumeMax ?? 100} volumeStep={spec?.volumeStep ?? 0.01} canTrade={venue.canTrade} onTrade={trade} />;
 }

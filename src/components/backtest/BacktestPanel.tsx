@@ -1,55 +1,83 @@
+import type { ReactNode } from 'react';
 import { orderType } from '../../../shared/protocol';
 import type { MenuItem } from '../MenuBar';
 import { accountFigures, floatingProfit } from '../../lib/backtest/engine';
 import { dealReasonLabel, type SimOrder, type SimPosition } from '../../lib/backtest/model';
 import {
-  activeBacktest,
   backtest,
-  backtestPanelTabs,
   breakEvenBacktestPositions,
   cancelBacktestOrder,
   cancelBacktestOrders,
   closeBacktestPosition,
   closeBacktestPositions,
-  dismissBacktestNotice,
   downloadBacktestTrades,
   endBacktest,
+  exitBacktestMode,
   modifyBacktestPosition,
   reportBacktest,
+  restartBacktest,
+  resumeBacktest,
   reverseBacktestPosition,
-  setBacktestPanel,
+  toggleBacktestSection,
   useActiveBacktest,
+  type BacktestSection,
 } from '../../lib/backtest/runtime';
 import { simulationOf, type BacktestSession } from '../../lib/backtest/session-model';
-import { netOf, rMultiple } from '../../lib/backtest/stats';
+import { backtestStats, netOf, rMultiple } from '../../lib/backtest/stats';
+import { placeBacktestOrder, togglePanel } from '../../lib/commands';
 import { openContextMenu } from '../../lib/context-menu';
 import { formatMoney, formatPrice, formatTime, formatVolume } from '../../lib/format';
 import { useStore } from '../../lib/store';
-import { activeChart, openDialog, workspace } from '../../lib/workspace';
-import { ToolButton } from '../Toolbar';
-import { BacktestStatistics } from './BacktestStatistics';
+import { openDialog, workspace } from '../../lib/workspace';
+import { Panel } from '../Panel';
+import { EquityCurve } from './EquityCurve';
+import { PerformanceGrid, StatTile, toneOf } from './BacktestStatistics';
 
-const profitClass = (value: number | null) => (value === null ? '' : value > 0 ? 'is-profit' : value < 0 ? 'is-loss' : '');
 const separator: MenuItem = { label: '', isSeparator: true };
 
-// The symbol a new ticket starts on: the active chart's, as F9 does.
-const ticketSymbol = (item: BacktestSession) => activeChart(workspace.get())?.symbol ?? item.symbol;
+// Month, day and time: the year is in the session's period above.
+const shortTime = (time: number) => formatTime(time, false).slice(5);
+
+interface SectionProps {
+  section: BacktestSection;
+  title: string;
+  count?: number;
+  actions?: ReactNode;
+  children: ReactNode;
+}
+
+function Section({ section, title, count, actions, children }: SectionProps) {
+  const isCollapsed = useStore(backtest, (state) => state.collapsedSections.includes(section));
+  return (
+    <section className={`backtest-section${isCollapsed ? ' is-collapsed' : ''}`}>
+      <header>
+        <button type="button" className="backtest-section-toggle" aria-expanded={!isCollapsed} onClick={() => toggleBacktestSection(section)}>
+          <span className="backtest-chevron" aria-hidden>›</span>
+          {title}
+          {count !== undefined && count > 0 && <span className="backtest-count">{count}</span>}
+        </button>
+        {!isCollapsed && actions}
+      </header>
+      {!isCollapsed && children}
+    </section>
+  );
+}
 
 function closeHalf(position: SimPosition, step: number): void {
   const half = Math.floor(position.volume / 2 / step) * step;
   reportBacktest(half > 0 ? closeBacktestPosition(position.ticket, Number(half.toFixed(8))) : `#${position.ticket} is too small to halve.`);
 }
 
-interface PositionsTableProps {
+interface ItemProps {
   item: BacktestSession;
 }
 
-function PositionsTable({ item }: PositionsTableProps) {
+function Positions({ item }: ItemProps) {
   const bids = useStore(backtest, (state) => state.bids);
   const simulation = simulationOf(item);
   const { positions } = item.book;
   const menu = (event: React.MouseEvent, position?: SimPosition) => openContextMenu(event, [
-    { label: 'New Order', shortcut: 'F9', action: () => openDialog({ kind: 'backtestOrder', symbol: position?.symbol ?? ticketSymbol(item) }) },
+    { label: 'Place Order', shortcut: 'F9', action: placeBacktestOrder },
     ...(position ? [
       separator,
       { label: 'Modify or Close...', action: () => openDialog({ kind: 'backtestPosition', ticket: position.ticket }) },
@@ -64,48 +92,22 @@ function PositionsTable({ item }: PositionsTableProps) {
     { label: 'Close Losing', isDisabled: !positions.length, action: () => reportBacktest(closeBacktestPositions((candidate) => (floatingProfit(simulation, candidate, bids) ?? 0) < 0)) },
     { label: 'Move All Stops to Break-even', isDisabled: !positions.length, action: () => reportBacktest(breakEvenBacktestPositions()) },
   ]);
-  if (!positions.length) return <p className="empty" onContextMenu={(event) => menu(event)}>No open positions. Trade from the chart, the buttons above, or New Order (F9).</p>;
+  if (!positions.length) return <p className="backtest-empty" onContextMenu={(event) => menu(event)}>No open positions. Place Order (F9) puts the entry, stop loss and take profit on the chart as lines; the volume follows your risk.</p>;
   return (
-    <table className="grid trades" onContextMenu={(event) => menu(event)}>
-      <thead>
-        <tr>
-          <th>Symbol</th>
-          <th className="num">Ticket</th>
-          <th>Time</th>
-          <th>Type</th>
-          <th className="num">Volume</th>
-          <th className="num">Price</th>
-          <th className="num">S / L</th>
-          <th className="num">T / P</th>
-          <th className="num">Price</th>
-          <th className="num">Profit</th>
-          <th className="num">R</th>
-          <th>Comment</th>
-          <th />
-        </tr>
-      </thead>
+    <table className="grid backtest-rows" onContextMenu={(event) => menu(event)}>
       <tbody>
         {positions.map((position) => {
           const digits = item.terms[position.symbol]?.digits ?? 5;
           const profit = floatingProfit(simulation, position, bids);
-          const bid = bids[position.symbol];
-          const spread = (item.terms[position.symbol]?.spreadPoints ?? 0) * (item.terms[position.symbol]?.point ?? 0);
-          const current = bid === undefined ? undefined : position.side === 'buy' ? bid : bid + spread;
           const r = profit !== null && position.initialRisk > 0 ? profit / position.initialRisk : null;
+          const levels = [position.sl ? `SL ${formatPrice(position.sl, digits)}` : '', position.tp ? `TP ${formatPrice(position.tp, digits)}` : ''].filter(Boolean).join(', ');
           return (
-            <tr key={position.ticket} onDoubleClick={() => openDialog({ kind: 'backtestPosition', ticket: position.ticket })} onContextMenu={(event) => menu(event, position)}>
-              <td>{position.symbol}</td>
-              <td className="num">{position.ticket}</td>
-              <td>{formatTime(position.time, false)}</td>
-              <td className={`side-${position.side}`}>{position.side}</td>
+            <tr key={position.ticket} title={`#${position.ticket} opened ${formatTime(position.time, false)}${levels ? `; ${levels}` : ''}`} onDoubleClick={() => openDialog({ kind: 'backtestPosition', ticket: position.ticket })} onContextMenu={(event) => menu(event, position)}>
+              <td><span className={`side-tag is-${position.side}`}>{position.side}</span> {position.symbol}</td>
               <td className="num">{formatVolume(position.volume)}</td>
-              <td className="num">{formatPrice(position.priceOpen, digits)}</td>
-              <td className="num">{formatPrice(position.sl, digits)}</td>
-              <td className="num">{formatPrice(position.tp, digits)}</td>
-              <td className="num">{formatPrice(current, digits)}</td>
-              <td className={`num ${profitClass(profit)}`}>{formatMoney(profit ?? undefined)}</td>
-              <td className={`num ${profitClass(r)}`}>{r === null ? '' : r.toFixed(2)}</td>
-              <td>{position.comment}</td>
+              <td className="num is-wide">{formatPrice(position.priceOpen, digits)}</td>
+              <td className={`num ${toneOf(profit)}`}>{formatMoney(profit ?? undefined)}</td>
+              <td className={`num ${toneOf(r)}`}>{r === null ? '' : `${r.toFixed(2)}R`}</td>
               <td><button className="row-close" title="Close position" aria-label={`Close #${position.ticket}`} onClick={() => reportBacktest(closeBacktestPosition(position.ticket))}>×</button></td>
             </tr>
           );
@@ -115,56 +117,27 @@ function PositionsTable({ item }: PositionsTableProps) {
   );
 }
 
-interface OrdersTableProps {
-  item: BacktestSession;
-}
-
-function OrdersTable({ item }: OrdersTableProps) {
+function Orders({ item }: ItemProps) {
   const { orders } = item.book;
   const menu = (event: React.MouseEvent, order?: SimOrder) => openContextMenu(event, [
-    { label: 'New Order', shortcut: 'F9', action: () => openDialog({ kind: 'backtestOrder', symbol: order?.symbol ?? ticketSymbol(item) }) },
     ...(order ? [
       { label: 'Modify Order...', action: () => openDialog({ kind: 'backtestOrderEdit', ticket: order.ticket }) },
       { label: 'Delete Order', action: () => reportBacktest(cancelBacktestOrder(order.ticket)) },
+      separator,
     ] : []),
-    separator,
     { label: 'Delete All Pending Orders', isDisabled: !orders.length, action: () => reportBacktest(cancelBacktestOrders()) },
   ]);
-  if (!orders.length) return <p className="empty" onContextMenu={(event) => menu(event)}>No pending orders.</p>;
+  if (!orders.length) return <p className="backtest-empty">No pending orders.</p>;
   return (
-    <table className="grid trades" onContextMenu={(event) => menu(event)}>
-      <thead>
-        <tr>
-          <th>Symbol</th>
-          <th className="num">Ticket</th>
-          <th>Time</th>
-          <th>Type</th>
-          <th className="num">Volume</th>
-          <th className="num">Price</th>
-          <th className="num">Stop limit</th>
-          <th className="num">S / L</th>
-          <th className="num">T / P</th>
-          <th>Expires</th>
-          <th>Comment</th>
-          <th />
-        </tr>
-      </thead>
+    <table className="grid backtest-rows" onContextMenu={(event) => menu(event)}>
       <tbody>
         {orders.map((order) => {
           const digits = item.terms[order.symbol]?.digits ?? 5;
           return (
-            <tr key={order.ticket} className="is-order" onDoubleClick={() => openDialog({ kind: 'backtestOrderEdit', ticket: order.ticket })} onContextMenu={(event) => menu(event, order)}>
-              <td>{order.symbol}</td>
-              <td className="num">{order.ticket}</td>
-              <td>{formatTime(order.time, false)}</td>
-              <td>{orderType(order.type)?.label.toLowerCase()}</td>
+            <tr key={order.ticket} title={`#${order.ticket} placed ${formatTime(order.time, false)}${order.expiration ? `, expires ${formatTime(order.expiration, false)}` : ''}`} onDoubleClick={() => openDialog({ kind: 'backtestOrderEdit', ticket: order.ticket })} onContextMenu={(event) => menu(event, order)}>
+              <td>{orderType(order.type)?.label} {order.symbol}</td>
               <td className="num">{formatVolume(order.volume)}</td>
               <td className="num">{formatPrice(order.price, digits)}</td>
-              <td className="num">{formatPrice(order.stopLimit, digits)}</td>
-              <td className="num">{formatPrice(order.sl, digits)}</td>
-              <td className="num">{formatPrice(order.tp, digits)}</td>
-              <td>{order.expiration ? formatTime(order.expiration, false) : 'GTC'}</td>
-              <td>{order.comment}</td>
               <td><button className="row-close" title="Delete order" aria-label={`Delete order #${order.ticket}`} onClick={() => reportBacktest(cancelBacktestOrder(order.ticket))}>×</button></td>
             </tr>
           );
@@ -174,57 +147,23 @@ function OrdersTable({ item }: OrdersTableProps) {
   );
 }
 
-interface HistoryTableProps {
-  item: BacktestSession;
-}
-
-function HistoryTable({ item }: HistoryTableProps) {
+function Trades({ item }: ItemProps) {
   const trades = [...item.book.trades].sort((left, right) => right.closeTime - left.closeTime);
-  const menu = (event: React.MouseEvent) => openContextMenu(event, [{ label: 'Export CSV', isDisabled: !trades.length, action: () => downloadBacktestTrades(item) }]);
-  if (!trades.length) return <p className="empty">Closed trades appear here, with their result in money and in R.</p>;
+  if (!trades.length) return <p className="backtest-empty">Closed trades appear here with their result in money and in R.</p>;
   return (
-    <table className="grid trades" onContextMenu={menu}>
-      <thead>
-        <tr>
-          <th className="num">Ticket</th>
-          <th>Symbol</th>
-          <th>Type</th>
-          <th className="num">Volume</th>
-          <th>Opened</th>
-          <th className="num">Price</th>
-          <th>Closed</th>
-          <th className="num">Price</th>
-          <th>Exit</th>
-          <th className="num">Commission</th>
-          <th className="num">Net</th>
-          <th className="num">R</th>
-          <th className="num">MAE</th>
-          <th className="num">MFE</th>
-          <th>Comment</th>
-        </tr>
-      </thead>
+    <table className="grid backtest-rows">
       <tbody>
         {trades.map((trade) => {
           const digits = item.terms[trade.symbol]?.digits ?? 5;
           const net = netOf(trade);
           const r = rMultiple(trade);
           return (
-            <tr key={trade.ticket}>
-              <td className="num">{trade.ticket}</td>
-              <td>{trade.symbol}</td>
-              <td className={`side-${trade.side}`}>{trade.side}</td>
-              <td className="num">{formatVolume(trade.volume)}</td>
-              <td>{formatTime(trade.openTime, false)}</td>
-              <td className="num">{formatPrice(trade.priceOpen, digits)}</td>
-              <td>{formatTime(trade.closeTime, false)}</td>
-              <td className="num">{formatPrice(trade.priceClose, digits)}</td>
-              <td>{dealReasonLabel(trade.reason)}</td>
-              <td className="num">{formatMoney(trade.commission)}</td>
-              <td className={`num ${profitClass(net)}`}>{formatMoney(net)}</td>
-              <td className={`num ${profitClass(r)}`}>{r === null ? '' : r.toFixed(2)}</td>
-              <td className="num">{formatMoney(trade.mae)}</td>
-              <td className="num">{formatMoney(trade.mfe)}</td>
-              <td>{trade.comment}</td>
+            <tr key={trade.ticket} title={`#${trade.ticket} closed ${formatTime(trade.closeTime, false)} by ${dealReasonLabel(trade.reason).toLowerCase()}, ${formatVolume(trade.volume)} lots, ${formatPrice(trade.priceOpen, digits)} to ${formatPrice(trade.priceClose, digits)}, opened ${formatTime(trade.openTime, false)}; MAE ${formatMoney(trade.mae)}, MFE ${formatMoney(trade.mfe)}`}>
+              <td className="is-muted is-wide">{shortTime(trade.closeTime)}</td>
+              <td><span className={`side-tag is-${trade.side}`}>{trade.side}</span> {trade.symbol}</td>
+              <td className="is-muted is-wide">{dealReasonLabel(trade.reason)}</td>
+              <td className={`num ${toneOf(net)}`}>{formatMoney(net)}</td>
+              <td className={`num ${toneOf(r)}`}>{r === null ? '' : `${r.toFixed(2)}R`}</td>
             </tr>
           );
         })}
@@ -233,98 +172,113 @@ function HistoryTable({ item }: HistoryTableProps) {
   );
 }
 
-interface JournalTableProps {
-  item: BacktestSession;
-}
-
-function JournalTable({ item }: JournalTableProps) {
-  const lines = [...item.book.journal].reverse();
-  if (!lines.length) return <p className="empty">Fills, stops and changes to orders are recorded here at replay time.</p>;
+function Journal({ item }: ItemProps) {
+  const lines = [...item.book.journal].reverse().slice(0, 300);
+  if (!lines.length) return <p className="backtest-empty">Fills, stops and changes to orders, at replay time.</p>;
   return (
-    <table className="grid journal">
-      <tbody>
-        {lines.map((line, index) => (
-          <tr key={`${line.time}-${index}`}>
-            <td>{formatTime(line.time, false)}</td>
-            <td>{line.message}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <ol className="backtest-journal">
+      {lines.map((line, index) => <li key={`${line.time}-${index}`}><time>{shortTime(line.time)}</time> {line.message}</li>)}
+    </ol>
   );
 }
 
-interface BacktestSummaryProps {
-  item: BacktestSession;
-}
-
-function BacktestSummary({ item }: BacktestSummaryProps) {
+function Account({ item }: ItemProps) {
   const bids = useStore(backtest, (state) => state.bids);
+  const isStarting = useStore(backtest, (state) => state.isStarting);
   const figures = accountFigures(item.book, simulationOf(item), bids);
-  const net = figures.equity - item.settings.balance;
-  const { currency } = item;
+  const change = (figures.equity - item.settings.balance) / item.settings.balance * 100;
   return (
-    <dl className="backtest-figures">
-      <div><dt>Balance</dt><dd>{formatMoney(figures.balance)} {currency}</dd></div>
-      <div><dt>Equity</dt><dd>{formatMoney(figures.equity)}</dd></div>
-      <div><dt>Open P/L</dt><dd className={profitClass(figures.profit)}>{formatMoney(figures.profit)}</dd></div>
-      <div><dt>Free margin</dt><dd>{formatMoney(figures.freeMargin)}</dd></div>
-      {figures.marginLevel !== null && <div><dt>Margin level</dt><dd>{formatMoney(figures.marginLevel)} %</dd></div>}
-      <div><dt>Since start</dt><dd className={profitClass(net)}>{net >= 0 ? '+' : ''}{(net / item.settings.balance * 100).toFixed(2)} %</dd></div>
-      <div><dt>Max DD</dt><dd>{item.book.maxDrawdownPercent.toFixed(1)} %</dd></div>
-    </dl>
+    <div className="backtest-account">
+      <div className="backtest-equity">
+        <span>Equity</span>
+        <strong>{formatMoney(figures.equity)} <small>{item.currency}</small></strong>
+        <em className={toneOf(change)}>{change >= 0 ? '+' : ''}{change.toFixed(2)} %</em>
+      </div>
+      <div className="stat-grid is-compact">
+        <StatTile label="Balance" value={formatMoney(figures.balance)} />
+        <StatTile label="Open P/L" value={formatMoney(figures.profit)} tone={toneOf(figures.profit)} />
+        <StatTile label="Free margin" value={formatMoney(figures.freeMargin)} detail={figures.marginLevel === null ? undefined : `Margin level ${formatMoney(figures.marginLevel)} %`} />
+        <StatTile label="Max DD" value={`${item.book.maxDrawdownPercent.toFixed(1)} %`} tone={item.book.maxDrawdownPercent > 0 ? 'is-loss' : ''} />
+      </div>
+      {isStarting && <p className="backtest-empty"><span className="spinner" aria-hidden /> Loading history…</p>}
+    </div>
   );
 }
 
-// The running backtest under the replay toolbar: the simulated account, its positions and
-// orders, its closed trades and statistics. It works the same in trade and analysis mode.
+function SessionView({ item }: ItemProps) {
+  const problems = useStore(backtest, (state) => Object.values(state.problems));
+  return (
+    <>
+      <div className="backtest-session">
+        <strong title={item.name}>{item.name}</strong>
+        <span className="is-muted">{item.symbol} {item.timeframe} · from {formatTime(item.startTime, false).slice(0, 10)}{item.endTime ? ` to ${formatTime(item.endTime, false).slice(0, 10)}` : ''} · 1:{item.settings.leverage}</span>
+      </div>
+      {problems.map((problem) => <p key={problem} className="backtest-problem">{problem}</p>)}
+      <Account item={item} />
+      <EquityCurve points={item.book.curve} currency={item.currency} initialBalance={item.settings.balance} />
+      <Section section="performance" title="Performance"><PerformanceGrid item={item} /></Section>
+      <Section section="positions" title="Positions" count={item.book.positions.length}><Positions item={item} /></Section>
+      <Section section="orders" title="Orders" count={item.book.orders.length}><Orders item={item} /></Section>
+      <Section section="trades" title="Trades" count={item.book.trades.length} actions={<button type="button" className="backtest-link" disabled={!item.book.trades.length} onClick={() => downloadBacktestTrades(item)}>Export CSV</button>}>
+        <Trades item={item} />
+      </Section>
+      <Section section="journal" title="Journal"><Journal item={item} /></Section>
+      <div className="backtest-actions">
+        <button type="button" className="is-primary" onClick={placeBacktestOrder}>Place Order</button>
+        <button type="button" onClick={endBacktest}>End Session</button>
+      </div>
+    </>
+  );
+}
+
+function SessionList() {
+  const sessions = useStore(backtest, (state) => state.sessions);
+  const isBacktestMode = useStore(workspace, (state) => state.isBacktestMode);
+  const resume = (id: string) => void resumeBacktest(id).catch((error: Error) => reportBacktest(error.message));
+  const menu = (event: React.MouseEvent, item: BacktestSession) => openContextMenu(event, [
+    { label: 'Resume', action: () => resume(item.id) },
+    { label: 'Restart from the Start Date', action: () => { if (window.confirm(`Restart "${item.name}"? Its trades are cleared.`)) void restartBacktest(item.id).catch((error: Error) => reportBacktest(error.message)); } },
+    separator,
+    { label: 'Manage Sessions...', action: () => openDialog({ kind: 'backtests' }) },
+  ]);
+  return (
+    <div className="backtest-idle">
+      <p className="is-muted">Replay history bar by bar and trade it on a simulated account, placing orders with lines on the chart sized by your risk. Sessions save as you go.</p>
+      <div className="backtest-actions">
+        <button type="button" className="is-primary" onClick={() => openDialog({ kind: 'backtests' })}>New Session</button>
+        {isBacktestMode && <button type="button" title="Leave Backtest Mode and go back to the layout you had" onClick={exitBacktestMode}>Leave Mode</button>}
+      </div>
+      {sessions.length > 0 && <h4>Recent sessions</h4>}
+      <ul className="backtest-sessions-list">
+        {sessions.slice(0, 12).map((item) => {
+          const stats = backtestStats(item.book, item.settings.balance);
+          const change = (item.book.balance - item.settings.balance) / item.settings.balance * 100;
+          return (
+            <li key={item.id} onDoubleClick={() => resume(item.id)} onContextMenu={(event) => menu(event, item)}>
+              <div>
+                <strong title={item.name}>{item.name}</strong>
+                <span className="is-muted">{item.symbol} · {stats.trades} trades{stats.winRate === null ? '' : ` · ${stats.winRate.toFixed(0)} % won`} · {formatTime(item.book.time ?? item.startTime, false).slice(0, 10)}</span>
+              </div>
+              <em className={toneOf(change)}>{change >= 0 ? '+' : ''}{change.toFixed(1)} %</em>
+              <button type="button" onClick={() => resume(item.id)}>Resume</button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+// The Backtest panel: a resizable dock panel with the running session's account, equity curve,
+// performance, positions, orders, trades and journal, each section folding on its own; with no
+// session running, the sessions to resume.
 export function BacktestPanel() {
   const item = useActiveBacktest();
-  const tab = useStore(backtest, (state) => state.panelTab);
-  const isCollapsed = useStore(backtest, (state) => state.isPanelCollapsed);
-  const isStarting = useStore(backtest, (state) => state.isStarting);
-  const notice = useStore(backtest, (state) => state.notice);
-  const problems = useStore(backtest, (state) => state.problems);
-  if (!item) return null;
-  const counts: Partial<Record<(typeof backtestPanelTabs)[number]['key'], number>> = { positions: item.book.positions.length, orders: item.book.orders.length, history: item.book.trades.length };
-  const problemList = Object.values(problems);
-
   return (
-    <section className={`backtest-panel${isCollapsed ? ' is-collapsed' : ''}`} aria-label={`Backtest ${item.name}`}>
-      <header className="backtest-header">
-        <ToolButton icon="chevron" isActive={!isCollapsed} hint={{ title: isCollapsed ? 'Show Backtest Panel' : 'Hide Backtest Panel' }} onClick={() => setBacktestPanel({ isPanelCollapsed: !isCollapsed })} />
-        <strong className="backtest-name" title={`Started ${formatTime(item.startTime, false)} on ${item.account}`}>{item.name}</strong>
-        {isStarting ? <span className="backtest-figures is-muted"><span className="spinner" aria-hidden /> Loading history…</span> : <BacktestSummary item={item} />}
-        <ToolButton text="New Order" isPrimary hint={{ title: 'New Order', shortcut: 'F9', description: 'A market or pending order in the backtest.' }} onClick={() => openDialog({ kind: 'backtestOrder', symbol: ticketSymbol(activeBacktest(backtest.get()) ?? item) })} />
-        <ToolButton text="Sessions" hint={{ title: 'Backtest Sessions', description: 'Start, resume or restart a session.' }} onClick={() => openDialog({ kind: 'backtests' })} />
-        <ToolButton icon="exit" text="End Session" textLevel={1} hint={{ title: 'End Session', description: 'Save the backtest and go back to live charts. Resume it any time from Sessions.' }} onClick={endBacktest} />
-      </header>
-      {(notice || problemList.length > 0) && (
-        <div className="backtest-notice" role="status">
-          <span>{notice ?? problemList[0]}</span>
-          {notice && <button type="button" className="row-close" aria-label="Dismiss" onClick={dismissBacktestNotice}>×</button>}
-        </div>
-      )}
-      {!isCollapsed && (
-        <>
-          <div className="backtest-body scroll">
-            {tab === 'positions' && <PositionsTable item={item} />}
-            {tab === 'orders' && <OrdersTable item={item} />}
-            {tab === 'history' && <HistoryTable item={item} />}
-            {tab === 'statistics' && <BacktestStatistics item={item} />}
-            {tab === 'journal' && <JournalTable item={item} />}
-          </div>
-          <div className="panel-tabs" role="tablist" aria-label="Backtest">
-            {backtestPanelTabs.map((candidate) => (
-              <button key={candidate.key} role="tab" aria-selected={tab === candidate.key} className={tab === candidate.key ? 'is-active' : ''} onClick={() => setBacktestPanel({ panelTab: candidate.key })}>
-                {candidate.label}{counts[candidate.key] ? ` (${counts[candidate.key]})` : ''}
-              </button>
-            ))}
-            <div className="toolbar-spacer" />
-            {tab === 'history' && <button type="button" className="panel-tabs-action" disabled={!item.book.trades.length} onClick={() => downloadBacktestTrades(item)}>Export CSV</button>}
-          </div>
-        </>
-      )}
-    </section>
+    <Panel title="Backtest" dock="backtest" onClose={() => togglePanel('isBacktestPanelShown')}>
+      <div className="backtest-panel scroll">
+        {item ? <SessionView item={item} /> : <SessionList />}
+      </div>
+    </Panel>
   );
 }

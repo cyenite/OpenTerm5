@@ -101,6 +101,9 @@ interface Replay {
   isDetailLoading: boolean;
   // The next time shown puts the newest bar a third of the plot from the right edge.
   isPositionPending: boolean;
+  // Whether the area after the last bar is shaded as replay; a host simulating trading on hidden
+  // history (a backtest) shows the chart unmarked.
+  isMarked: boolean;
 }
 
 // The replay a host sets: the time up to which data is shown, and the finer timeframe the bar in
@@ -108,6 +111,8 @@ interface Replay {
 export interface MeridianReplayState {
   time: number;
   step: string | null;
+  // False leaves the area after the last bar unshaded; replay marks it by default.
+  isMarked?: boolean;
 }
 
 export type MeridianReplayRequest = 'start' | 'exit' | 'cancel';
@@ -980,6 +985,7 @@ export class MeridianChart {
       replay.isDetailLoading = false;
     }
     replay.time = state.time;
+    replay.isMarked = state.isMarked ?? true;
     this.showReplay();
     this.loadReplayDetail();
     this.syncReplayBar();
@@ -2450,7 +2456,7 @@ export class MeridianChart {
   // ── Replay internals ────────────────────────────────────────────────────
 
   private newReplay(isSelecting: boolean): Replay {
-    return { bars: this.barList, detail: [], time: null, speed: 1, step: null, timer: null, requested: null, isPlaying: false, isSelecting, isDetailLoading: false, isPositionPending: true };
+    return { bars: this.barList, detail: [], time: null, speed: 1, step: null, timer: null, requested: null, isPlaying: false, isSelecting, isDetailLoading: false, isPositionPending: true, isMarked: true };
   }
 
   private emitReplayChange(): void {
@@ -3397,6 +3403,7 @@ export class MeridianChart {
     const replay = this.replay!;
     const ctx = this.context;
     let x: number | null = null;
+    if (!replay.isSelecting && !replay.isMarked) return;
     if (replay.isSelecting) x = this.hover && this.hover.x < this.plotWidth ? this.timeScale.indexToX(this.timeScale.barAt(this.hover.x)) + this.timeScale.spacing / 2 : null;
     else x = this.timeScale.indexToX(this.timeScale.lastIndex) + this.timeScale.spacing / 2;
     if (x === null || x > this.plotWidth) return;

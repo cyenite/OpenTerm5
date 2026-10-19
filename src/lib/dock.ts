@@ -7,6 +7,7 @@ export const dockPanels = [
   { key: 'dataWindow', label: 'Data Window', side: 'left', flag: 'isDataWindowShown' },
   { key: 'navigator', label: 'Navigator', side: 'left', flag: 'isNavigatorShown' },
   { key: 'tradeAssistant', label: 'Trade Assistant', side: 'right', flag: 'isTradeAssistantShown' },
+  { key: 'backtest', label: 'Backtest', side: 'right', flag: 'isBacktestPanelShown' },
 ] as const satisfies readonly { key: string; label: string; side: DockSide; flag: keyof WorkspaceState }[];
 
 export const dockSides = [
@@ -78,8 +79,8 @@ export function restoreDockLayout(value: unknown): DockLayout {
 
 type DockInput = Pick<WorkspaceState, 'dock' | 'depthSymbol' | 'isAnalysisMode' | (typeof dockPanels)[number]['flag']>;
 
-// Analysis mode keeps its watchlist and Data Window on the right whatever their trading-mode
-// side, and withdraws the panels that trade.
+// Analysis mode keeps its watchlist, Data Window and the Backtest panel on the right whatever their
+// trading-mode side, and withdraws the panels that trade live.
 export function dockItems(state: DockInput, side: DockSide): StackItem[] {
   if (state.isAnalysisMode) {
     return side === 'right' ? dockPanels.filter((panel) => panel.key !== 'navigator' && panel.key !== 'tradeAssistant' && state[panel.flag]).map((panel) => panel.key) : [];

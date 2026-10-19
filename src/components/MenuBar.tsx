@@ -36,14 +36,13 @@ import {
   loadProfile,
   loadTemplate,
   removeProfile,
-  toggleAnalysisMode,
   toggleAnalysisPositions,
   updateActiveChart,
   workspace,
 } from '../lib/workspace';
 import { chartTimeframes } from '../lib/mt5-timeframes';
 import { useIsReplayingChart } from '../lib/replay-session';
-import { useIsBacktestingChart } from '../lib/backtest/runtime';
+import { chooseMode, modeOf, useIsBacktestingChart } from '../lib/backtest/runtime';
 
 export interface MenuItem {
   label: string;
@@ -99,7 +98,8 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
     {
       label: 'View',
       items: [
-        { label: 'Analysis Mode', shortcut: 'Ctrl+Shift+A', isChecked: isAnalysis, action: toggleAnalysisMode },
+        { label: 'Analysis Mode', shortcut: 'Ctrl+Shift+A', isChecked: modeOf(state) === 'analysis', action: () => chooseMode(modeOf(state) === 'analysis' ? 'trade' : 'analysis') },
+        { label: 'Backtest Mode', isChecked: state.isBacktestMode, action: () => chooseMode(state.isBacktestMode ? 'trade' : 'backtest') },
         { label: 'Show Positions in Analysis', isChecked: state.isAnalysisPositionsShown, isDisabled: !isAnalysis, action: toggleAnalysisPositions },
         separator,
         { label: 'Market Watch', shortcut: 'Ctrl+M', isChecked: state.isMarketWatchShown, action: () => togglePanel('isMarketWatchShown') },
@@ -169,8 +169,8 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
     {
       label: 'Tools',
       items: [
-        ...(isBacktesting ? [{ label: 'New Backtest Order', shortcut: 'F9', action: () => newOrder() }] : unlessAnalysis([{ label: 'New Order', shortcut: 'F9', isDisabled: isReplaying, action: () => newOrder() }])),
-        { label: 'Backtesting...', action: () => openDialog({ kind: 'backtests' }) },
+        ...(isBacktesting ? [{ label: 'Place Backtest Order', shortcut: 'F9', action: () => newOrder() }] : unlessAnalysis([{ label: 'New Order', shortcut: 'F9', isDisabled: isReplaying, action: () => newOrder() }])),
+        { label: 'Backtest Sessions...', action: () => openDialog({ kind: 'backtests' }) },
         { label: 'Price Alerts...', action: () => openDialog({ kind: 'alerts' }) },
         ...unlessAnalysis([{ label: 'One Click Trading', isChecked: state.isOneClickEnabled, action: toggleOneClick }]),
         separator,

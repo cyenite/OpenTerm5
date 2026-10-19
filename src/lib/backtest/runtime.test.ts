@@ -83,3 +83,52 @@ test('a backtest follows the replay clock, fills on the bars it passes, and only
   runtime.endBacktest();
   unregister();
 });
+
+test('a backtest runs its own clock, and risk orders trade it as the live trade manager would', async () => {
+  const [runtime, replayModule, sessionModule, { makeChart, workspace }, { makeTab }, { registerChart }] = await modules;
+  sessionModule.session.set({ account: { currency: 'USD', login: 1, server: 'Demo' } as never, symbols: { EURUSD: spec } });
+  const chart = makeChart('EURUSD', 'M1');
+  workspace.set({ charts: [chart], tabs: [makeTab('tab', [chart.id], 's')], activeTabId: 'tab', replayMode: 'activeChart', isBacktestPanelShown: false, isAnalysisMode: false, isMarketWatchShown: true });
+  const unregister = registerChart(chart.id, fakeEngine());
+
+  await runtime.createBacktest({ name: 'Risk', symbol: 'EURUSD', account: '1 on Demo', currency: 'USD', timeframe: 'M1', startTime: T0 + 10 * MINUTE, endTime: null, settings: { balance: 10_000, leverage: 100, stopOutLevel: 50, slippagePoints: 0, commissionPerLot: 0, spreadPoints: null } });
+  await runtime.backtestSettled();
+  assert.equal(replayModule.replay.get().session?.purpose, 'backtest', 'not bar replay');
+  assert.equal(workspace.get().isBacktestPanelShown, true, 'starting opens the Backtest panel');
+  assert.deepEqual([workspace.get().isBacktestMode, workspace.get().isAnalysisMode, workspace.get().isMarketWatchShown], [true, true, false], 'Backtest mode: analysis layout without the watchlist');
+  assert.equal(runtime.modeOf(workspace.get()), 'backtest');
+  replayModule.startReplay();
+  assert.equal(replayModule.replay.get().session?.purpose, 'backtest', 'bar replay waits until the backtest ends');
+
+  const outcome = await runtime.backtestRiskOrder({ type: 'buy', mode: 'percentBalance', value: 1, symbol: 'EURUSD', stopLoss: { unit: 'pips', value: 10 }, takeProfitR: [1, 2], management: { isBreakEvenAfterFirstTarget: true } });
+  assert.deepEqual(outcome.results.map((result) => result.isSuccess), [true, true], 'one order per target');
+  const positions = runtime.activeBacktest(runtime.backtest.get())!.book.positions;
+  assert.deepEqual(positions.map((position) => [position.volume, position.sl, position.tp]), [[0.5, 1.0991, 1.1011], [0.5, 1.0991, 1.1021]]);
+  assert.equal(positions[0].rule, null);
+  assert.deepEqual(positions[1].rule?.breakEven, { triggerPoints: 100, lockPoints: 1 }, 'the second part moves to break-even at the first target');
+
+  const view = runtime.backtestView(runtime.backtest.get())!;
+  assert.deepEqual(view.positions.map((position) => position.ticket), positions.map((position) => position.ticket));
+  assert.equal(view.account.balance, 10_000);
+  assert.deepEqual(view.quotes.EURUSD, { bid: 1.1, ask: 1.1001 });
+  const modified = await runtime.backtestTrade({ action: 'sltp', position: positions[0].ticket, symbol: 'EURUSD', sl: 1.0995, tp: 1.1011 });
+  assert.equal(modified.isSuccess, true);
+  const closed = await runtime.backtestBulk({ kind: 'closeAll' });
+  assert.equal(closed.length, 2);
+  workspace.set({ tool: 'riskOrder' });
+  runtime.endBacktest();
+  assert.deepEqual([workspace.get().isBacktestMode, workspace.get().isAnalysisMode, workspace.get().isMarketWatchShown, workspace.get().isBacktestPanelShown, workspace.get().tool], [false, false, true, false, 'cursor'], 'ending leaves Backtest mode, puts the settings back and drops the order tool');
+  unregister();
+});
+
+test('Backtest mode switches the interface before any session, and another mode switches it back', async () => {
+  const [runtime, , , { workspace }] = await modules;
+  workspace.set({ isAnalysisMode: false, isMarketWatchShown: true, isBacktestPanelShown: false, isBacktestMode: false, page: 'copier' });
+  runtime.chooseMode('backtest');
+  assert.deepEqual([workspace.get().isBacktestMode, workspace.get().isAnalysisMode, workspace.get().isMarketWatchShown, workspace.get().isBacktestPanelShown, workspace.get().page], [true, true, false, true, 'trading']);
+  assert.equal(runtime.backtest.get().activeId, null, 'no session yet');
+  runtime.chooseMode('analysis');
+  assert.deepEqual([runtime.modeOf(workspace.get()), workspace.get().isMarketWatchShown, workspace.get().isBacktestPanelShown], ['analysis', true, false], 'the watchlist and panel come back, then Analysis mode applies');
+  runtime.chooseMode('trade');
+  assert.equal(runtime.modeOf(workspace.get()), 'trade');
+});

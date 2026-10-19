@@ -10,6 +10,7 @@ const shown = {
   isDataWindowShown: false,
   isMarketWatchShown: true,
   isTradeAssistantShown: true,
+  isBacktestPanelShown: false,
 };
 
 test('panels stack in declaration order on their own side, with Depth of Market last on the right', () => {
@@ -24,6 +25,12 @@ test('analysis mode keeps the watchlist on the right and withdraws the trading p
   const analysis = { ...shown, isAnalysisMode: true, isDataWindowShown: true, depthSymbol: 'EURUSD' };
   assert.deepEqual(dockItems(analysis, 'left'), []);
   assert.deepEqual(dockItems(analysis, 'right'), ['marketWatch', 'dataWindow']);
+});
+
+test('the Backtest panel stays in analysis mode, where the Trade Assistant does not', () => {
+  const analysis = { ...shown, isAnalysisMode: true, isBacktestPanelShown: true };
+  assert.deepEqual(dockItems(analysis, 'right'), ['marketWatch', 'backtest']);
+  assert.deepEqual(dockItems({ ...shown, isBacktestPanelShown: true }, 'right'), ['tradeAssistant', 'backtest']);
 });
 
 test('restoring a saved layout keeps valid values and replaces the rest', () => {

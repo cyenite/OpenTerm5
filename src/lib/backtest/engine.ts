@@ -2,6 +2,8 @@ import { orderType } from '../../../shared/protocol';
 import { formatPrice, formatVolume } from '../format';
 import type { AccountFigures, Book, ClosedTrade, DealReason, EquityPoint, JournalLine, PendingType, Quote, Side, SimDeal, SimOrder, SimPosition, Simulation, SymbolTerms } from './model';
 import { barPath, barsEnding, bidAt, type Series, type SimBar } from './series';
+import type { BulkKind } from '../../../shared/automation';
+import type { LegRule } from '../../../shared/risk-order';
 
 // The simulated broker. Bars are bid prices and the ask is the bid plus the symbol's spread, as in
 // MetaTrader's tester. Within a bar prices are assumed to follow `barPath`; an order whose price
@@ -28,6 +30,7 @@ export interface MarketRequest {
   readonly sl?: number;
   readonly tp?: number;
   readonly volume: number;
+  readonly rule?: LegRule | null;
 }
 
 export interface PendingRequest {
@@ -40,6 +43,7 @@ export interface PendingRequest {
   readonly volume: number;
   readonly stopLimit?: number;
   readonly expiration?: number;
+  readonly rule?: LegRule | null;
 }
 
 export interface OrderChange {
@@ -183,7 +187,7 @@ export function pendingProblem(type: PendingType, price: number, stopLimit: numb
 
 export const pendingEntry = (order: Pick<SimOrder, 'price' | 'stopLimit'>) => (order.stopLimit > 0 ? order.stopLimit : order.price);
 
-function openPosition(draft: Draft, simulation: Simulation, bids: Bids, terms: SymbolTerms, side: Side, volume: number, price: number, time: number, details: { sl: number; tp: number; comment: string; reason: DealReason; order: number }): string | null {
+function openPosition(draft: Draft, simulation: Simulation, bids: Bids, terms: SymbolTerms, side: Side, volume: number, price: number, time: number, details: { sl: number; tp: number; comment: string; reason: DealReason; order: number; rule: LegRule | null }): string | null {
   const required = marginFor(simulation, terms, volume, price);
   if (required > accountFigures(draft, simulation, bids).freeMargin + EPSILON) return `Not enough money: ${formatVolume(volume)} ${terms.name} needs ${required.toFixed(2)} ${simulation.currency} of margin.`;
   const commission = round(simulation.settings.commissionPerLot * volume, 2);
@@ -191,7 +195,7 @@ function openPosition(draft: Draft, simulation: Simulation, bids: Bids, terms: S
   const bid = bids[terms.name] ?? price;
   const current = closingPrice(side, quoteOf(terms, bid));
   const initialRisk = details.sl > 0 ? Math.abs(profitAt(simulation, terms, side, price, volume, details.sl)) : 0;
-  draft.positions.push({ side, symbol: terms.name, comment: details.comment, sl: details.sl, tp: details.tp, time, ticket, volume, priceOpen: price, commission, initialRisk, initialVolume: volume, bestPrice: current, worstPrice: current });
+  draft.positions.push({ side, symbol: terms.name, comment: details.comment, sl: details.sl, tp: details.tp, time, ticket, volume, priceOpen: price, commission, initialRisk, initialVolume: volume, bestPrice: current, worstPrice: current, rule: details.rule });
   draft.deals.push({ side, entry: 'in', reason: details.reason, symbol: terms.name, comment: details.comment, time, order: ticket, price, ticket: nextTicket(draft), volume, profit: 0, position: ticket, commission: -commission });
   draft.balance = round(draft.balance - commission, 2);
   note(draft, time, `${sideLabel(side)} ${formatVolume(volume)} ${terms.name} at ${formatPrice(price, terms.digits)} (#${ticket})`);
@@ -280,7 +284,7 @@ function fillOrder(draft: Draft, simulation: Simulation, bids: Bids, terms: Symb
   const side = pendingSide(order.type);
   const label = orderType(order.type)!.label;
   note(draft, time, `${label} #${order.ticket} triggered at ${formatPrice(price, terms.digits)}`);
-  const error = openPosition(draft, simulation, bids, terms, side, order.volume, price, time, { sl: order.sl, tp: order.tp, comment: order.comment, reason: 'pending', order: order.ticket });
+  const error = openPosition(draft, simulation, bids, terms, side, order.volume, price, time, { sl: order.sl, tp: order.tp, comment: order.comment, reason: 'pending', order: order.ticket, rule: order.rule ?? null });
   if (error) note(draft, time, `${label} #${order.ticket} cancelled. ${error}`);
 }
 
@@ -309,12 +313,19 @@ function triggersFor(draft: Draft, simulation: Simulation, bids: Record<string, 
   for (const position of draft.positions) {
     if (position.symbol !== terms.name) continue;
     const close = (at: number, reason: DealReason) => closeVolume(draft, simulation, terms, position.ticket, Infinity, at, time, reason);
+    // Hidden stops and targets are closed at market by the manager, so both take slippage.
+    const hiddenStop = position.rule?.virtualStop ?? 0;
+    const hiddenTarget = position.rule?.virtualTarget ?? 0;
     if (position.side === 'buy') {
       if (position.sl > 0) result.push({ level: position.sl, isUp: false, fire: (bid) => close(price(bid - slippage), 'sl') });
       if (position.tp > 0) result.push({ level: position.tp, isUp: true, fire: (bid) => close(price(bid), 'tp') });
+      if (hiddenStop > 0) result.push({ level: hiddenStop, isUp: false, fire: (bid) => close(price(bid - slippage), 'sl') });
+      if (hiddenTarget > 0) result.push({ level: hiddenTarget, isUp: true, fire: (bid) => close(price(bid - slippage), 'tp') });
     } else {
       if (position.sl > 0) result.push({ level: position.sl - spread, isUp: true, fire: (bid) => close(price(ask(bid) + slippage), 'sl') });
       if (position.tp > 0) result.push({ level: position.tp - spread, isUp: false, fire: (bid) => close(ask(bid), 'tp') });
+      if (hiddenStop > 0) result.push({ level: hiddenStop - spread, isUp: true, fire: (bid) => close(price(ask(bid) + slippage), 'sl') });
+      if (hiddenTarget > 0) result.push({ level: hiddenTarget - spread, isUp: false, fire: (bid) => close(price(ask(bid) + slippage), 'tp') });
     }
   }
   return result;
@@ -347,6 +358,40 @@ function fireHolding(draft: Draft, simulation: Simulation, bids: Record<string, 
   }
 }
 
+// The live trade manager's rules at one price: break-even first (once), otherwise the trailing
+// stop, one change per price as the manager makes one per quote.
+function manage(draft: Draft, terms: SymbolTerms, bid: number, time: number): void {
+  const quote = quoteOf(terms, bid);
+  const point = terms.point;
+  draft.positions = draft.positions.map((position) => {
+    const rule = position.rule;
+    if (position.symbol !== terms.name || !rule || (!rule.breakEven && !rule.trailing)) return position;
+    const direction = sign(position.side);
+    const price = closingPrice(position.side, quote);
+    const profitPoints = direction * (price - position.priceOpen) / point;
+    const breakEven = rule.breakEven;
+    if (breakEven && !breakEven.isDone && profitPoints >= breakEven.triggerPoints) {
+      const target = round(position.priceOpen + direction * breakEven.lockPoints * point, terms.digits);
+      const isBetter = !position.sl || direction * (target - position.sl) > point / 2;
+      const isDone = { ...rule, breakEven: { ...breakEven, isDone: true } };
+      if (isBetter && direction * (price - target) >= 0) {
+        note(draft, time, `Break-even: #${position.ticket} stop to ${formatPrice(target, terms.digits)}`);
+        return { ...position, sl: target, rule: isDone };
+      }
+      return isBetter ? position : { ...position, rule: isDone };
+    }
+    if (rule.trailing && profitPoints >= rule.trailing.startPoints) {
+      const target = round(price - direction * rule.trailing.distancePoints * point, terms.digits);
+      const step = Math.max(1, rule.trailing.stepPoints) * point;
+      if ((!position.sl || direction * (target - position.sl) >= step - point / 2) && direction * (price - target) >= 0) {
+        note(draft, time, `Trailing stop: #${position.ticket} stop to ${formatPrice(target, terms.digits)}`);
+        return { ...position, sl: target };
+      }
+    }
+    return position;
+  });
+}
+
 function processBar(draft: Draft, simulation: Simulation, bids: Record<string, number>, terms: SymbolTerms, bar: SimBar): void {
   const time = bar.time;
   for (const order of draft.orders.filter((candidate) => candidate.symbol === terms.name && candidate.expiration > 0 && candidate.expiration <= time)) {
@@ -360,8 +405,14 @@ function processBar(draft: Draft, simulation: Simulation, bids: Record<string, n
     bids[terms.name] = bid;
     touch(draft, terms, bid);
   };
+  // Rules act on each price after the stops there have had their turn.
+  const settle = () => {
+    manage(draft, terms, cursor, time);
+    fireHolding(draft, simulation, bids, terms, cursor, time);
+  };
   move(cursor);
   fireHolding(draft, simulation, bids, terms, cursor, time);
+  settle();
   for (const target of path.slice(1)) {
     for (let guard = 0; guard < 1000; guard++) {
       const from = cursor;
@@ -372,8 +423,10 @@ function processBar(draft: Draft, simulation: Simulation, bids: Record<string, n
       move(round(next.level, terms.digits));
       next.fire(cursor);
       fireHolding(draft, simulation, bids, terms, cursor, time);
+      settle();
     }
     move(target);
+    settle();
   }
 }
 
@@ -436,7 +489,7 @@ export function placeMarket(book: Book, simulation: Simulation, bids: Bids, requ
   const slippage = simulation.settings.slippagePoints * terms.point * sign(request.side);
   const price = round(openingPrice(request.side, quote) + slippage, terms.digits);
   const draft = draftOf(book);
-  const error = openPosition(draft, simulation, bids, terms, request.side, request.volume, price, time, { sl, tp, comment: request.comment ?? '', reason: 'market', order: 0 });
+  const error = openPosition(draft, simulation, bids, terms, request.side, request.volume, price, time, { sl, tp, comment: request.comment ?? '', reason: 'market', order: 0, rule: request.rule ?? null });
   if (error) return refused(book, error);
   mark(draft, simulation, bids, time, true);
   return done(draft);
@@ -464,7 +517,7 @@ export function placePending(book: Book, simulation: Simulation, bids: Bids, req
   if (problem) return refused(book, problem);
   const draft = draftOf(book);
   const ticket = nextTicket(draft);
-  draft.orders.push({ type: request.type, symbol: request.symbol, comment: request.comment ?? '', ...order, time, ticket, volume: request.volume });
+  draft.orders.push({ type: request.type, symbol: request.symbol, comment: request.comment ?? '', ...order, time, ticket, volume: request.volume, rule: request.rule ?? null });
   note(draft, time, `${orderType(request.type)!.label} ${formatVolume(request.volume)} ${request.symbol} at ${formatPrice(order.price, terms.digits)} placed (#${ticket})`);
   return done(draft);
 }
@@ -550,4 +603,54 @@ export function closePositions(book: Book, simulation: Simulation, bids: Bids, i
 
 export function cancelOrders(book: Book, isIncluded: (order: SimOrder) => boolean = () => true): Book {
   return book.orders.filter(isIncluded).reduce((current, order) => cancelOrder(current, order.ticket).book, book);
+}
+
+export interface BulkResult {
+  readonly ticket: number;
+  readonly symbol: string;
+  readonly error: string | null;
+}
+
+// The live trade manager's bulk actions on the backtest. A symbol narrows every kind to that
+// symbol's positions and orders.
+export function bulkAction(book: Book, simulation: Simulation, bids: Bids, kind: BulkKind, symbol?: string, ticket?: number): { book: Book; results: BulkResult[] } {
+  const isListed = (item: { symbol: string }) => !symbol || item.symbol === symbol;
+  const results: BulkResult[] = [];
+  let current = book;
+  const apply = (target: { ticket: number; symbol: string }, outcome: Outcome) => {
+    current = outcome.book;
+    results.push({ ticket: target.ticket, symbol: target.symbol, error: outcome.error });
+  };
+  const profit = (position: SimPosition) => floatingProfit(simulation, position, bids) ?? 0;
+  const filters: Partial<Record<BulkKind, (position: SimPosition) => boolean>> = {
+    closeAll: () => true,
+    closeProfitable: (position) => profit(position) > 0,
+    closeLosing: (position) => profit(position) < 0,
+    closeBuys: (position) => position.side === 'buy',
+    closeSells: (position) => position.side === 'sell',
+    closeSymbol: (position) => position.symbol === symbol,
+  };
+  const filter = filters[kind];
+  const positions = book.positions.filter(isListed);
+  if (filter) {
+    for (const position of positions.filter(filter)) apply(position, closePosition(current, simulation, bids, position.ticket));
+  } else if (kind === 'deletePending') {
+    for (const order of book.orders.filter(isListed)) apply(order, cancelOrder(current, order.ticket));
+  } else if (kind === 'breakEvenAll') {
+    for (const position of positions) {
+      const terms = simulation.terms[position.symbol];
+      const bid = bids[position.symbol];
+      if (!terms || bid === undefined) continue;
+      const direction = sign(position.side);
+      const isAhead = direction * (closingPrice(position.side, quoteOf(terms, bid)) - position.priceOpen) >= terms.point;
+      const isImproved = !position.sl || direction * (position.priceOpen - position.sl) > 0;
+      if (isAhead && isImproved) apply(position, modifyPosition(current, simulation, bids, position.ticket, position.priceOpen, position.tp));
+    }
+  } else if (kind === 'reverse') {
+    const position = book.positions.find((candidate) => candidate.ticket === ticket);
+    if (!position) return { book, results: [{ ticket: ticket ?? 0, symbol: symbol ?? '', error: 'Position is no longer open' }] };
+    apply(position, closePosition(current, simulation, bids, position.ticket));
+    if (!results[0].error) apply(position, placeMarket(current, simulation, bids, { side: position.side === 'buy' ? 'sell' : 'buy', symbol: position.symbol, volume: position.volume, comment: position.comment }));
+  }
+  return { book: current, results };
 }

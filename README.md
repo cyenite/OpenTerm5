@@ -100,12 +100,14 @@ evens them out), and maximise the active chart with <kbd>Alt</kbd>+<kbd>Enter</k
 what had happened by then: a chart on a longer timeframe builds its current bar step by step, so H4
 and daily candles never give away their own future. Trading from a replaying chart is switched off.
 
-**Backtest by hand, on the same replay.** Start a session with a balance, leverage, spread,
-slippage and commission, then trade it from the chart: buy and sell buttons, limit, stop and stop
-limit orders, the risk planner and draggable stops. Orders fill on the bars the replay passes,
-stops and targets in the order each bar traded, and gaps at the opening price. Jump to the next
-London or New York open, and read the results as R multiples, win rate, profit factor, drawdown and
-an equity curve. Sessions save as you go and resume where they stopped.
+**Backtest with the tools you trade with.** Start a session with a balance, leverage, spread,
+slippage and commission in Backtest mode, a third mode beside Trade and Analysis that gives the
+interface to the charts and the session, and the layout steps forward through history on its own
+clock. Place each order with lines on the
+chart: drag the entry, stop loss and take profit, and the volume follows your risk. Orders fill on
+the bars passed, stops and targets in the order each bar traded, and gaps at the opening price. Jump to the
+next London or New York open, and follow the results in a side panel: R multiples, win rate, profit
+factor, drawdown and an equity curve. Sessions save as you go and resume where they stopped.
 [How backtesting works](docs/user-guide/backtesting.md).
 
 ![Bar replay across four charts at 08:30: EURUSD H1, H4 and M15 and XAUUSD D1, each cut at the same moment, with the replay bar below](docs/images/screenshots/bar-replay.png)
@@ -220,9 +222,9 @@ TradingView theme.
   visibility.
 - Layouts of 1 to 16 charts per tab with symbol, interval, crosshair, time, date range and drawing
   sync, and bar replay that runs every chart of a layout on one clock.
-- Backtesting sessions on the replay: a simulated account with spread, slippage, commission,
-  leverage and stop out; market, limit, stop and stop limit orders filled along each bar; R, MAE and
-  MFE per trade; statistics, an equity curve and CSV export.
+- Backtesting sessions: a simulated account with spread, slippage, commission, leverage and stop
+  out; orders placed with risk-sized lines on the chart and filled along each bar; R, MAE and MFE
+  per trade; statistics, an equity curve and CSV export in a side panel.
 - Undo and redo, copy and paste between charts and an object tree.
 - Price alerts drawn on the chart, and Chart Settings saved with each chart and its templates.
 - Older history loads as you scroll, panes resize and axes drag.

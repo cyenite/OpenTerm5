@@ -7,6 +7,7 @@ import { DepthOfMarket } from './DepthOfMarket';
 import { MarketWatch } from './MarketWatch';
 import { Navigator } from './Navigator';
 import { TradeAssistant } from './TradeAssistant';
+import { BacktestPanel } from './backtest/BacktestPanel';
 import { Splitter } from './ui/Splitter';
 
 interface DockItemProps {
@@ -20,6 +21,7 @@ function DockItem({ item, depthSymbol }: DockItemProps) {
     case 'dataWindow': return <DataWindow />;
     case 'navigator': return <Navigator />;
     case 'tradeAssistant': return <TradeAssistant />;
+    case 'backtest': return <BacktestPanel />;
     case 'depthOfMarket': return depthSymbol ? <DepthOfMarket symbol={depthSymbol} /> : null;
   }
 }

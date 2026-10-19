@@ -14,7 +14,7 @@ import { WorkspacePresetDialog } from './components/dialogs/WorkspacePresetDialo
 import { TradingViewDialog } from './components/dialogs/TradingViewDialog';
 import { IndicatorsDialog } from './components/dialogs/IndicatorsDialog';
 import { BacktestDialog } from './components/backtest/BacktestDialog';
-import { BacktestOrderDialog, BacktestOrderEditDialog, BacktestPositionDialog } from './components/backtest/BacktestTickets';
+import { BacktestOrderEditDialog, BacktestPositionDialog } from './components/backtest/BacktestTickets';
 import { useEffect } from 'react';
 import { AppBar } from './components/AppBar';
 import { ChartWorkspace } from './components/ChartWorkspace';
@@ -61,7 +61,6 @@ function ActiveDialog({ dialog }: ActiveDialogProps) {
     case 'tradingview': return <TradingViewDialog />;
     case 'indicators': return <IndicatorsDialog initialSection={dialog.section} />;
     case 'backtests': return <BacktestDialog />;
-    case 'backtestOrder': return <BacktestOrderDialog initialSymbol={dialog.symbol} initialType={dialog.type} initialPrice={dialog.price} />;
     case 'backtestPosition': return <BacktestPositionDialog ticket={dialog.ticket} />;
     case 'backtestOrderEdit': return <BacktestOrderEditDialog ticket={dialog.ticket} />;
     case 'about':
@@ -85,7 +84,7 @@ export function App() {
   }, []);
 
   return (
-    <div className={`app${isAnalysis ? ' is-analysis' : ''}`}>
+    <div className={`app${isAnalysis ? ' is-analysis' : ''}${state.isBacktestMode ? ' is-backtest' : ''}`}>
       <AppBar />
       <PriceAlertNotice />
       <JournalingNotice />

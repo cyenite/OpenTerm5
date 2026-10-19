@@ -1,32 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { accountFigures, advance, cancelOrder, closePosition, modifyPosition, placeMarket, placePending, type Bids } from './engine';
-import { defaultBacktestSettings, newBook, type BacktestSettings, type Book, type Simulation, type SymbolTerms } from './model';
-import { barsEnding, bidAt, type Series, type SimBar } from './series';
+import { bar, m1, MINUTE, ok, simulation, started, T0 } from './engine-fixtures';
+import { newBook } from './model';
+import { barsEnding, bidAt } from './series';
 import { backtestStats, rMultiple, tradesCsv } from './stats';
-
-const MINUTE = 60_000;
-const T0 = Date.UTC(2026, 0, 5, 10, 0);
-
-const eurusd: SymbolTerms = { name: 'EURUSD', currencyBase: 'EUR', currencyProfit: 'USD', point: 0.00001, digits: 5, volumeMin: 0.01, volumeMax: 100, volumeStep: 0.01, spreadPoints: 10, contractSize: 100_000, profitRate: 1 };
-const usdjpy: SymbolTerms = { name: 'USDJPY', currencyBase: 'USD', currencyProfit: 'JPY', point: 0.001, digits: 3, volumeMin: 0.01, volumeMax: 100, volumeStep: 0.01, spreadPoints: 10, contractSize: 100_000, profitRate: 0.0067 };
-
-function simulation(settings: Partial<BacktestSettings> = {}): Simulation {
-  return { currency: 'USD', settings: { ...defaultBacktestSettings, ...settings }, terms: { EURUSD: eurusd, USDJPY: usdjpy } };
-}
-
-const bar = (minute: number, open: number, high: number, low: number, close: number): SimBar => ({ time: T0 + minute * MINUTE, open, high, low, close });
-const m1 = (...bars: SimBar[]): Series => ({ interval: MINUTE, bars });
-
-// A book whose clock stands at the end of minute `minute`.
-function started(minute = 0, balance = 10_000): Book {
-  return advance(newBook(balance), simulation(), () => undefined, T0 + minute * MINUTE);
-}
-
-const ok = (outcome: { book: Book; error: string | null }) => {
-  assert.equal(outcome.error, null);
-  return outcome.book;
-};
 
 test('series reveal a bar once it has ended, and the bid is the last ended close', () => {
   const series = m1(bar(0, 1.1, 1.2, 1.0, 1.15), bar(1, 1.15, 1.3, 1.1, 1.25), bar(5, 1.25, 1.26, 1.2, 1.21));
