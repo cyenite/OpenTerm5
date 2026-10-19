@@ -20,9 +20,10 @@ async function setup(followerPatch: Partial<FollowerConfig> = {}, configPatch: P
   let state: CopierState = { configs: [], mappings: [], baselines: [], protections: [] };
   const logs: CopierLogEntry[] = [];
   const blocked = { reason: null as string | null };
+  const clock = { time: Date.now() };
   const copier = new Copier(pool, {
     load: async () => state, save: async (next) => { state = next; }, append: (entry) => logs.push(entry),
-    canOpen: async () => blocked.reason, sleep: async () => {}, random: () => 0,
+    canOpen: async () => blocked.reason, sleep: async () => {}, random: () => 0, now: () => clock.time,
   });
   await copier.init();
   const config: CopierConfig = { id: 'c1', name: 'Main', status: 'enabled', masterId: MASTER, followers: [{ ...defaultFollower('f1', FOLLOWER), ...followerPatch }], createdAt: 0, ...configPatch };
@@ -36,7 +37,14 @@ async function setup(followerPatch: Partial<FollowerConfig> = {}, configPatch: P
   };
   for (let index = 0; index < 20 && !pool.link(FOLLOWER); index++) await new Promise((resolve) => setTimeout(resolve, 5));
   await tick();
-  return { master, follower, copier, logs, tick, blocked, pool, state: () => state };
+  // FakeLink snapshots share its live arrays, so the copier would see every copy at once. A frozen
+  // follower snapshot stays as it was, like a live follower whose snapshot has not caught up.
+  const freezeFollower = () => pool.emit('trade', FOLLOWER, { account: follower.info, orders: [...follower.orders], positions: [...follower.positions] });
+  const masterTick = async () => {
+    pool.emit('trade', MASTER, { account: master.info, orders: master.orders, positions: master.positions });
+    await copier.settle();
+  };
+  return { master, follower, copier, logs, tick, freezeFollower, masterTick, clock, blocked, pool, state: () => state };
 }
 
 test('copies a new master position and closes it when the master closes', async () => {
@@ -214,4 +222,65 @@ test('followers saved before reset settings keep local midnight on equity', asyn
   const legacy = { minEquity: 0, maxDailyLossPercent: 3, action: 'blockNew' } as FollowerConfig['equityProtection'];
   const saved = await copier.save({ ...config, followers: [{ ...config.followers[0], equityProtection: legacy }] });
   assert.deepEqual(saved.followers[0].equityProtection, { ...defaultEquityProtection, maxDailyLossPercent: 3, resetZone: 'local', lossBasis: 'equity' });
+});
+
+test('a copy the follower snapshot does not list yet is not taken for closed', async () => {
+  const { master, follower, tick, freezeFollower, masterTick, clock, logs, state } = await setup();
+  freezeFollower();
+  master.positions = [position({ ticket: 7, volume: 1, sl: 1.095 })];
+  await masterTick();
+  await masterTick();
+  assert.equal(follower.positions.length, 1, 'copied');
+  assert.equal(state().mappings[0].status, 'open');
+  assert.equal(logs.some((entry) => entry.message.includes('closed on its own')), false);
+  master.positions = [{ ...master.positions[0], volume: 0.5, sl: 1.097 }];
+  await tick();
+  assert.equal(follower.positions[0].volume, 0.5, 'partial close reaches the copy');
+  assert.equal(follower.positions[0].sl, 1.097, 'stop change reaches the copy');
+  master.positions = [];
+  await tick();
+  assert.equal(follower.positions.length, 0, 'master close reaches the copy');
+  clock.time += 60_000;
+  await tick();
+  assert.equal(follower.sent.length, 4, 'nothing sent twice');
+});
+
+test('a master that closes before the follower lists its copy still closes the copy', async () => {
+  const { master, follower, tick, freezeFollower, masterTick } = await setup();
+  freezeFollower();
+  master.positions = [position({ ticket: 7 })];
+  await masterTick();
+  master.positions = [];
+  await masterTick();
+  assert.equal(follower.positions.length, 1, 'waits for the copy to show up');
+  await tick();
+  assert.equal(follower.positions.length, 0);
+});
+
+test('a copy closed on the follower is recognised once it stays missing', async () => {
+  const { master, follower, tick, clock, state, logs } = await setup();
+  master.positions = [position({ ticket: 7 })];
+  await tick();
+  follower.positions = [];
+  await tick();
+  assert.equal(state().mappings[0].status, 'open', 'one missing snapshot is not enough');
+  clock.time += 11_000;
+  await tick();
+  assert.equal(state().mappings[0].status, 'closed');
+  assert.ok(logs.some((entry) => entry.message.includes('closed on its own')));
+  assert.equal(follower.sent.length, 1, 'not reopened');
+});
+
+test('a copy wrongly marked closed is followed again while both sides are open', async () => {
+  const { master, follower, tick, state, logs } = await setup();
+  master.positions = [position({ ticket: 7, volume: 1 })];
+  await tick();
+  const mapping = state().mappings[0];
+  state().mappings[0] = { ...mapping, status: 'closed', reason: 'closed on the follower' };
+  await tick();
+  assert.equal(state().mappings[0].status, 'open');
+  assert.ok(logs.some((entry) => entry.message.includes('following master #7 again')));
+  master.positions = [];
+  await tick();
+  assert.equal(follower.positions.length, 0, 'the master close reaches it');
 });

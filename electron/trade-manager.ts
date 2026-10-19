@@ -5,7 +5,8 @@ import type { AccountGuard, BulkOutcome, BulkRequest, GuardState, PositionRule, 
 import { parseGuard } from '../shared/automation';
 import type { NewsEvent, NewsImpact } from '../shared/news';
 import { symbolCurrencies } from '../shared/news';
-import { distanceToPrice, floorToStep, planRisk } from '../shared/risk';
+import { floorToStep } from '../shared/risk';
+import { planRiskOrder } from '../shared/risk-order';
 import { dayReference, lossBases, tradingDayKey } from '../shared/trading-day';
 import type { SessionPool, TradingLink } from './session-pool';
 import { platformOf } from './account-registry';
@@ -326,13 +327,16 @@ export class TradeManager extends EventEmitter {
       closeSells: (position) => position.side === 'sell',
       closeSymbol: (position) => position.symbol === request.symbol,
     };
+    // A symbol narrows every kind to that symbol's positions and orders.
+    const isListed = (item: { symbol: string }) => !request.symbol || item.symbol === request.symbol;
+    const positions = snapshot.positions.filter(isListed);
     const filter = filters[request.kind];
     if (filter) {
-      await Promise.all(snapshot.positions.filter(filter).map(closing));
+      await Promise.all(positions.filter(filter).map(closing));
     } else if (request.kind === 'deletePending') {
-      await Promise.all(snapshot.orders.filter((item) => !request.symbol || item.symbol === request.symbol).map((order) => send(order.ticket, order.symbol, { action: 'remove', order: order.ticket })));
+      await Promise.all(snapshot.orders.filter(isListed).map((order) => send(order.ticket, order.symbol, { action: 'remove', order: order.ticket })));
     } else if (request.kind === 'breakEvenAll') {
-      for (const position of snapshot.positions) {
+      for (const position of positions) {
         const spec = await this.spec(link, accountId, position.symbol);
         const direction = position.side === 'buy' ? 1 : -1;
         const isAhead = direction * (position.priceCurrent - position.priceOpen) >= Math.max(spec.stopsLevel, 1) * spec.point;
@@ -383,32 +387,18 @@ export class TradeManager extends EventEmitter {
       link.request('account.info', {}),
     ]);
     if (!account) throw new Error('Account information is unavailable');
-    const entry = definition.isPending ? request.price ?? 0 : side === 'buy' ? quote.ask : quote.bid;
-    if (definition.isPending && !(entry > 0)) throw new Error('Pending orders need a price');
-    const stopLoss = request.stopLoss && request.stopLoss.value > 0 ? distanceToPrice(side, entry, request.stopLoss.value, request.stopLoss.unit, spec, true) : 0;
-    const riskDistance = stopLoss ? Math.abs(entry - stopLoss) : 0;
-    const targets = request.takeProfitR?.length
-      ? request.takeProfitR.map((multiple, index, all) => ({ price: Number((entry + (side === 'buy' ? 1 : -1) * multiple * riskDistance).toFixed(spec.digits)), share: 100 / all.length }))
-      : (request.takeProfits ?? []).filter((target) => target.distance.value > 0).map((target) => ({ price: distanceToPrice(side, entry, target.distance.value, target.distance.unit, spec, false), share: target.share }));
-    if (request.takeProfitR?.length && !riskDistance) throw new Error('R-multiple targets need a stop loss');
-    const plan = planRisk({
-      side, entry, stopLoss, mode: request.mode, value: request.value, limits: spec, takeProfits: targets,
+    const { entry, stopLoss, plan, legs, isStealth } = planRiskOrder(request, {
+      quote, limits: spec, moneyPerUnit: valuation.moneyPerUnit,
       balance: account.balance, equity: Number.isFinite(account.equity) ? account.equity : account.balance,
-      moneyPerUnit: valuation.moneyPerUnit, maxLots: request.maxLots,
-      commissionPerLot: request.commissionPerLot ?? (valuation.takerFeeRate ? valuation.takerFeeRate * (entry + stopLoss) * spec.contractSize * valuation.rate : undefined),
+      ...(valuation.takerFeeRate ? { takerFeeRate: valuation.takerFeeRate } : {}),
     });
-    if (!plan.isValid) throw new Error(plan.warnings.join(' '));
     const { warnings: marginWarnings, ...margin } = platformOf(accountId) === 'mt5' ? { warnings: [] } : await this.marginCheck(link, request, side, entry, stopLoss, plan.lots, spec.digits);
     const outcome: RiskOrderOutcome = { lots: plan.lots, warnings: [...plan.warnings, ...marginWarnings], results: [], riskMoney: plan.riskMoney, stopLoss, entry, takeProfits: plan.legs.map((leg) => leg.takeProfit), isDryRun: !!request.isDryRun, ...margin };
     if (request.isDryRun) return outcome;
     const blocked = await this.canOpen(accountId, request.symbol, plan.lots);
     if (blocked) throw new Error(blocked);
-    const management = request.management ?? {};
-    const isStealth = !!management.isStealth;
-    const firstTargetPoints = plan.legs[0]?.takeProfit ? Math.round(Math.abs(plan.legs[0].takeProfit - entry) / spec.point) : 0;
-    const riskPoints = Math.round(riskDistance / spec.point);
     const ruledVolumes = new Map<number, number>();
-    for (const [index, leg] of plan.legs.entries()) {
+    for (const [index, leg] of legs.entries()) {
       const trade: TradeRequest = {
         action: definition.isPending ? 'pending' : 'deal', type: request.type, symbol: request.symbol, volume: leg.lots,
         ...(definition.isPending ? { price: entry, ...(request.expiration ? { expiration: request.expiration } : {}) } : {}),
@@ -423,19 +413,12 @@ export class TradeManager extends EventEmitter {
         this.journal(`Risk order leg ${index + 1} failed: ${result.comment}. Remaining legs were not sent.`);
         break;
       }
-      const breakEvenPoints = management.isBreakEvenAfterFirstTarget && index > 0 && firstTargetPoints ? firstTargetPoints : management.breakEvenR && riskPoints ? Math.round(management.breakEvenR * riskPoints) : 0;
       // On netting accounts every leg lands in one position, so its rule covers their sum.
       const ticket = result.position ?? result.order;
-      if ((breakEvenPoints || management.trailing || isStealth) && ticket) {
+      if (leg.rule && ticket) {
         const initialVolume = Number(((ruledVolumes.get(ticket) ?? 0) + leg.lots).toFixed(8));
         ruledVolumes.set(ticket, initialVolume);
-        this.setRule({
-          accountId, ticket, symbol: request.symbol, side, partials: [], createdAt: this.now(), initialVolume,
-          ...(breakEvenPoints ? { breakEven: { triggerPoints: breakEvenPoints, lockPoints: 1 } } : {}),
-          ...(management.trailing ? { trailing: management.trailing } : {}),
-          ...(isStealth && stopLoss ? { virtualStop: stopLoss } : {}),
-          ...(isStealth && leg.takeProfit ? { virtualTarget: leg.takeProfit } : {}),
-        });
+        this.setRule({ accountId, ticket, symbol: request.symbol, side, partials: [], createdAt: this.now(), initialVolume, ...leg.rule });
       }
     }
     return outcome;

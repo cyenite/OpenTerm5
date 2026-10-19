@@ -1,5 +1,6 @@
 import type { TradingViewAccount, TradingViewChartSettingsScan, TradingViewDrawings, TradingViewDrawingTemplate, TradingViewScan, TradingViewScript, TradingViewScriptPage, TradingViewSymbol } from './tradingview';
 import type { Valuation } from './valuation';
+import type { ZoomStep } from './zoom';
 
 export const timeframes = [
   { label: 'M1', seconds: 60, isOnToolbar: true },
@@ -371,6 +372,8 @@ export interface TerminalEvents {
   journal: JournalEntry;
   link: LinkState;
   fullScreen: boolean;
+  // The interface zoom factor, sent on every page load and change.
+  zoom: number;
 }
 
 export type TerminalEvent = keyof TerminalEvents;
@@ -452,5 +455,7 @@ export interface TerminalApi {
   link(): Promise<LinkState>;
   settings(): Promise<ConnectionSettings>;
   saveSettings(settings: ConnectionSettings): Promise<LinkState>;
+  // Steps the interface zoom and resolves with the new factor.
+  zoom(step: ZoomStep): Promise<number>;
   platform: string;
 }

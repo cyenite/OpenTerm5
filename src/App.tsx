@@ -13,22 +13,22 @@ import { AccountsDialog } from './components/dialogs/AccountsDialog';
 import { WorkspacePresetDialog } from './components/dialogs/WorkspacePresetDialog';
 import { TradingViewDialog } from './components/dialogs/TradingViewDialog';
 import { IndicatorsDialog } from './components/dialogs/IndicatorsDialog';
+import { BacktestDialog } from './components/backtest/BacktestDialog';
+import { BacktestOrderEditDialog, BacktestPositionDialog } from './components/backtest/BacktestTickets';
 import { useEffect } from 'react';
 import { AppBar } from './components/AppBar';
 import { ChartWorkspace } from './components/ChartWorkspace';
 import { ContextMenuHost } from './components/ContextMenu';
-import { DataWindow } from './components/DataWindow';
-import { DepthOfMarket } from './components/DepthOfMarket';
+import { Dock } from './components/Dock';
 import { AboutDialog, ConnectionDialog, LoginDialog, SymbolsDialog } from './components/dialogs/MiscDialogs';
 import { ModifyOrderDialog, ModifyPositionDialog } from './components/dialogs/ModifyDialogs';
 import { OrderDialog } from './components/dialogs/OrderDialog';
-import { MarketWatch } from './components/MarketWatch';
-import { Navigator } from './components/Navigator';
 import { StatusBar } from './components/StatusBar';
 import { Toolbar } from './components/Toolbar';
 import { Toolbox } from './components/Toolbox';
 import { HintBubble } from './components/ui/Hint';
 import { handleShortcut } from './lib/commands';
+import { dockItems } from './lib/dock';
 import { useStore } from './lib/store';
 import { workspace, type Dialog } from './lib/workspace';
 
@@ -60,6 +60,9 @@ function ActiveDialog({ dialog }: ActiveDialogProps) {
     case 'alerts': return <PriceAlertsDialog />;
     case 'tradingview': return <TradingViewDialog />;
     case 'indicators': return <IndicatorsDialog initialSection={dialog.section} />;
+    case 'backtests': return <BacktestDialog />;
+    case 'backtestPosition': return <BacktestPositionDialog ticket={dialog.ticket} />;
+    case 'backtestOrderEdit': return <BacktestOrderEditDialog ticket={dialog.ticket} />;
     case 'about':
       return <AboutDialog />;
   }
@@ -69,8 +72,6 @@ export function App() {
   const state = useStore(workspace, (current) => current);
   const isAnalysis = state.isAnalysisMode;
   const page = isAnalysis ? 'trading' : state.page;
-  const isLeftShown = !isAnalysis && (state.isMarketWatchShown || state.isNavigatorShown || state.isDataWindowShown);
-  const isAnalysisDockShown = isAnalysis && (state.isMarketWatchShown || state.isDataWindowShown);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -83,7 +84,7 @@ export function App() {
   }, []);
 
   return (
-    <div className={`app${isAnalysis ? ' is-analysis' : ''}`}>
+    <div className={`app${isAnalysis ? ' is-analysis' : ''}${state.isBacktestMode ? ' is-backtest' : ''}`}>
       <AppBar />
       <PriceAlertNotice />
       <JournalingNotice />
@@ -94,28 +95,12 @@ export function App() {
       {page === 'trading' && <Toolbar />}
       {/* Every slot below stays in place across modes, so the charts survive a mode switch. */}
       <main className={`workbench${page !== 'trading' ? ' is-offstage' : ''}`} aria-hidden={page !== 'trading'}>
-        {isLeftShown && (
-          <aside className="dock-left">
-            {state.isMarketWatchShown && <MarketWatch />}
-            {state.isDataWindowShown && <DataWindow />}
-            {state.isNavigatorShown && <Navigator />}
-          </aside>
-        )}
+        <Dock side="left" items={dockItems(state, 'left')} depthSymbol={state.depthSymbol} />
         <div className="center">
           <ChartWorkspace />
           {!isAnalysis && state.isToolboxShown && <Toolbox />}
         </div>
-        {!isAnalysis && state.depthSymbol && (
-          <aside className="dock-right">
-            <DepthOfMarket symbol={state.depthSymbol} />
-          </aside>
-        )}
-        {isAnalysisDockShown && (
-          <aside className="dock-right analysis-dock">
-            {state.isMarketWatchShown && <MarketWatch />}
-            {state.isDataWindowShown && <DataWindow />}
-          </aside>
-        )}
+        <Dock side="right" items={dockItems(state, 'right')} depthSymbol={state.depthSymbol} />
       </main>
       {state.isStatusBarShown && <StatusBar />}
       {state.dialog && <ActiveDialog dialog={state.dialog} />}

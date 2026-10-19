@@ -4,8 +4,13 @@ import { Store, useStore } from './store';
 // The replay store lives apart from `replay.ts`, which imports the workspace: the workspace's
 // trade gate reads it, and importing `replay.ts` there would be a cycle.
 
+// What the clock is for. Bar replay is the user's replay with its toolbar and shading; a backtest
+// runs on the same clock with its own controls, unshaded, and bar replay stays off meanwhile.
+export type ReplayPurpose = 'replay' | 'backtest';
+
 export interface ReplaySession {
   readonly tabId: string;
+  readonly purpose: ReplayPurpose;
   // Data up to this instant is shown; null until a start is picked.
   readonly time: number | null;
   readonly notice: string | null;
@@ -15,6 +20,8 @@ export interface ReplaySession {
   readonly isSelecting: boolean;
   // The update interval chosen in the replay toolbar; null steps automatically.
   readonly chosenInterval: ChartTimeframe | null;
+  // Stepping stops here, as at the end of the data; a backtest's end date. Null runs to the end.
+  readonly limit?: number | null;
 }
 
 export const replay = new Store<{ session: ReplaySession | null }>({ session: null });
@@ -29,4 +36,8 @@ export function isReplayingChart(session: ReplaySession | null, chartId: string 
 
 export function useIsReplayingChart(chartId: string | undefined): boolean {
   return useStore(replay, (state) => isReplayingChart(state.session, chartId));
+}
+
+export function isBarReplay(session: ReplaySession | null): boolean {
+  return session?.purpose === 'replay';
 }

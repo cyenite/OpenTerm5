@@ -11,6 +11,7 @@ import { ChartWindow } from './chart/ChartWindow';
 import { DrawingRail } from './chart/DrawingRail';
 import { LayoutIcon } from './chart/LayoutIcon';
 import { ReplayToolbar } from './chart/ReplayToolbar';
+import { BacktestTransport } from './backtest/BacktestTransport';
 import { Icon } from './ui/Icon';
 
 const symbolType = 'text/x-openterm-symbol';
@@ -173,6 +174,8 @@ export function ChartWorkspace() {
   const isMaximized = useStore(workspace, (state) => state.isChartMaximized);
   const isChartBarShown = useStore(workspace, (state) => state.isChartBarShown);
   const replayTabId = useStore(replay, (state) => state.session?.tabId);
+  const replayPurpose = useStore(replay, (state) => state.session?.purpose);
+  const isBacktestMode = useStore(workspace, (state) => state.isBacktestMode);
   const isRailShown = useStore(workspace, (state) => state.isAnalysisMode || state.isTradeDrawingToolbarShown);
   const body = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<ResizeDraft | null>(null);
@@ -241,8 +244,9 @@ export function ChartWorkspace() {
             />
           ))}
         </div>
+        {isBacktestMode && (replayPurpose === undefined || replayPurpose === 'backtest' && replayTabId === tab?.id) && <BacktestTransport />}
       </div>
-      {replayTabId !== undefined && replayTabId === tab?.id && <ReplayToolbar />}
+      {replayPurpose === 'replay' && replayTabId === tab?.id && <ReplayToolbar />}
       {isChartBarShown && (
         <nav className="chart-bar" role="tablist" aria-label="Chart tabs">
           {tabs.map((candidate) => <TabLabel key={candidate.id} tab={candidate} charts={charts} isActive={candidate.id === tab?.id} />)}

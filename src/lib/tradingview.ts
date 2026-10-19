@@ -1,26 +1,21 @@
 import { drawingToolInfo, type ChartSettings } from '@meridian/charts';
 import { fromTradingViewChartSettings, fromTradingViewTemplate, fromTradingViewTheme, tradingViewDrawingId, tradingViewToolTypes } from '@meridian/charts/interop/tradingview';
-import { matchSymbol } from '../../shared/symbol-match';
 import type { TradingViewAccount, TradingViewScan, TradingViewScript, TradingViewScriptPage, TradingViewSkippedLayout, TradingViewSymbol } from '../../shared/tradingview';
 import { saveImportedTheme } from './custom-themes';
 import { addDrawingTemplates } from './drawing-templates';
 import { log, session, terminal } from './session';
-import { readServerClock, serverOffsetAt, type ServerClock } from './server-clock';
+import { brokerClock, type ClockSource } from './broker-clock';
+import { serverOffsetAt } from './server-clock';
 import { addSymbolDrawings, symbolDrawingIds, symbolDrawings } from './symbol-drawings';
 import { convertDrawingSets, themeIdentity, type SkippedDrawings } from './tradingview-model';
 import { applyChartSettingsToAll, chartTypes, workspace, type ChartType } from './workspace';
+
+export type { ClockSource };
 
 export interface DrawingImportChoice {
   symbol: TradingViewSymbol;
   // The account symbol whose charts receive the drawings.
   target: string;
-}
-
-export interface ClockSource {
-  // The forex symbol whose history gave the server's clock, or null when only its report was used.
-  symbol: string | null;
-  weeks: number;
-  reportedMs: number | null;
 }
 
 export interface DrawingImportSummary {
@@ -53,29 +48,6 @@ function tickSize(target: string): number | undefined {
   const spec = session.get().symbols[target];
   if (!spec) return undefined;
   return spec.tickSize || spec.point || 10 ** -spec.digits;
-}
-
-// Majors trade on every broker that offers forex and open on the New York schedule.
-const clockSymbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCHF'];
-
-// The broker's server clock, read from a forex major's hourly history and checked against what
-// the server reports. TradingView times are UTC; the broker's bars are stamped with its own clock.
-async function brokerClock(): Promise<{ clock: ServerClock; source: ClockSource }> {
-  const { account, symbols } = session.get();
-  const reported = account?.utcOffsetSeconds;
-  const reportedMs = typeof reported === 'number' && Number.isFinite(reported) ? reported * 1000 : null;
-  const names = Object.keys(symbols);
-  const symbol = clockSymbols.map((name) => matchSymbol(name, names)).find((name): name is string => !!name) ?? null;
-  let times: number[] = [];
-  if (symbol) {
-    try {
-      times = (await terminal.request('rates.get', { symbol, timeframe: 'H1', count: 5000 })).map((bar) => bar.time * 1000);
-    } catch (error) {
-      log(`TradingView import: ${symbol} history could not be read (${(error as Error).message}); using the server's reported clock.`, 'Charts');
-    }
-  }
-  const clock = readServerClock(times, reportedMs);
-  return { clock, source: { symbol: clock.weeks.length ? symbol : null, weeks: clock.weeks.length, reportedMs } };
 }
 
 // Copies the chosen symbols' drawings. Drawings an earlier import copied stay as they are, with

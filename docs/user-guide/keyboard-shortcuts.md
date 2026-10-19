@@ -12,6 +12,8 @@ OpenTerm5 follows MetaTrader 5's shortcuts where they exist. On macOS, use **Cmd
 | Ctrl+1 to Ctrl+5 | Switch workspace: Trading, Trade Copier, Signals, Automation, Journaling |
 | Ctrl+O | Options (connection) |
 | Ctrl+Shift+A | Switch between trading and analysis mode |
+| Ctrl+= and Ctrl+− | Zoom the whole interface in and out, from 50% to 200%. Works in dialogs and text fields too |
+| Ctrl+0 | Interface back to 100% |
 | Escape | Close the open dialog or menu, cancel the risk planner, or return to the cursor tool |
 
 ## Panels
@@ -35,13 +37,14 @@ OpenTerm5 follows MetaTrader 5's shortcuts where they exist. On macOS, use **Cmd
 | Ctrl+G | Grid on or off |
 | Ctrl+L | Volumes on or off |
 | Ctrl+B | Objects list |
-| + and − | Zoom in and out |
+| + and − | Zoom the chart in and out |
 | End | Scroll to the latest bar |
 | Ctrl+F4 | Close the active chart |
 | Tab and Shift+Tab | Next and previous chart in the layout |
 | Alt+Enter | Maximise the active chart, or restore the layout |
 | Shift+Right | Bar replay: step forward |
 | Shift+Down | Bar replay: play or pause |
+| F9 (on a chart in a backtest) | Place Order: plan a backtest order with lines on the chart |
 
 These work while a chart has the keyboard focus (click it first):
 

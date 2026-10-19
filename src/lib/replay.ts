@@ -3,7 +3,7 @@ import { chartInstance } from './chart-instances';
 import { tabActiveChartId, visibleChartIds, type ChartTab } from './chart-tabs';
 import { toChartTimeframe, type ChartTimeframe } from './mt5-timeframes';
 import { replaySpeeds, updateInterval, updateIntervals, type ReplayMode, type ReplaySpeed } from './replay-model';
-import { replay, type ReplaySession } from './replay-session';
+import { replay, type ReplayPurpose, type ReplaySession } from './replay-session';
 import { activeTab, tabOfChart, workspace, type WorkspaceState } from './workspace';
 
 // Bar replay for a layout tab, as TradingView runs it: one clock for every chart taking part, so
@@ -32,9 +32,10 @@ function restartTimer(): void {
   if (current()?.isPlaying) timer = setInterval(stepReplay, speed.delay);
 }
 
-// All of the tab's visible charts, or the one chart the replay started on.
-function participants(state: WorkspaceState, tab: ChartTab, session: ReplaySession | null, chartId?: string): string[] {
-  if (state.replayMode === 'allCharts') return visibleChartIds(tab);
+// All of the tab's visible charts, or the one chart the replay started on. A backtest always runs
+// every chart of the layout.
+function participants(state: WorkspaceState, tab: ChartTab, session: ReplaySession | null, chartId?: string, purpose: ReplayPurpose = session?.purpose ?? 'replay'): string[] {
+  if (state.replayMode === 'allCharts' || purpose === 'backtest') return visibleChartIds(tab);
   if (session) return [...session.chartIds];
   return [chartId ?? tabActiveChartId(tab)];
 }
@@ -62,7 +63,7 @@ function apply(): void {
   const interval = replayInterval(session);
   const step = interval ? toChartTimeframe(interval) : null;
   for (const engine of engines(session)) {
-    engine.setReplay({ time: session.time, step });
+    engine.setReplay({ time: session.time, step, isMarked: session.purpose === 'replay' });
     if (engine.isReplaySelecting()) engine.cancelReplaySelection();
   }
 }
@@ -70,6 +71,7 @@ function apply(): void {
 // Picks a start on every chart taking part. A replay already running keeps its clock and charts
 // until the new start is picked.
 export function startReplay(chartId?: string): void {
+  if (current()?.purpose === 'backtest') return;
   const state = workspace.get();
   const tab = chartId ? tabOfChart(state, chartId) : activeTab(state);
   if (!tab) return;
@@ -78,17 +80,18 @@ export function startReplay(chartId?: string): void {
   const session = current();
   stopTimer();
   const chartIds = participants(state, tab, null, chartId);
-  replay.set({ session: { tabId: tab.id, time: session?.time ?? null, notice: null, chartIds, isPlaying: false, isFinished: false, isSelecting: true, chosenInterval: session?.chosenInterval ?? null } });
+  replay.set({ session: { tabId: tab.id, purpose: 'replay', time: session?.time ?? null, notice: null, chartIds, isPlaying: false, isFinished: false, isSelecting: true, chosenInterval: session?.chosenInterval ?? null, limit: session?.limit ?? null } });
   for (const id of session?.chartIds ?? []) if (!chartIds.includes(id)) chartInstance(id)?.setReplay(null);
   chartIds.forEach((id) => chartInstance(id)?.selectReplayStart());
 }
 
-// No chart can start before the latest of their first bars.
+// No chart can start before the latest of their first bars, nor after the replay's limit.
 export function pickReplayStart(time: number): void {
   const session = current();
   if (!session) return;
   const earliest = Math.max(...engines(session).map((engine) => engine.earliestReplayTime() ?? -Infinity));
-  update({ time: Math.max(time, earliest), isSelecting: false, isFinished: false, notice: null });
+  const latest = session.limit ?? Infinity;
+  update({ time: Math.min(Math.max(time, earliest), latest), isSelecting: false, isFinished: false, notice: null });
   apply();
 }
 
@@ -113,8 +116,33 @@ export function stepReplay(): void {
     update({ isPlaying: false, isFinished: true, notice: 'End of data: the replay has reached the latest bar.' });
     return;
   }
+  if (session.limit && Math.min(...next) > session.limit) {
+    stopTimer();
+    update({ isPlaying: false, isFinished: true, notice: 'The replay has reached its end date.' });
+    return;
+  }
   update({ time: Math.min(...next) });
   apply();
+}
+
+// Starts the clock at `time` without a pick, as a backtest does. A replay picks among loaded bars,
+// so each chart first pages in history back to that time; a chart without data that far back
+// starts the clock at its first bar. Resolves with the time the clock starts at.
+export async function replayFrom(time: number, limit: number | null = null, purpose: ReplayPurpose = 'replay', chartId?: string): Promise<number | null> {
+  const state = workspace.get();
+  const tab = chartId ? tabOfChart(state, chartId) : activeTab(state);
+  if (!tab) return null;
+  exitReplay();
+  const chartIds = participants(state, tab, null, chartId, purpose);
+  const loaded = chartIds.map((id) => chartInstance(id)).filter((engine): engine is MeridianChart => !!engine);
+  await Promise.all(loaded.map((engine) => engine.loadHistoryTo(time)));
+  replay.set({ session: { tabId: tab.id, purpose, time: null, notice: null, chartIds, isPlaying: false, isFinished: false, isSelecting: false, chosenInterval: null, limit } });
+  pickReplayStart(time);
+  return current()?.time ?? null;
+}
+
+export function setReplayLimit(limit: number | null): void {
+  update({ limit, ...(current()?.isFinished && current()?.notice?.includes('end date') ? { isFinished: false, notice: null } : {}) });
 }
 
 export function toggleReplayPlay(): void {
@@ -156,7 +184,7 @@ export function exitReplay(): void {
 
 // Changing the mode starts over, as the charts taking part change.
 export function setReplayMode(replayMode: ReplayMode): void {
-  if (workspace.get().replayMode === replayMode) return;
+  if (workspace.get().replayMode === replayMode || current()?.purpose === 'backtest') return;
   exitReplay();
   workspace.set({ replayMode });
 }

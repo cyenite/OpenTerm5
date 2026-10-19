@@ -1,16 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { orderType, type Account, type History, type Order, type Position } from '../../shared/protocol';
 import { showToolbox, togglePanel } from '../lib/commands';
 import { downloadHistory } from '../lib/history-export';
 import { formatMoney, formatPrice, formatTime, formatVolume } from '../lib/format';
 import { closePosition, isTradePending, log, sendOrder, session, signingIn, terminal } from '../lib/session';
 import { useStore } from '../lib/store';
-import { openDialog, workspace, type ToolboxTab } from '../lib/workspace';
+import { openDialog, setToolboxHeight, workspace, type ToolboxTab } from '../lib/workspace';
+import { clampToolboxHeight, defaultDockLayout } from '../lib/dock';
 import { openContextMenu } from '../lib/context-menu';
 import { defaultSymbol } from '../lib/broker-symbols';
 import { bulkKinds, type BulkKind } from '../../shared/automation';
 import { runBulkTrades } from '../lib/automation';
 import { SigningIn } from './ui/SigningIn';
+import { Splitter } from './ui/Splitter';
+import { hoverTrade, leaveTrade, orderGroup, positionGroup, togglePinnedTrade, tradeFocus } from '../lib/trade-focus';
 
 async function runBulk(kind: BulkKind, ticket?: number, symbol?: string): Promise<void> {
   const label = `${bulkKinds.find((candidate) => candidate.key === kind)?.label ?? kind}${ticket ? ` #${ticket}` : ''}${symbol ? ` ${symbol}` : ''}`;
@@ -46,6 +49,19 @@ function profitClass(value: number): string {
   return value > 0 ? 'is-profit' : value < 0 ? 'is-loss' : '';
 }
 
+// Hovering a row highlights the trade on its charts; a click pins it there.
+function useTradeFocus(group: string) {
+  const isPinned = useStore(tradeFocus, (state) => state.pinned === group);
+  return {
+    isPinned,
+    handlers: {
+      onMouseEnter: () => hoverTrade(group),
+      onMouseLeave: () => leaveTrade(group),
+      onClick: (event: React.MouseEvent) => { if (!(event.target as Element).closest('button')) togglePinnedTrade(group); },
+    },
+  };
+}
+
 interface PositionRowProps {
   position: Position;
   onMenu: (event: React.MouseEvent) => void;
@@ -60,8 +76,9 @@ function PositionRow({ position, onMenu }: PositionRowProps) {
       log(`close #${position.ticket} failed: ${result.comment}`, 'Trades');
     }
   };
+  const focus = useTradeFocus(positionGroup(position.ticket));
   return (
-    <tr className={isClosing ? 'is-pending' : undefined} aria-busy={isClosing} onDoubleClick={() => openDialog({ kind: 'modifyPosition', ticket: position.ticket })} onContextMenu={onMenu}>
+    <tr className={[isClosing && 'is-pending', focus.isPinned && 'is-focused'].filter(Boolean).join(' ') || undefined} aria-busy={isClosing} onDoubleClick={() => openDialog({ kind: 'modifyPosition', ticket: position.ticket })} onContextMenu={onMenu} {...focus.handlers}>
       <td>{position.symbol}</td>
       <td className="num">{position.ticket}</td>
       <td>{formatTime(position.time)}</td>
@@ -95,8 +112,9 @@ function OrderRow({ order, onMenu }: OrderRowProps) {
       log(`delete order #${order.ticket} failed: ${result.comment}`, 'Trades');
     }
   };
+  const focus = useTradeFocus(orderGroup(order.ticket));
   return (
-    <tr className={isRemoving ? 'is-order is-pending' : 'is-order'} aria-busy={isRemoving} onDoubleClick={() => openDialog({ kind: 'modifyOrder', ticket: order.ticket })} onContextMenu={onMenu}>
+    <tr className={['is-order', isRemoving && 'is-pending', focus.isPinned && 'is-focused'].filter(Boolean).join(' ')} aria-busy={isRemoving} onDoubleClick={() => openDialog({ kind: 'modifyOrder', ticket: order.ticket })} onContextMenu={onMenu} {...focus.handlers}>
       <td>{order.symbol}</td>
       <td className="num">{order.ticket}</td>
       <td>{formatTime(order.time)}</td>
@@ -381,27 +399,47 @@ function JournalTab() {
 
 export function Toolbox() {
   const tab = useStore(workspace, (state) => state.toolboxTab);
+  const height = useStore(workspace, (state) => state.dock.toolboxHeight);
+  const [draftHeight, setDraftHeight] = useState<number | null>(null);
+  const drag = useRef({ height: 0, available: 0 });
+  const section = useRef<HTMLElement>(null);
+  // The Toolbox shares the centre column with the charts, which keep a minimum height.
+  const available = () => section.current?.parentElement?.getBoundingClientRect().height;
   return (
-    <section className="toolbox" aria-label="Toolbox">
-      <div className="toolbox-side">
-        <span>Toolbox</span>
-        <button className="panel-close" onClick={() => togglePanel('isToolboxShown')} aria-label="Close Toolbox">×</button>
-      </div>
-      <div className="toolbox-main">
-        <div className="toolbox-content">
-          {tab === 'trade' && <TradeTab />}
-          {tab === 'exposure' && <ExposureTab />}
-          {tab === 'history' && <HistoryTab />}
-          {tab === 'journal' && <JournalTab />}
+    <>
+      <Splitter
+        axis="rows"
+        label="Resize the Toolbox"
+        onBegin={() => { drag.current = { height, available: available() ?? Number.POSITIVE_INFINITY }; }}
+        onDrag={(delta) => setDraftHeight(clampToolboxHeight(drag.current.height - delta, drag.current.available))}
+        onEnd={() => {
+          if (draftHeight !== null) setToolboxHeight(draftHeight);
+          setDraftHeight(null);
+        }}
+        onStep={(delta) => setToolboxHeight(height - delta, available())}
+        onReset={() => setToolboxHeight(defaultDockLayout.toolboxHeight, available())}
+      />
+      <section className="toolbox" aria-label="Toolbox" ref={section} style={{ height: draftHeight ?? height }}>
+        <div className="toolbox-side">
+          <span>Toolbox</span>
+          <button className="panel-close" onClick={() => togglePanel('isToolboxShown')} aria-label="Close Toolbox">×</button>
         </div>
-        <div className="panel-tabs">
-          {tabs.map((candidate) => (
-            <button key={candidate.key} className={tab === candidate.key ? 'is-active' : ''} onClick={() => showToolbox(candidate.key)}>
-              {candidate.label}
-            </button>
-          ))}
+        <div className="toolbox-main">
+          <div className="toolbox-content">
+            {tab === 'trade' && <TradeTab />}
+            {tab === 'exposure' && <ExposureTab />}
+            {tab === 'history' && <HistoryTab />}
+            {tab === 'journal' && <JournalTab />}
+          </div>
+          <div className="panel-tabs">
+            {tabs.map((candidate) => (
+              <button key={candidate.key} className={tab === candidate.key ? 'is-active' : ''} onClick={() => showToolbox(candidate.key)}>
+                {candidate.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </>
   );
 }

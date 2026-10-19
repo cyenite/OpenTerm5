@@ -6,6 +6,8 @@
   of the window.
 - [Trading](user-guide/trading.md): Market Watch, charts and chart layouts, placing and modifying
   orders, and trading from the chart.
+- [Backtesting](user-guide/backtesting.md): replaying history while trading a simulated account,
+  how orders fill, statistics and saved sessions.
 - [Accounts and brokers](user-guide/accounts-and-brokers.md): logging in, saved accounts, password
   storage, how OpenTerm5 finds your broker, and Bybit accounts.
 - [Risk and automation](user-guide/risk-and-automation.md): risk-based orders, the chart risk
