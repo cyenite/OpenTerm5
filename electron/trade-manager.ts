@@ -8,6 +8,8 @@ import { symbolCurrencies } from '../shared/news';
 import { distanceToPrice, floorToStep, planRisk } from '../shared/risk';
 import { dayReference, lossBases, tradingDayKey } from '../shared/trading-day';
 import type { SessionPool, TradingLink } from './session-pool';
+import { platformOf } from './account-registry';
+import { isLiquidationClose, isStopBeforeLiquidation, safeLeverage } from '../shared/leverage';
 
 export interface ManagerState {
   rules: PositionRule[];
@@ -350,6 +352,24 @@ export class TradeManager extends EventEmitter {
     return outcomes;
   }
 
+  // Leveraged exchange accounts: the order must fit the free margin, and the stop must
+  // trigger before the estimated liquidation, or the stop no longer caps the loss.
+  private async marginCheck(link: TradingLink, request: RiskOrderRequest, side: 'buy' | 'sell', entry: number, stopLoss: number, lots: number, digits: number): Promise<Pick<RiskOrderOutcome, 'margin' | 'leverage' | 'safeLeverage' | 'liquidationPrice'> & { warnings: string[] }> {
+    const check = await link.request('order.check', { action: orderType(request.type)?.isPending ? 'pending' : 'deal', type: request.type, symbol: request.symbol, volume: lots, price: entry });
+    if (!check.hasMarginEstimate) return { warnings: [] };
+    if (!check.isSuccess) throw new Error(check.comment);
+    const liquidation = check.liquidationPrice;
+    const safe = stopLoss && check.maintenanceRate !== undefined ? safeLeverage(entry, stopLoss, check.maintenanceRate) : Number.NaN;
+    const advice = Number.isFinite(safe) && safe >= 1 ? `Use ${Math.floor(safe * 100) / 100}x or less` : 'Lower the leverage';
+    if (liquidation !== undefined && !isStopBeforeLiquidation(side, stopLoss, liquidation)) {
+      throw new Error(`At ${check.leverage}x the estimated liquidation price ${liquidation.toFixed(digits)} comes before the stop loss ${stopLoss.toFixed(digits)}. ${advice}, or move the stop closer to the entry.`);
+    }
+    const warnings = liquidation !== undefined && isLiquidationClose(entry, stopLoss, liquidation)
+      ? [`Liquidation (about ${liquidation.toFixed(digits)}) is close behind the stop; a gap could reach it. ${advice} for a wider margin of safety.`]
+      : [];
+    return { margin: check.margin, leverage: check.leverage, liquidationPrice: liquidation, ...(Number.isFinite(safe) ? { safeLeverage: safe } : {}), warnings };
+  }
+
   async placeRisk(request: RiskOrderRequest): Promise<RiskOrderOutcome> {
     const accountId = this.resolveAccount(request.accountId);
     const link = this.pool.require(accountId);
@@ -374,10 +394,12 @@ export class TradeManager extends EventEmitter {
     const plan = planRisk({
       side, entry, stopLoss, mode: request.mode, value: request.value, limits: spec, takeProfits: targets,
       balance: account.balance, equity: Number.isFinite(account.equity) ? account.equity : account.balance,
-      moneyPerUnit: valuation.moneyPerUnit, maxLots: request.maxLots, commissionPerLot: request.commissionPerLot,
+      moneyPerUnit: valuation.moneyPerUnit, maxLots: request.maxLots,
+      commissionPerLot: request.commissionPerLot ?? (valuation.takerFeeRate ? valuation.takerFeeRate * (entry + stopLoss) * spec.contractSize * valuation.rate : undefined),
     });
     if (!plan.isValid) throw new Error(plan.warnings.join(' '));
-    const outcome: RiskOrderOutcome = { lots: plan.lots, warnings: plan.warnings, results: [], riskMoney: plan.riskMoney, stopLoss, entry, takeProfits: plan.legs.map((leg) => leg.takeProfit), isDryRun: !!request.isDryRun };
+    const { warnings: marginWarnings, ...margin } = platformOf(accountId) === 'mt5' ? { warnings: [] } : await this.marginCheck(link, request, side, entry, stopLoss, plan.lots, spec.digits);
+    const outcome: RiskOrderOutcome = { lots: plan.lots, warnings: [...plan.warnings, ...marginWarnings], results: [], riskMoney: plan.riskMoney, stopLoss, entry, takeProfits: plan.legs.map((leg) => leg.takeProfit), isDryRun: !!request.isDryRun, ...margin };
     if (request.isDryRun) return outcome;
     const blocked = await this.canOpen(accountId, request.symbol, plan.lots);
     if (blocked) throw new Error(blocked);
@@ -385,6 +407,7 @@ export class TradeManager extends EventEmitter {
     const isStealth = !!management.isStealth;
     const firstTargetPoints = plan.legs[0]?.takeProfit ? Math.round(Math.abs(plan.legs[0].takeProfit - entry) / spec.point) : 0;
     const riskPoints = Math.round(riskDistance / spec.point);
+    const ruledVolumes = new Map<number, number>();
     for (const [index, leg] of plan.legs.entries()) {
       const trade: TradeRequest = {
         action: definition.isPending ? 'pending' : 'deal', type: request.type, symbol: request.symbol, volume: leg.lots,
@@ -401,9 +424,13 @@ export class TradeManager extends EventEmitter {
         break;
       }
       const breakEvenPoints = management.isBreakEvenAfterFirstTarget && index > 0 && firstTargetPoints ? firstTargetPoints : management.breakEvenR && riskPoints ? Math.round(management.breakEvenR * riskPoints) : 0;
-      if ((breakEvenPoints || management.trailing || isStealth) && result.order) {
+      // On netting accounts every leg lands in one position, so its rule covers their sum.
+      const ticket = result.position ?? result.order;
+      if ((breakEvenPoints || management.trailing || isStealth) && ticket) {
+        const initialVolume = Number(((ruledVolumes.get(ticket) ?? 0) + leg.lots).toFixed(8));
+        ruledVolumes.set(ticket, initialVolume);
         this.setRule({
-          accountId, ticket: result.order, symbol: request.symbol, side, partials: [], createdAt: this.now(), initialVolume: leg.lots,
+          accountId, ticket, symbol: request.symbol, side, partials: [], createdAt: this.now(), initialVolume,
           ...(breakEvenPoints ? { breakEven: { triggerPoints: breakEvenPoints, lockPoints: 1 } } : {}),
           ...(management.trailing ? { trailing: management.trailing } : {}),
           ...(isStealth && stopLoss ? { virtualStop: stopLoss } : {}),

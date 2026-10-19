@@ -673,3 +673,22 @@ test('a name the broker does not list does not fail the other quote subscription
   assert.ok(client.subscriptions.at(-1)!.includes('EURUSD'));
   assert.ok(!client.subscriptions.at(-1)!.includes('EURUSD.m'));
 });
+
+test('a chart subscription stays until the last chart showing that symbol and timeframe leaves', async (t) => {
+  const { link, clients } = fixture((client) => {
+    const symbols = client.marketSymbols.bind(client);
+    client.marketSymbols = async () => [...await symbols(), { id: 18, flags: 0, digits: 5, calcMode: 0, name: 'GBPJPY', path: 'Forex', basis: '', description: 'Pound Yen' }];
+  });
+  t.after(() => link.disconnect());
+  await loggedIn(link);
+  const client = clients.at(-1)!;
+  client.detailsName = 'GBPJPY';
+  await link.request('rates.subscribe', { symbol: 'GBPJPY', timeframe: 'H1' });
+  await link.request('rates.subscribe', { symbol: 'GBPJPY', timeframe: 'H1' });
+  await link.request('rates.unsubscribe', { symbol: 'GBPJPY', timeframe: 'H1' });
+  await link.request('ticks.subscribe', { symbols: ['EURUSD'] });
+  assert.ok(client.subscriptions.at(-1)!.includes('GBPJPY'), 'the other chart still shows GBPJPY');
+  await link.request('rates.unsubscribe', { symbol: 'GBPJPY', timeframe: 'H1' });
+  await link.request('ticks.subscribe', { symbols: ['EURUSD'] });
+  assert.ok(!client.subscriptions.at(-1)!.includes('GBPJPY'));
+});

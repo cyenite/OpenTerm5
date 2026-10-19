@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { orderType, orderTypes, type CheckResult, type OrderTypeKey, type TradeRequest, type TradeResult } from '../../../shared/protocol';
 import { formatMoney, formatPrice, formatVolume, roundToStep } from '../../lib/format';
 import { sendOrder, session, terminal } from '../../lib/session';
@@ -88,6 +88,17 @@ export function OrderDialog({ initialSymbol, initialVolume, initialPrice, initia
   const digits = spec?.digits ?? 5;
   const step = spec?.volumeStep ?? 0.01;
   const isStopLimit = pendingType === 'buyStopLimit' || pendingType === 'sellStopLimit';
+
+  // Prices belong to the symbol they were entered for; another symbol starts from its own quote.
+  const pricedSymbol = useRef(symbol);
+  useEffect(() => {
+    if (pricedSymbol.current === symbol) return;
+    pricedSymbol.current = symbol;
+    setPrice(0);
+    setStoplimit(0);
+    setSl(0);
+    setTp(0);
+  }, [symbol]);
 
   useEffect(() => {
     if (tick && price === 0 && mode === 'pending') {

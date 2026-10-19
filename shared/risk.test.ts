@@ -63,6 +63,8 @@ test('merges legs below the minimum volume', () => {
 test('distances convert to prices on the correct side', () => {
   assert.equal(distanceToPrice('buy', 1.1, 50, 'pips', eurusd, true), 1.095);
   assert.equal(distanceToPrice('sell', 1.1, 50, 'pips', eurusd, true), 1.105);
+  assert.equal(distanceToPrice('buy', 60000, 1.5, 'percent', { digits: 2, point: 0.01 }, true), 59100);
+  assert.equal(distanceToPrice('sell', 60000, 3, 'percent', { digits: 2, point: 0.01 }, false), 58200);
   assert.equal(distanceToPrice('buy', 1.1, 300, 'points', eurusd, false), 1.103);
 });
 

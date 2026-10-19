@@ -11,6 +11,7 @@ export type RiskMode = (typeof riskModes)[number]['key'];
 
 export const distanceUnits = [
   { key: 'price', label: 'Price' },
+  { key: 'percent', label: '% of price' },
   { key: 'points', label: 'Points' },
   { key: 'pips', label: 'Pips' },
 ] as const;
@@ -76,7 +77,7 @@ export function floorToStep(value: number, step: number): number {
 
 export function distanceToPrice(side: 'buy' | 'sell', entry: number, distance: number, unit: DistanceUnit, limits: Pick<VolumeLimits, 'digits' | 'point'>, isStop: boolean): number {
   if (unit === 'price') return distance;
-  const size = distance * limits.point * (unit === 'pips' ? pipFactor(limits.digits) : 1);
+  const size = unit === 'percent' ? entry * distance / 100 : distance * limits.point * (unit === 'pips' ? pipFactor(limits.digits) : 1);
   const isBelow = (side === 'buy') === isStop;
   return Number((isBelow ? entry - size : entry + size).toFixed(limits.digits));
 }

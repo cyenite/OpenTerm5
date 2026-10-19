@@ -6,7 +6,7 @@ import { Mt5WebClient, type WebCredentials } from './mt5-web-client';
 import { WebProtocolError } from './mt5-web-transport';
 import { BotCheckError } from './bot-check';
 import { RequestQueue } from './request-queue';
-import type { TradeGate } from './session-pool';
+import type { SessionCredentials, TradeGate } from './session-pool';
 import { matchSymbol } from '../shared/symbol-match';
 import { buildSymbolSubscription, type WebTickUpdate } from './mt5-web-market';
 import { adjustQuote, parseAccountModel, parseSymbolDetails, type WebAccountModel, type WebSymbolDetails } from './mt5-web-models';
@@ -21,7 +21,10 @@ interface PendingTrade {
   readonly resolve: (result: TradeResult) => void;
 }
 
+// Several charts can show the same symbol and timeframe; the subscription lasts until the last
+// of them leaves.
 interface ChartSubscription {
+  readonly viewers: number;
   readonly symbol: string;
   readonly timeframe: Timeframe;
 }
@@ -78,6 +81,12 @@ export class Mt5WebLink extends EventEmitter {
     this.backoff = this.retryDelay;
     this.publishState({ url: endpoint, state: 'connecting' });
     await this.open();
+  }
+
+  async signIn(credentials: SessionCredentials): Promise<Account> {
+    if (credentials.platform !== 'mt5') throw new Error('This session signs in to MetaTrader 5 accounts only');
+    await this.connect(credentials.endpoint);
+    return this.request('account.login', { login: credentials.login, password: credentials.password });
   }
 
   disconnect(): void {
@@ -575,13 +584,13 @@ export class Mt5WebLink extends EventEmitter {
       this.isPolling = true;
       void this.request('trade.snapshot', {}).then((snapshot) => this.publish('trade', snapshot)).then(async () => {
         for (const [key, chart] of this.charts) {
-          const bars = await this.request('rates.get', { ...chart, count: 2 });
+          const bars = await this.request('rates.get', { symbol: chart.symbol, timeframe: chart.timeframe, count: 2 });
           const bar = bars[bars.length - 1];
           if (!bar) continue;
           const signature = JSON.stringify(bar);
           if (signature !== this.lastBars.get(key)) {
             this.lastBars.set(key, signature);
-            this.publish('bar', { ...chart, bar });
+            this.publish('bar', { symbol: chart.symbol, timeframe: chart.timeframe, bar });
           }
         }
       }).catch((error: unknown) => { if (this.isLoggedIn) this.journal(error instanceof Error ? error.message : 'Refresh failed'); }).finally(() => { this.isPolling = false; });
@@ -708,8 +717,19 @@ export class Mt5WebLink extends EventEmitter {
         });
       }
       case 'rates.get': return this.rates(params.symbol, params.timeframe, params.count);
-      case 'rates.subscribe': this.charts.set(`${params.symbol}:${params.timeframe}`, { symbol: params.symbol, timeframe: params.timeframe }); if (this.isLoggedIn) await this.restoreSubscriptions(); return true;
-      case 'rates.unsubscribe': this.charts.delete(`${params.symbol}:${params.timeframe}`); return true;
+      case 'rates.subscribe': {
+        const key = `${params.symbol}:${params.timeframe}`;
+        this.charts.set(key, { symbol: params.symbol, timeframe: params.timeframe, viewers: (this.charts.get(key)?.viewers ?? 0) + 1 });
+        if (this.isLoggedIn) await this.restoreSubscriptions();
+        return true;
+      }
+      case 'rates.unsubscribe': {
+        const key = `${params.symbol}:${params.timeframe}`;
+        const chart = this.charts.get(key);
+        if (chart && chart.viewers > 1) this.charts.set(key, { ...chart, viewers: chart.viewers - 1 });
+        else this.charts.delete(key);
+        return true;
+      }
       case 'trade.snapshot': return this.snapshot();
       case 'history.get': return decodeHistory(await this.authenticated().transport.request(5, encodeHistoryRequest(Math.max(0, params.from), params.to)));
       case 'order.check': {

@@ -7,7 +7,7 @@
 - [Trading](user-guide/trading.md): Market Watch, charts and chart layouts, placing and modifying
   orders, and trading from the chart.
 - [Accounts and brokers](user-guide/accounts-and-brokers.md): logging in, saved accounts, password
-  storage and how OpenTerm5 finds your broker.
+  storage, how OpenTerm5 finds your broker, and Bybit accounts.
 - [Risk and automation](user-guide/risk-and-automation.md): risk-based orders, the chart risk
   planner, position management, equity guards and one-click actions.
 - [Trade Copier](user-guide/trade-copier.md): copying trades from a master account to followers.

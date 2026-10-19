@@ -64,3 +64,30 @@ test('loading strips unexpected secrets and rejects corrupt endpoints or duplica
   assert.throws(() => registry.load([{ ...stored[0], webEndpoint: 'ws://insecure.example' }]));
   assert.throws(() => registry.load([stored[0], stored[0]]));
 });
+
+test('Bybit profiles keep the key pair as their secret and rebuild exchange credentials', async () => {
+  let stored: unknown;
+  const registry = new AccountRegistry(cipher, async (profiles) => { stored = profiles; });
+  const bybit = { ...account, login: 4242, server: 'Bybit Demo trading', company: 'Bybit' };
+  const profile = await registry.rememberExchange(bybit, 'demo', { apiKey: 'fixture-key', apiSecret: 'fixture-secret' }, 'Crypto', true);
+  assert.equal(profile.id, 'bybit:demo|4242');
+  assert.equal(profile.platform, 'bybit');
+  assert.equal(profile.webEndpoint, 'https://api-demo.bybit.com');
+  assert.ok(!JSON.stringify(stored).includes('fixture-secret'));
+  const restarted = new AccountRegistry(cipher, async () => {});
+  restarted.load(stored);
+  assert.deepEqual(restarted.credentials(profile.id), { platform: 'bybit', environment: 'demo', apiKey: 'fixture-key', apiSecret: 'fixture-secret' });
+  assert.throws(() => restarted.unlock(profile.id, 'x'), /API key/);
+});
+
+test('profiles saved before platforms existed load as MetaTrader 5 accounts', async () => {
+  let stored: unknown;
+  const registry = new AccountRegistry(cipher, async (profiles) => { stored = profiles; });
+  await registry.remember(account, endpoint, 'fixture-secret', undefined, true);
+  const legacy = (stored as Record<string, unknown>[]).map(({ platform, ...rest }) => rest);
+  const restarted = new AccountRegistry(cipher, async () => {});
+  restarted.load(legacy);
+  const [profile] = restarted.list();
+  assert.equal(profile.platform, 'mt5');
+  assert.deepEqual(restarted.credentials(profile.id), { platform: 'mt5', login: 1234, password: 'fixture-secret', endpoint });
+});

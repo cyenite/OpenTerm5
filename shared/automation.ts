@@ -151,6 +151,10 @@ export interface RiskOrderOutcome {
   entry: number;
   takeProfits: number[];
   isDryRun: boolean;
+  margin?: number;
+  leverage?: number;
+  safeLeverage?: number;
+  liquidationPrice?: number;
 }
 
 export type CopierStatus = 'enabled' | 'monitorExisting' | 'disabled';

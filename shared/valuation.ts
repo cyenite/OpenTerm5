@@ -15,6 +15,8 @@ export interface Valuation {
   moneyPerUnit: number;
   profitCurrency: string;
   accountCurrency: string;
+  // Exchanges charge a share of the traded value instead of a fee per lot.
+  takerFeeRate?: number;
 }
 
 // MT5 calculation modes whose profit is (close - open) * contract size * lots in the

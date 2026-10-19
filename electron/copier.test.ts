@@ -15,7 +15,7 @@ async function setup(followerPatch: Partial<FollowerConfig> = {}, configPatch: P
   const follower = new FakeLink();
   follower.info = account({ balance: 5000, equity: 5000 });
   prepare?.(master);
-  const pool = new SessionPool(master, () => ({ login: 2, password: 'x', endpoint: 'wss://fake' }), () => follower);
+  const pool = new SessionPool(master, () => ({ platform: 'mt5', login: 2, password: 'x', endpoint: 'wss://fake' }), () => follower);
   pool.afterUiChange(MASTER, null);
   let state: CopierState = { configs: [], mappings: [], baselines: [], protections: [] };
   const logs: CopierLogEntry[] = [];

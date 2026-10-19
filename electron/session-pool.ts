@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { JournalEntry, LinkState, TerminalEvent, TerminalMethod, TerminalMethods, Tick, TradeRequest, TradeSnapshot } from '../shared/protocol';
+import type { Account, BybitEnvironment, JournalEntry, LinkState, Platform, TerminalEvent, TerminalMethod, TerminalMethods, Tick, TradeRequest, TradeSnapshot } from '../shared/protocol';
 import type { CopierLinkState } from '../shared/automation';
 
 // Returns why a trade request must not be sent, or null to send it.
@@ -8,18 +8,16 @@ export type TradeGate = (request: TradeRequest) => string | null;
 export interface TradingLink extends EventEmitter {
   readonly loggedIn: boolean;
   state: LinkState;
-  connect(endpoint: string): Promise<void>;
+  signIn(credentials: SessionCredentials): Promise<Account>;
   disconnect(): void;
   setPollInterval(milliseconds: number): void;
   setTradeGate(gate: TradeGate | undefined): void;
   request<M extends TerminalMethod>(method: M, params: TerminalMethods[M][0]): Promise<TerminalMethods[M][1]>;
 }
 
-export interface SessionCredentials {
-  login: number;
-  password: string;
-  endpoint: string;
-}
+export type SessionCredentials =
+  | { platform: 'mt5'; login: number; password: string; endpoint: string }
+  | { platform: 'bybit'; environment: BybitEnvironment; apiKey: string; apiSecret: string };
 
 const DEFAULT_POLL = 2_000;
 
@@ -38,7 +36,7 @@ export class SessionPool extends EventEmitter {
   constructor(
     private readonly ui: TradingLink,
     private readonly credentials: (accountId: string) => SessionCredentials | undefined,
-    private readonly create: () => TradingLink,
+    private readonly create: (platform: Platform) => TradingLink,
   ) {
     super();
     ui.setTradeGate((request) => this.uiAccount ? this.admit?.(this.uiAccount, request) ?? null : null);
@@ -156,12 +154,12 @@ export class SessionPool extends EventEmitter {
   private async start(accountId: string): Promise<TradingLink> {
     const credentials = this.credentials(accountId);
     if (!credentials) {
-      const error = 'Password unavailable: connect this account once or save its password securely';
+      const error = 'Credentials unavailable: connect this account once or save its password or API secret securely';
       this.setState({ accountId, state: 'failed', error });
       throw new Error(error);
     }
     this.close(accountId);
-    const link = this.create();
+    const link = this.create(credentials.platform);
     link.setTradeGate((request) => this.admit?.(accountId, request) ?? null);
     this.background.set(accountId, link);
     link.on('event', (event: TerminalEvent, data: unknown) => {
@@ -175,8 +173,7 @@ export class SessionPool extends EventEmitter {
     });
     this.setState({ accountId, state: 'connecting' });
     try {
-      await link.connect(credentials.endpoint);
-      await link.request('account.login', { login: credentials.login, password: credentials.password });
+      await link.signIn(credentials);
       link.setPollInterval(this.polls.get(accountId) ?? DEFAULT_POLL);
       this.setState({ accountId, state: 'connected' });
       this.emit('trade', accountId, await link.request('trade.snapshot', {}));

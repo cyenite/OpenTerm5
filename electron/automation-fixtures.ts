@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { Account, LinkState, Order, Position, SymbolSpec, TerminalMethod, TerminalMethods, TradeRequest, TradeResult } from '../shared/protocol';
+import type { Account, CheckResult, LinkState, Order, Position, SymbolSpec, TerminalMethod, TerminalMethods, TradeRequest, TradeResult } from '../shared/protocol';
 import type { TradeGate, TradingLink } from './session-pool';
 
 export const eurusdSpec: SymbolSpec = {
@@ -42,12 +42,13 @@ export class FakeLink extends EventEmitter implements TradingLink {
   info = account();
   pollInterval = 2000;
   gate?: TradeGate;
+  check?: CheckResult;
   respond: (request: TradeRequest) => TradeResult | Promise<TradeResult> = (request) => {
     this.applyTrade(request);
     return { retcode: 10009, isSuccess: true, comment: 'Done', order: 900 + this.sent.length };
   };
 
-  async connect(): Promise<void> { this.loggedIn = true; }
+  async signIn(): Promise<Account> { this.loggedIn = true; return this.info; }
   disconnect(): void { this.loggedIn = false; }
   setPollInterval(milliseconds: number): void { this.pollInterval = milliseconds; }
   setTradeGate(gate: TradeGate | undefined): void { this.gate = gate; }
@@ -85,6 +86,7 @@ export class FakeLink extends EventEmitter implements TradingLink {
         case 'symbols.valuation': return { via: [], rate: 1, calcMode: 0, moneyPerUnit: this.specs[values.symbol].contractSize, profitCurrency: 'USD', accountCurrency: 'USD' };
         case 'symbols.quote': return { symbol: values.symbol, time: 1, ...this.quote };
         case 'account.info': return this.info;
+        case 'order.check': return this.check ?? { retcode: 0, isSuccess: true, comment: '', margin: Number.NaN, equity: this.info.equity, balance: this.info.balance, marginFree: Number.NaN, marginLevel: Number.NaN, hasMarginEstimate: false };
         case 'account.login': this.loggedIn = true; return this.info;
         case 'trade.snapshot': return { account: this.info, orders: this.orders, positions: this.positions };
         case 'order.send': {
