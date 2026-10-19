@@ -19,6 +19,25 @@ Market Watch lists live bid and ask prices, the spread and the time of the last 
   Choose **Load** to show a saved set again, or **×** to delete it. Sets belong to the account they
   were saved on.
 
+## Arranging the panels
+
+Market Watch, the Data Window, the Navigator and the Trade Assistant sit in docks on either side of
+the charts, and the Toolbox sits below them.
+
+- **Resize:** drag the edge between a dock and the charts, the line between two stacked panels, or
+  the line above the Toolbox. Double-click a line to reset it. With a line focused, the arrow keys
+  move it too.
+- **Move a panel to the other side:** drag its title bar across the charts and drop it on the
+  highlighted side, click the arrow beside its **×**, or right-click its title bar and choose
+  **Dock Left** or **Dock Right**.
+
+To make everything larger or smaller, zoom the interface with **Ctrl+=** and **Ctrl+−** (Cmd on
+macOS), or **View → Zoom**; **Ctrl+0** returns to 100%. The level is kept when OpenTerm5 restarts.
+
+Sizes and sides are kept when OpenTerm5 restarts. If the window becomes too short, the Toolbox gives
+way so the charts stay at least 120 pixels tall. In analysis mode the watchlist and Data Window always
+sit on the right.
+
 ## Charts
 
 ### Timeframes and chart types
@@ -226,6 +245,33 @@ example, below the current price it offers **Buy Limit at 1.0850** and **Sell St
 Switch the order dialog to **Risk-based** to size the order from the money you are willing to lose.
 See [Risk and automation](risk-and-automation.md#risk-based-orders).
 
+### Trade Assistant
+
+**View → Trade Assistant** opens a panel, docked on the right by default, for trading the active
+chart's symbol without opening a dialog. It follows whichever chart is active.
+
+- **Trade:** set the risk (a share of equity or balance, or an amount of money), the stop loss in
+  pips, points or price, and the take profit as multiples of the stop (R). Enter several, such as
+  `1, 2, 3`, to take profit in parts. The panel shows the volume, entry, stop, targets and money at
+  risk for a sell and a buy side by side, and the **Sell** and **Buy** buttons place the order at
+  once. Choose **Limit** or **Stop** to place a pending order at the entry price instead.
+  **Plan on chart…** starts the chart's risk planner, which shares the same risk setting.
+- **Lines on chart:** every chart of the symbol shows the plan for the side chosen here (**Buy** or
+  **Sell**, or **Off**) as a position box on the right part of the chart, apart from your open
+  trades: a red zone from the entry to the stop loss, a green zone to the targets, and dotted lines
+  for the entry with its volume, the stop loss with the money at risk, and each target with its R. Drag the stop or a target to change the
+  plan; the stop distance, the R and the volume follow. For a limit or stop entry, drag the entry
+  line too.
+- **Close:** close every position, the profitable or losing ones, the buys or sells, delete pending
+  orders or move stops to break-even, for this symbol or for all symbols. **Close in parts** closes a
+  share of each position, in the symbol's volume steps, and never leaves less than the minimum
+  volume open.
+- **Manage:** break-even after the first target or at a set R, a trailing stop and hidden stops for
+  trades placed from the panel, and the commission counted inside the risk.
+
+The Trade Assistant is hidden in analysis mode, and its buttons are off while the active chart
+replays.
+
 ### Order results
 
 Every request is reported in the dialog and in the Journal with the broker's return code. If the
@@ -269,13 +315,21 @@ Open positions and orders are drawn on the chart:
 | Take profit (green) | The profit if the target is hit |
 | Pending order (orange) | Order type and volume |
 
-- **Move a level:** drag a stop loss, take profit or pending order line. The value updates as you drag.
-  When you release, choose **Apply** to send the change or **Cancel** to discard it. A level on the
-  wrong side of the price is explained and cannot be applied.
+- **Move a stop loss or take profit:** drag its line. The value updates as you drag, and the change is
+  sent as soon as you release, for positions and pending orders alike. A level on the wrong side of
+  the price is explained, not sent, and the line returns to where it was.
+- **Move a pending order:** drag its entry line, then choose **Apply** to send the new price or
+  **Cancel** to discard it.
 - **Add a missing stop or target:** a position without a stop loss or take profit shows **SL** or
-  **TP** tabs on its entry line. Drag a tab up or down to place the level, then choose **Apply**.
+  **TP** tabs on its entry line. Drag a tab up or down and release to set the level.
 - **Close from the chart:** click the **×** on the entry line. OpenTerm5 asks for confirmation unless
   one-click trading is on.
+- **Focus one trade:** with several trades on a chart, point at a trade's label on the chart, or at
+  its row in **Toolbox → Trade**, to see which stop and target belong to it. Its entry, stop loss and
+  take profit stay bright with its ticket number, a red band runs from the entry to the stop and a
+  green band to the target, and every other line fades. Click the label or the row to keep the
+  focus; click it again, click elsewhere or press Escape to clear it. Dragging a line focuses its
+  trade too.
 
 ### One-click trading
 

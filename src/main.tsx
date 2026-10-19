@@ -10,6 +10,7 @@ import { startJournaling } from './lib/journaling';
 import { startTickBars } from './lib/mt5-provider';
 import { registerMt5Studies } from './lib/mt5-studies';
 import { startTheming } from './lib/theme';
+import { startAppZoom } from './lib/app-zoom';
 import { startImportedThemes } from './lib/custom-themes';
 import { startSymbolDrawings } from './lib/symbol-drawings';
 import { startDrawingTemplates } from './lib/drawing-templates';
@@ -19,6 +20,7 @@ import './styles.css';
 
 document.body.classList.add(`platform-${window.terminal.platform}`);
 window.terminal.on('fullScreen', (isFullScreen) => document.body.classList.toggle('is-full-screen', isFullScreen));
+startAppZoom();
 startTheming();
 registerMt5Studies();
 startTickBars();

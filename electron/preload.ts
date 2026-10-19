@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type { TerminalEvent, TerminalMethod, ConnectionSettings, TerminalApi } from '../shared/protocol';
 import type { AutomationApi, AutomationEvent, AutomationMethod } from '../shared/automation';
 import type { JournalingApi, JournalingEvent, JournalingMethod } from '../shared/journaling';
+import type { ZoomStep } from '../shared/zoom';
 
 class RequestError extends Error {
   constructor(readonly code: number, message: string) {
@@ -40,6 +41,7 @@ const api: TerminalApi = {
   link: () => ipcRenderer.invoke('terminal:link'),
   settings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings: ConnectionSettings) => ipcRenderer.invoke('settings:save', settings),
+  zoom: (step: ZoomStep) => ipcRenderer.invoke('zoom:step', step),
   platform: process.platform,
 } as TerminalApi;
 

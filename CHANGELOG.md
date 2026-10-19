@@ -36,9 +36,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   bar under the charts, an update interval, speeds from 10x to 0.1x, and starts from a bar, a date,
   the first available bar or a random bar. Shift+Right steps and Shift+Down plays. Longer timeframes
   show their current bar forming from bars of the update interval.
+- Resizable, movable panels ([#22](https://github.com/cyenite/OpenTerm5/issues/22)). Drag the
+  edges of the side docks, the lines between stacked panels and the line above the Toolbox to resize
+  them. Market Watch, the Data Window, the Navigator and the Trade Assistant move to either side of
+  the charts by dragging their title bar, the arrow beside **×** or the title bar's menu. Sizes and
+  sides are kept.
+- A Trade Assistant panel ([#23](https://github.com/cyenite/OpenTerm5/issues/23)), View > Trade
+  Assistant. It trades the active chart's symbol with risk-based sizing: risk, stop and R targets
+  (several for taking profit in parts), a sell and buy preview side by side, and one-click Sell and
+  Buy at market, limit or stop. Its Close tab closes all, profitable, losing, buy or sell positions,
+  deletes pending orders, moves stops to break-even or closes a percentage, for the symbol or the
+  whole account; its Manage tab sets break-even, trailing and hidden stops for its trades.
+  The planned entry, stop and targets are drawn on every chart of the symbol, for the buy or sell
+  side, and dragging them changes the plan.
+- Interface zoom: Ctrl+= and Ctrl+- (Cmd on macOS) scale the whole application from 50% to 200%,
+  Ctrl+0 returns to 100%, and View > Zoom offers the same with the current level. The level is kept
+  between sessions. The keys work in dialogs and text fields too; + and - alone still zoom the chart.
 
 ### Changed
 
+- Dragging a stop loss or take profit line on the chart, or an SL/TP tab, sends the change on
+  release, without an Apply/Cancel step. A level on the wrong side of the price is refused and the
+  line returns. Moving a pending order's entry still asks for Apply.
+- Trade focus on charts: pointing at a position's or order's label, or its Toolbox row, highlights
+  its entry, stop and target with its ticket and red and green risk and reward bands, and fades
+  every other trade line. A click keeps the focus; Escape or a click elsewhere clears it.
 - OpenTerm5 is now licensed under the GNU Affero General Public License v3.0 (AGPL-3.0-only), as
   PineTS requires. Releases up to 0.3.0 remain available under the MIT License.
 - MT5 floating chart windows, Cascade, Tile and Arrange Icons give way to layout tabs. Saved
@@ -47,6 +69,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   symbol on a chart changes that chart.
 - Charts in bar replay no longer place or change live orders: One-Click, trade line dragging, the
   Trading menu, the risk planner and New Order are switched off for them.
+
+### Fixed
+
+- The trade copier marked new copies as "closed on the follower" a moment after opening them, when
+  the follower's last snapshot did not list the copy yet. From then on it ignored the copy, so the
+  master's closes, partial closes and stop and target changes never reached it. A copy now counts
+  as closed only after it has been missing for 10 seconds; a master that closes before the copy
+  shows up still closes it; and copies already marked that way are followed again while both sides
+  are open.
+- The trade copier's activity log and copies tables kept their columns aligned only while messages
+  were short: a long message widened the table past its card and shifted every column. Columns now
+  have fixed widths, messages and notes wrap, and a narrow window scrolls the table inside its card.
+- Trade Assistant plan lines no longer blink or drop the drag while the plan is recalculated, and a
+  line dragged past the chart's edge stays under the pointer. Crowded labels on the chart move apart
+  instead of overlapping.
 
 ## [0.3.0] - 2026-10-16
 

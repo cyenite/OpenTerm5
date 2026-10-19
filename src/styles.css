@@ -297,23 +297,107 @@ button:active:not(:disabled) {
 }
 
 .workbench {
+  position: relative;
   flex: 1;
   display: flex;
   min-height: 0;
 }
 
-.dock-left {
-  width: 330px;
+.dock {
+  flex: none;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border);
+  min-width: 0;
   min-height: 0;
 }
 
+.dock-left {
+  border-right: 1px solid var(--border);
+}
+
 .dock-right {
-  width: 260px;
-  display: flex;
   border-left: 1px solid var(--border);
+}
+
+.dock-item {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 64px;
+}
+
+.dock-item > .panel {
+  flex: 1;
+  min-height: 0;
+}
+
+.splitter {
+  position: relative;
+  flex: none;
+  z-index: 4;
+  touch-action: none;
+  outline: none;
+}
+
+.splitter.is-columns {
+  width: 4px;
+  margin: 0 -2px;
+  cursor: col-resize;
+}
+
+.splitter.is-rows {
+  height: 4px;
+  margin: -2px 0;
+  cursor: row-resize;
+}
+
+.splitter::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transition: background 0.12s ease;
+}
+
+.splitter:hover::after,
+.splitter:active::after,
+.splitter:focus-visible::after {
+  background: var(--accent);
+}
+
+.dock-drop {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  border: 2px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text);
+  font-weight: 600;
+  text-align: center;
+}
+
+.dock-drop.is-left {
+  left: 0;
+}
+
+.dock-drop.is-right {
+  right: 0;
+}
+
+.dock-drop.is-over {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.dock-drop span {
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: var(--control-shadow);
+  pointer-events: none;
 }
 
 .center {
@@ -341,6 +425,31 @@ button:active:not(:disabled) {
   background: var(--chrome);
   border-bottom: 1px solid var(--border-soft);
   font-weight: bold;
+}
+
+.panel-header.is-movable {
+  cursor: grab;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.panel-move {
+  border: 0;
+  background: transparent;
+  width: 20px;
+  height: 18px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.panel-move:hover {
+  background: var(--surface-raised);
+  color: var(--text);
 }
 
 .panel-close {
@@ -493,7 +602,8 @@ button:active:not(:disabled) {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  /* A Toolbox sized in a taller window gives way before the charts do. */
+  min-height: 120px;
   background: var(--chrome);
 }
 
@@ -848,7 +958,8 @@ button:active:not(:disabled) {
 }
 
 .toolbox {
-  height: 230px;
+  flex: 0 1 auto;
+  min-height: 80px;
   display: flex;
   border-top: 1px solid var(--border);
   background: var(--surface);
@@ -1622,6 +1733,48 @@ button:disabled {
   padding: 3px 8px;
 }
 
+/* Copier activity: fixed columns, so long messages wrap instead of widening the table past its
+   card and shifting every column as new lines arrive. */
+.activity-table {
+  table-layout: fixed;
+}
+
+.activity-table td,
+.activity-table th {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: top;
+}
+
+.activity-table td.is-wrapping {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.activity-table col.is-time { width: 134px; }
+.activity-table col.is-name { width: 110px; }
+.activity-table col.is-event { width: 100px; }
+.activity-table col.is-status { width: 78px; }
+.activity-table col.is-latency { width: 64px; }
+.activity-table col.is-symbol { width: 84px; }
+.activity-table col.is-kind { width: 64px; }
+.activity-table col.is-ticket { width: 104px; }
+.activity-table col.is-lots { width: 96px; }
+
+/* Below these widths the message or note column would be too narrow to read, so the table
+   scrolls inside its card; the log fits the card at the window's minimum width. */
+.activity-scroll {
+  overflow-x: auto;
+}
+
+.activity-scroll > .activity-table {
+  min-width: 600px;
+}
+
+.activity-scroll > .activity-table.is-copies {
+  min-width: 800px;
+}
+
 .chart-bar {
   gap: 2px;
   padding: 3px 6px;
@@ -2294,6 +2447,80 @@ pre {
   right: 0;
   top: 5.5px;
   border-top: 1px dashed var(--line);
+}
+
+/* Trade focus: the focused trade's lines stand out over bands for its risk and reward; the rest fade. */
+.overlay-line.has-group:not(.is-draggable) .overlay-label {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.overlay-line.has-group.is-draggable .overlay-label {
+  cursor: ns-resize;
+}
+
+.overlay-line.is-dimmed {
+  opacity: 0.25;
+}
+
+.overlay-line.is-focused {
+  z-index: 2;
+}
+
+.overlay-line.is-focused .overlay-rule {
+  border-top-style: solid;
+}
+
+.overlay-tag {
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.overlay-zone {
+  position: absolute;
+  left: 0;
+  pointer-events: none;
+}
+
+.overlay-zone.is-stop {
+  background: color-mix(in srgb, var(--line-stop) 12%, transparent);
+}
+
+.overlay-zone.is-target {
+  background: color-mix(in srgb, var(--line-target) 12%, transparent);
+}
+
+.overlay-zone.is-plan {
+  border-left: 1px solid color-mix(in srgb, var(--text) 25%, transparent);
+}
+
+.overlay-zone.is-plan.is-stop {
+  background: color-mix(in srgb, var(--line-stop) 16%, transparent);
+}
+
+.overlay-zone.is-plan.is-target {
+  background: color-mix(in srgb, var(--line-target) 10%, transparent);
+}
+
+.overlay-zone.is-dimmed {
+  opacity: 0.3;
+}
+
+.trades tr.is-focused > td {
+  background: var(--accent-soft);
+}
+
+/* The Trade Assistant's plan: dotted, labelled on the left so it never covers a position's label. */
+.overlay-line.is-plan .overlay-rule {
+  border-top-style: dotted;
+}
+
+.overlay-line.is-plan .overlay-label {
+  right: auto;
+  left: 4px;
+  border: 1px dashed var(--line);
+  background: color-mix(in srgb, var(--line) 22%, var(--surface));
+  color: var(--text);
 }
 
 .overlay-line.is-draggable:hover .overlay-rule,
@@ -3196,12 +3423,6 @@ button.is-link {
   border-top: 0.5px solid var(--border-soft);
 }
 
-/* Analysis mode keeps the watchlist on the right of the charts. */
-.dock-right.analysis-dock {
-  width: 300px;
-  flex-direction: column;
-  min-height: 0;
-}
 
 .tradingview-account {
   display: flex;
@@ -4001,3 +4222,167 @@ button.is-link {
   color: var(--muted);
 }
 
+
+.trade-assistant {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.panel-tabs.is-top {
+  border-top: 0;
+  border-bottom: 0.5px solid var(--border-soft);
+}
+
+.assistant-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-bottom: 0.5px solid var(--border-soft);
+}
+
+.assistant-summary > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+}
+
+.assistant-summary .is-muted {
+  font-size: 11.5px;
+}
+
+.assistant-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+}
+
+.assistant-section > p {
+  margin: 0;
+}
+
+.assistant-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 10px;
+}
+
+.assistant-grid .form-field input,
+.assistant-grid .form-field select,
+.assistant-part .form-field input {
+  min-width: 0;
+  width: 100%;
+}
+
+.assistant-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+}
+
+.assistant-preview .grid th,
+.assistant-preview .grid td {
+  white-space: pre-line;
+  vertical-align: top;
+  padding: 2px 6px;
+  background: transparent;
+  border: 0;
+}
+
+.assistant-preview small {
+  color: var(--warn);
+}
+
+.assistant-preview small.is-bad {
+  color: var(--bad);
+}
+
+.assistant-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.assistant-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  box-shadow: none;
+  color: #fff;
+  cursor: pointer;
+}
+
+.assistant-side.is-sell {
+  background: var(--sell);
+}
+
+.assistant-side.is-buy {
+  background: var(--buy);
+}
+
+.assistant-side span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+}
+
+.assistant-side strong {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.assistant-buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 6px;
+}
+
+.assistant-part {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.assistant-part .form-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.assistant-part > button {
+  margin-bottom: 18px;
+}
+
+.assistant-outcome {
+  margin: 0 10px 10px;
+  padding: 6px 8px;
+  border-radius: var(--radius-small);
+  background: var(--surface-alt);
+  font-size: 11.5px;
+}
+
+.assistant-outcome.is-good {
+  color: var(--good);
+}
+
+.assistant-outcome.is-bad {
+  color: var(--bad);
+}
+
+.assistant-lines {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
