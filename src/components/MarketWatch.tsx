@@ -407,7 +407,7 @@ export function MarketWatch() {
   };
 
   return (
-    <Panel title={`Market Watch: ${time ? formatClock(time) : '--:--:--'}`} onClose={() => togglePanel('isMarketWatchShown')}>
+    <Panel title={`Market Watch: ${time ? formatClock(time) : '--:--:--'}`} dock="marketWatch" onClose={() => togglePanel('isMarketWatchShown')}>
       <WatchlistBar editing={editing} onEdit={setEditing} onAddSymbol={() => { setTab('Symbols'); requestAnimationFrame(() => search.current?.focus()); }} />
       {tab === 'Symbols' ? (
         <div

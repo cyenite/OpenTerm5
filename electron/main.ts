@@ -13,6 +13,8 @@ import { browserFetch, openBrowserSocket, verifyBrokerAccess } from './browser-n
 import { loadAccounts, secretCipher } from './accounts';
 import { SessionPool } from './session-pool';
 import { handleTradingView } from './tradingview';
+import { AppZoom } from './app-zoom';
+import { isZoomStep } from '../shared/zoom';
 import { AutomationHost } from './automation-host';
 import type { AutomationEvent, AutomationMethod } from '../shared/automation';
 import { orderType } from '../shared/protocol';
@@ -107,6 +109,8 @@ async function applySettings(): Promise<void> {
   catch (error) { journal((error as Error).message, 'Network'); }
 }
 
+const zoom = new AppZoom(path.join(app.getPath('userData'), 'zoom.json'), (factor) => send('zoom', factor));
+
 function createWindow(): void {
   window = new BrowserWindow({
     width: 1440,
@@ -128,6 +132,7 @@ function createWindow(): void {
     },
   });
   window.once('ready-to-show', () => window?.show());
+  zoom.attach(window.webContents, process.platform === 'darwin');
   window.webContents.on('did-finish-load', () => {
     isWindowLoaded = true;
     deliverLinks();
@@ -341,6 +346,7 @@ ipcMain.handle('journaling:request', async (_event, method: JournalingMethod, pa
   }
 });
 ipcMain.handle('settings:get', () => settings);
+ipcMain.handle('zoom:step', (_event, step: unknown) => window && isZoomStep(step) ? zoom.step(window.webContents, step) : 1);
 ipcMain.handle('settings:save', async (_event, next: ConnectionSettings) => changeConnection(async () => {
   await saveSettings(next);
   settings = await loadSettings();
@@ -380,6 +386,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     installMenu();
     settings = await loadSettings();
+    await zoom.load();
     await device.load();
     try { accounts = await loadAccounts(); }
     catch { journal('Saved accounts could not be loaded. Log in manually.', 'Accounts'); }

@@ -14,6 +14,8 @@ import { indicatorMenuItems, studyTitle } from '../lib/indicator-menu';
 import { listThemes } from '@meridian/charts/themes';
 import { setThemePreference, systemThemeId } from '../lib/theme';
 import { useStore } from '../lib/store';
+import { appZoom, stepAppZoom } from '../lib/app-zoom';
+import { zoomSteps } from '../../shared/zoom';
 import { useWatchedSpecs } from '../lib/watchlists';
 import { drawingsForSymbol, replaceChartObjects, symbolDrawings } from '../lib/symbol-drawings';
 import { drawingSyncMenuItems, layoutMenuItems, syncMenuItems, tabTitle } from '../lib/layout-menu';
@@ -56,6 +58,7 @@ const separator: MenuItem = { label: '', isSeparator: true };
 
 function useMenus(): { label: string; items: MenuItem[] }[] {
   const state = useStore(workspace, (current) => current);
+  const zoomFactor = useStore(appZoom, (current) => current.factor);
   const symbols = useWatchedSpecs();
   const chart = activeChart(state);
   const hasChart = chart !== undefined;
@@ -102,6 +105,7 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
         ...unlessAnalysis([
           { label: 'Navigator', shortcut: 'Ctrl+N', isChecked: state.isNavigatorShown, action: () => togglePanel('isNavigatorShown') },
           { label: 'Toolbox', shortcut: 'Ctrl+T', isChecked: state.isToolboxShown, action: () => togglePanel('isToolboxShown') },
+          { label: 'Trade Assistant', isChecked: state.isTradeAssistantShown, action: () => togglePanel('isTradeAssistantShown') },
           { label: 'Depth Of Market', shortcut: 'Alt+B', isChecked: state.depthSymbol !== null, action: () => toggleDepth() },
         ]),
         separator,
@@ -109,6 +113,7 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
         { label: 'Chart Bar', isChecked: state.isChartBarShown, action: () => togglePanel('isChartBarShown') },
         ...unlessAnalysis([{ label: 'Drawing Toolbar', isChecked: state.isTradeDrawingToolbarShown, action: () => togglePanel('isTradeDrawingToolbarShown') }]),
         { label: 'Full Screen', shortcut: 'F11', action: toggleFullScreen },
+        { label: `Zoom (${Math.round(zoomFactor * 100)}%)`, items: zoomSteps.map((step) => ({ label: step.label, shortcut: step.shortcut, action: () => stepAppZoom(step.key) })) },
         separator,
         { label: 'Theme', items: [
           { label: 'Match System', isChecked: state.theme === systemThemeId, action: () => setThemePreference(systemThemeId) },

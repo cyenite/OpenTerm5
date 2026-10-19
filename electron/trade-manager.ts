@@ -324,13 +324,16 @@ export class TradeManager extends EventEmitter {
       closeSells: (position) => position.side === 'sell',
       closeSymbol: (position) => position.symbol === request.symbol,
     };
+    // A symbol narrows every kind to that symbol's positions and orders.
+    const isListed = (item: { symbol: string }) => !request.symbol || item.symbol === request.symbol;
+    const positions = snapshot.positions.filter(isListed);
     const filter = filters[request.kind];
     if (filter) {
-      await Promise.all(snapshot.positions.filter(filter).map(closing));
+      await Promise.all(positions.filter(filter).map(closing));
     } else if (request.kind === 'deletePending') {
-      await Promise.all(snapshot.orders.filter((item) => !request.symbol || item.symbol === request.symbol).map((order) => send(order.ticket, order.symbol, { action: 'remove', order: order.ticket })));
+      await Promise.all(snapshot.orders.filter(isListed).map((order) => send(order.ticket, order.symbol, { action: 'remove', order: order.ticket })));
     } else if (request.kind === 'breakEvenAll') {
-      for (const position of snapshot.positions) {
+      for (const position of positions) {
         const spec = await this.spec(link, accountId, position.symbol);
         const direction = position.side === 'buy' ? 1 : -1;
         const isAhead = direction * (position.priceCurrent - position.priceOpen) >= Math.max(spec.stopsLevel, 1) * spec.point;

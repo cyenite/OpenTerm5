@@ -64,7 +64,7 @@ export function Navigator() {
   useStore(indicatorFavorites, (state) => state.types);
 
   return (
-    <Panel title="Navigator" onClose={() => togglePanel('isNavigatorShown')}>
+    <Panel title="Navigator" dock="navigator" onClose={() => togglePanel('isNavigatorShown')}>
       <div className="scroll">
         <ul className="tree" role="tree">
           <TreeNode label={status?.company || 'OpenTerm5'} icon="◈">
