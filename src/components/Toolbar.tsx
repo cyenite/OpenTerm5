@@ -14,6 +14,7 @@ import { visibleChartIds } from '../lib/chart-tabs';
 import { exitReplay, replay, setReplayMode, startReplay } from '../lib/replay';
 import { replayModes } from '../lib/replay-model';
 import { replayTradingHint, useIsReplayingChart } from '../lib/replay-session';
+import { enterBacktestMode, exitBacktestMode, useIsBacktestingChart } from '../lib/backtest/runtime';
 import { drawingSyncMenuItems } from '../lib/layout-menu';
 import { activeChart, activeTab, chartTypes, openChart, openDialog, openTab, toggleAnalysisPositions, workspace, type ChartType } from '../lib/workspace';
 import { LayoutPicker } from './chart/LayoutPicker';
@@ -191,16 +192,29 @@ interface ReplayButtonProps {
 function ReplayButton({ isDisabled }: ReplayButtonProps) {
   const tab = useStore(workspace, activeTab);
   const mode = useStore(workspace, (state) => state.replayMode);
-  const isReplaying = useStore(replay, (state) => !!state.session && state.session.tabId === tab?.id);
+  const isReplaying = useStore(replay, (state) => !!state.session && state.session.purpose === 'replay' && state.session.tabId === tab?.id);
+  // A backtest runs its own clock; bar replay waits until it ends.
+  const isBacktesting = useStore(replay, (state) => state.session?.purpose === 'backtest');
   const isMultiChart = !!tab && visibleChartIds(tab).length > 1;
   const modes: MenuItem[] = replayModes.map((candidate) => ({ label: candidate.label, isChecked: candidate.key === mode, action: () => setReplayMode(candidate.key) }));
   const current = replayModes.find((candidate) => candidate.key === mode) ?? replayModes[0];
   return (
     <>
-      <ToolButton icon="replay" text="Replay" textLevel={1} isActive={isReplaying} isDisabled={isDisabled} hint={{ title: 'Bar Replay', description: isMultiChart ? `Hide the later bars and play forward from a bar you pick. ${current.description}` : 'Hide the later bars and play the chart forward from a bar you pick.' }} onClick={() => (isReplaying ? exitReplay() : startReplay())} />
-      {isMultiChart && <ToolButton hasMenu hint={{ title: `Replay: ${current.label}`, description: 'Replay every chart of the layout together, or only the active chart.' }} onClick={(event) => menuBelow(event, modes)} />}
+      <ToolButton icon="replay" text="Replay" textLevel={1} isActive={isReplaying} isDisabled={isDisabled || isBacktesting} hint={{ title: 'Bar Replay', description: isBacktesting ? 'End the backtest session to use bar replay.' : isMultiChart ? `Hide the later bars and play forward from a bar you pick. ${current.description}` : 'Hide the later bars and play the chart forward from a bar you pick.' }} onClick={() => (isReplaying ? exitReplay() : startReplay())} />
+      {isMultiChart && !isBacktesting && <ToolButton hasMenu hint={{ title: `Replay: ${current.label}`, description: 'Replay every chart of the layout together, or only the active chart.' }} onClick={(event) => menuBelow(event, modes)} />}
     </>
   );
+}
+
+interface BacktestButtonProps {
+  isDisabled: boolean;
+}
+
+// Shows or hides the Backtest panel, where sessions start and resume and the running one is
+// analysed.
+function BacktestButton({ isDisabled }: BacktestButtonProps) {
+  const isBacktestMode = useStore(workspace, (state) => state.isBacktestMode);
+  return <ToolButton icon="backtest" text="Backtest" textLevel={1} isActive={isBacktestMode} isDisabled={isDisabled} hint={{ title: isBacktestMode ? 'Leave Backtest Mode' : 'Backtest Mode', description: isBacktestMode ? 'End any session and go back to the layout you had.' : 'Switch the interface to backtesting: replay history and trade it on a simulated account, with the session statistics beside the charts.' }} onClick={() => (isBacktestMode ? exitBacktestMode() : enterBacktestMode())} />;
 }
 
 // TradingView shows drawing sync only where there is another chart to sync with.
@@ -217,11 +231,12 @@ function TradingActions() {
   const chartId = useStore(workspace, (state) => activeChart(state)?.id);
   const isOneClickEnabled = useStore(workspace, (state) => state.isOneClickEnabled);
   const isReplaying = useIsReplayingChart(chartId);
+  const isBacktesting = useIsBacktestingChart(chartId);
   return (
     <ToolGroup label="Trading">
       <ToolButton icon="riskOrder" isActive={tool === 'riskOrder'} hint={{ title: 'Risk Order', description: 'Drag the entry, then the stop loss and take profit on the chart; the volume follows your risk setting.' }} onClick={() => workspace.set({ tool: tool === 'riskOrder' ? 'cursor' : 'riskOrder' })} />
       <ToolButton icon="oneClick" text="One-Click" textLevel={1} isActive={isOneClickEnabled} hint={{ title: 'One-Click Trading', description: 'Buy and sell from the chart immediately, without a confirmation ticket.' }} onClick={toggleOneClick} />
-      <ToolButton text="New Order" isPrimary isDisabled={isReplaying} hint={{ title: 'New Order', shortcut: 'F9', description: isReplaying ? `${replayTradingHint}.` : 'Open the order ticket for the active symbol.' }} onClick={() => newOrder()} />
+      <ToolButton text="New Order" isPrimary isDisabled={isReplaying && !isBacktesting} hint={{ title: 'New Order', shortcut: 'F9', description: isBacktesting ? 'Place a risk-sized order for the backtest with lines on the chart.' : isReplaying ? `${replayTradingHint}.` : 'Open the order ticket for the active symbol.' }} onClick={() => newOrder()} />
     </ToolGroup>
   );
 }
@@ -249,8 +264,9 @@ export function Toolbar() {
       <ToolGroup label="Chart">
         <ChartTypePicker />
         <IndicatorsButton chartId={chart?.id} />
-        <ToolButton icon="alert" text="Alert" textLevel={1} hint={{ title: 'Price Alerts', description: 'Get notified when price reaches a level.' }} onClick={() => openDialog({ kind: 'alerts' })} />
-        <ReplayButton isDisabled={!ui} />
+        {!state.isBacktestMode && <ToolButton icon="alert" text="Alert" textLevel={1} hint={{ title: 'Price Alerts', description: 'Get notified when price reaches a level.' }} onClick={() => openDialog({ kind: 'alerts' })} />}
+        {!state.isBacktestMode && <ReplayButton isDisabled={!ui} />}
+        <BacktestButton isDisabled={!ui} />
       </ToolGroup>
       <span className="toolbar-divider" />
       <ToolGroup label="Edit">

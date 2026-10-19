@@ -97,7 +97,9 @@ same symbol). See [Chart layouts](#chart-layouts) for this and the other sync op
     one on screen. Its One-Click panel, Risk Order tool, position and order line dragging, close
     buttons and context menu **Trading** submenu are off, and **New Order** (F9) is refused while it
     is the active chart; each says "Trading is off while this chart replays". Charts outside the
-    replay, Market Watch and the Toolbox still trade.
+    replay, Market Watch and the Toolbox still trade. To trade on past bars, start a
+    [backtest](backtesting.md): it hides later bars like replay does, with a simulated account you
+    trade with risk-sized lines on the chart.
 ### Indicators
 
 Add an indicator from **Insert → Indicators**, from the chart's context menu, or by clicking it in the

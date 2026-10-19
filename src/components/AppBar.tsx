@@ -4,7 +4,8 @@ import { connectProfile } from '../lib/accounts';
 import { openContextMenu } from '../lib/context-menu';
 import { session, signInName } from '../lib/session';
 import { useStore } from '../lib/store';
-import { openDialog, pages, toggleAnalysisMode, workspace, type Page } from '../lib/workspace';
+import { openDialog, pages, workspace, type Page } from '../lib/workspace';
+import { chooseMode, interfaceModes, modeOf } from '../lib/backtest/runtime';
 import { MenuBar } from './MenuBar';
 import { hintProps } from './ui/Hint';
 import { Icon } from './ui/Icon';
@@ -59,22 +60,17 @@ function BackgroundActivity({ isAnalysis }: BackgroundActivityProps) {
   return <span className="status-dot is-good app-bar-activity" title="Running in the background">{parts.join(' · ')}</span>;
 }
 
-interface ModeSwitchProps {
-  isAnalysis: boolean;
-}
-
-function ModeSwitch({ isAnalysis }: ModeSwitchProps) {
-  const choose = (isWanted: boolean) => { if (isWanted !== isAnalysis) toggleAnalysisMode(); };
+// Trade, Analysis and Backtest, in the order `interfaceModes` declares them.
+function ModeSwitch() {
+  const mode = useStore(workspace, modeOf);
   return (
     <div className="mode-switch" role="radiogroup" aria-label="Mode">
-      <button type="button" role="radio" aria-checked={!isAnalysis} aria-label="Trade" className={isAnalysis ? '' : 'is-active'} onClick={() => choose(false)} {...hintProps({ title: 'Trade', shortcut: 'Ctrl+Shift+A', description: 'The full terminal: order tickets, one-click trading, the toolbox and every workspace.' })}>
-        <Icon name="trade" size={14} />
-        <span className="mode-switch-label">Trade</span>
-      </button>
-      <button type="button" role="radio" aria-checked={isAnalysis} aria-label="Analysis" className={isAnalysis ? 'is-active' : ''} onClick={() => choose(true)} {...hintProps({ title: 'Analysis', shortcut: 'Ctrl+Shift+A', description: 'A chart-first layout without trading controls. Accounts, copiers and signals keep running.' })}>
-        <Icon name="analysis" size={14} />
-        <span className="mode-switch-label">Analysis</span>
-      </button>
+      {interfaceModes.map((candidate) => (
+        <button key={candidate.key} type="button" role="radio" aria-checked={candidate.key === mode} aria-label={candidate.label} className={candidate.key === mode ? `is-active is-${candidate.key}` : ''} onClick={() => chooseMode(candidate.key)} {...hintProps({ title: candidate.label, shortcut: candidate.key === 'backtest' ? undefined : 'Ctrl+Shift+A', description: candidate.description })}>
+          <Icon name={candidate.icon} size={14} />
+          <span className="mode-switch-label">{candidate.label}</span>
+        </button>
+      ))}
     </div>
   );
 }
@@ -122,7 +118,7 @@ export function AppBar() {
       {!isAnalysis && <WorkspaceTabs />}
       <div className="app-bar-end">
         <BackgroundActivity isAnalysis={isAnalysis} />
-        <ModeSwitch isAnalysis={isAnalysis} />
+        <ModeSwitch />
         <AccountChip />
       </div>
     </header>

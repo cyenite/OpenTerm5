@@ -19,5 +19,5 @@
     }
   },
   "include": ["src", "shared", "packages/meridian-charts/src"],
-  "exclude": ["src/**/*.test.ts", "shared/**/*.test.ts", "packages/**/*.test.ts"]
+  "exclude": ["src/**/*.test.ts", "src/**/*-fixtures.ts", "shared/**/*.test.ts", "packages/**/*.test.ts"]
 }

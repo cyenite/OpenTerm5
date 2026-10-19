@@ -7,6 +7,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Backtesting. A backtest session hides the layout's later bars from a start date (optionally to an
+  end date) and moves forward on its own clock while you trade a simulated account with its own
+  balance, leverage, spread, slippage, commission and stop out. Backtesting is a mode beside Trade
+  and Analysis (the mode switch, the toolbar's Backtest button or View > Backtest Mode): it gives
+  the interface to the charts and the session, with Analysis mode's layout, no watchlist and the
+  Backtest panel, and leaving it puts the previous layout back. Place Order on the
+  floating controls (or F9) plans each order with lines on the chart: the entry, stop loss and take
+  profit, with the volume from the risk set in the planner. Orders fill on the bars the backtest
+  passes, along each bar's open, low, high and close (or high before low), with gaps filled at the
+  opening price, from the finest history available. The controls also play, step and jump to the
+  next Sydney, Tokyo, London or New York open. A resizable
+  Backtest side panel shows the account, an equity curve, performance statistics, positions,
+  orders, trades with R, MAE and MFE, and a journal, in sections that fold; trades are marked on the
+  chart. Sessions save as they go and can be resumed, restarted or deleted; trades export to CSV.
+  Bar replay is not used: the Replay button stays off and the charts are not shaded.
+
 ## [0.4.0] - 2026-10-19
 
 ### Added

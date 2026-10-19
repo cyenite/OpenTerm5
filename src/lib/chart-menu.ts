@@ -2,7 +2,7 @@ import type { MenuItem } from '../components/MenuBar';
 import { formatPrice } from './format';
 import { indicatorMenuItems, studyTitle } from './indicator-menu';
 import { session } from './session';
-import { setChartType, setTimeframe, toggleDepth, zoom } from './commands';
+import { placeBacktestOrder, setChartType, setTimeframe, toggleDepth, zoom } from './commands';
 import { visibleChartIds } from './chart-tabs';
 import { isLinkGroupShown, layoutMenuItems, linkGroupMenuItems, syncMenuItems } from './layout-menu';
 import {
@@ -19,6 +19,7 @@ import {
 } from './workspace';
 import { chartTimeframes } from './mt5-timeframes';
 import { isReplayingChart, replay, replayTradingHint } from './replay-session';
+import { activeBacktest, backtest, closeBacktestPositions, isBacktestingChart, reportBacktest } from './backtest/runtime';
 
 const separator: MenuItem = { label: '', isSeparator: true };
 
@@ -40,6 +41,16 @@ function tradingItems(chartId: string, symbol: string, price: number | undefined
   return pending.length ? [...items, separator, ...pending] : items;
 }
 
+// The backtest's entries in place of the live Trading submenu. Orders are planned on the chart
+// with the Risk Order tool.
+function backtestItems(symbol: string): MenuItem[] {
+  const positions = activeBacktest(backtest.get())?.book.positions.filter((position) => position.symbol === symbol) ?? [];
+  return [
+    { label: 'Place Order', shortcut: 'F9', action: placeBacktestOrder },
+    { label: `Close All ${symbol}`, isDisabled: !positions.length, action: () => reportBacktest(closeBacktestPositions((position) => position.symbol === symbol)) },
+  ];
+}
+
 // Mirrors MT5's chart context menu, with TradingView's layout commands in place of MT5's window
 // commands.
 export function chartMenu(chartId: string, price?: number): MenuItem[] {
@@ -59,14 +70,18 @@ export function chartMenu(chartId: string, price?: number): MenuItem[] {
     { label: state.isChartMaximized ? 'Restore Layout' : 'Maximize Chart', shortcut: 'Alt+Enter', isDisabled: !isMultiChart, action: toggleMaximized },
     { label: 'Apply Indicators to All Charts', isDisabled: !others.length, action: () => applyIndicatorsToLayout(chartId) },
   ] : [];
-  // A replaying chart keeps the submenu's place, disabled, so the reason is where trading was.
-  const trading: MenuItem[] = state.isAnalysisMode ? [] : [
-    isReplayingChart(replay.get().session, chartId)
-      ? { label: replayTradingHint, isDisabled: true }
-      : { label: 'Trading', items: tradingItems(chartId, chart.symbol, price, digits) },
-    { label: 'Depth of Market', shortcut: 'Alt+B', action: () => toggleDepth(chart.symbol) },
-    separator,
-  ];
+  // A replaying chart keeps the submenu's place, disabled, so the reason is where trading was; in a
+  // running backtest it trades the backtest instead, in either mode.
+  const isBacktesting = isBacktestingChart(chartId);
+  const trading: MenuItem[] = isBacktesting
+    ? [{ label: 'Backtest', items: backtestItems(chart.symbol) }, separator]
+    : state.isAnalysisMode ? [] : [
+      isReplayingChart(replay.get().session, chartId)
+        ? { label: replayTradingHint, isDisabled: true }
+        : { label: 'Trading', items: tradingItems(chartId, chart.symbol, price, digits) },
+      { label: 'Depth of Market', shortcut: 'Alt+B', action: () => toggleDepth(chart.symbol) },
+      separator,
+    ];
   return [
     ...trading,
     { label: 'Timeframes', items: chartTimeframes.map((timeframe) => ({ label: timeframe.label, isChecked: chart.timeframe === timeframe.label, action: () => setTimeframe(timeframe.label) })) },
