@@ -27,6 +27,7 @@ import { workspace } from '../../lib/workspace';
 import { Segmented, Switch } from '../ui/Controls';
 import { QuickTradePanel } from '../chart/OneClickPanel';
 import { LineHandle, priceAtPointer, useLineGeometry, type OverlayLine } from '../chart/OverlayLines';
+import { spreadLabels } from '../../lib/overlay-labels';
 
 interface BacktestPlannerProps {
   symbol: string;
@@ -227,6 +228,10 @@ export function BacktestOverlay({ chart: controller, symbol, digits }: BacktestO
     else reset();
   };
 
+  // Labels of lines close together are spread apart, as on live charts.
+  const isOnScreen = (y: number | null | undefined): y is number => y !== null && y !== undefined && y >= 0 && y <= geometry.height;
+  const labelOffsets = spreadLabels(shown.flatMap((line) => isOnScreen(geometry.ys[line.id]) ? [{ id: line.id, y: geometry.ys[line.id]!, lane: 'trades' }] : []), 18, geometry.height);
+
   const title = decision?.type ? `${orderType(decision.type)!.label}${decision.isMarket ? ' at market' : ''}` : 'Risk order';
 
   return (
@@ -238,8 +243,8 @@ export function BacktestOverlay({ chart: controller, symbol, digits }: BacktestO
       )}
       {shown.map((line) => {
         const y = geometry.ys[line.id];
-        if (y === null || y === undefined || y < 0 || y > geometry.height) return null;
-        return <LineHandle key={line.id} line={line} y={y} width={geometry.width} digits={digits} currency={item.currency} onStartDrag={(target, event) => startDrag(target, event)} onApply={() => undefined} onDiscard={() => undefined} />;
+        if (!isOnScreen(y)) return null;
+        return <LineHandle key={line.id} line={line} y={y} left={0} width={geometry.width} labelOffset={labelOffsets.get(line.id) ?? 0} digits={digits} currency={item.currency} onStartDrag={(target, event) => startDrag(target, event)} onApply={() => undefined} onDiscard={() => undefined} />;
       })}
       {hasPlan && plan.stop !== undefined && decision && (
         <BacktestPlanner symbol={symbol} lots={sizing?.lots ?? 0} digits={digits} entry={decision.entry} title={title} error={planError} riskMoney={sizing?.riskMoney ?? 0} isMarketForced={isMarketForced} onMarket={setIsMarketForced} onPlace={() => void submit()} onCancel={reset} />

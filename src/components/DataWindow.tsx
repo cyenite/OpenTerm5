@@ -21,7 +21,7 @@ export function DataWindow() {
     : [];
 
   return (
-    <Panel title="Data Window" onClose={() => togglePanel('isDataWindowShown')}>
+    <Panel title="Data Window" dock="dataWindow" onClose={() => togglePanel('isDataWindowShown')}>
       <div className="scroll">
         <table className="grid details">
           <tbody>

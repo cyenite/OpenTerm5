@@ -339,7 +339,10 @@ function CopierActivity({ copierId, nameOf }: CopierActivityProps) {
     <Section title="Activity" actions={<Segmented label="Activity view" value={tab} options={[{ key: 'copies', label: `Copies (${mappings.length})` }, { key: 'log', label: 'Log' }]} onChange={setTab} />}>
       {tab === 'copies' ? (
         mappings.length ? (
-          <table className="grid compact">
+          <div className="activity-scroll"><table className="grid compact activity-table is-copies">
+            <colgroup>
+              <col className="is-name" /><col className="is-symbol" /><col className="is-kind" /><col className="is-ticket" /><col className="is-ticket" /><col className="is-lots" /><col className="is-status" /><col />
+            </colgroup>
             <thead><tr><th>Follower</th><th>Symbol</th><th>Kind</th><th className="num">Master #</th><th className="num">Copy #</th><th className="num">Lots</th><th>Status</th><th>Note</th></tr></thead>
             <tbody>
               {mappings.map((mapping) => (
@@ -351,14 +354,17 @@ function CopierActivity({ copierId, nameOf }: CopierActivityProps) {
                   <td className="num">{mapping.followerTicket || ''}</td>
                   <td className="num">{mapping.masterVolume} → {mapping.followerVolume || '-'}</td>
                   <td><StatusPill status={mapping.status} /></td>
-                  <td className="is-muted">{mapping.reason}</td>
+                  <td className="is-muted is-wrapping">{mapping.reason}</td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         ) : <EmptyState title="Nothing copied yet" detail="New master trades appear here as soon as they are copied." />
       ) : (
-        <table className="grid compact">
+        <div className="activity-scroll"><table className="grid compact activity-table">
+          <colgroup>
+            <col className="is-time" /><col className="is-name" /><col className="is-event" /><col className="is-status" /><col /><col className="is-latency" />
+          </colgroup>
           <thead><tr><th>Time</th><th>Follower</th><th>Event</th><th>Status</th><th>Message</th><th className="num">Latency</th></tr></thead>
           <tbody>
             {logs.map((entry) => (
@@ -367,12 +373,12 @@ function CopierActivity({ copierId, nameOf }: CopierActivityProps) {
                 <td>{entry.followerId ? nameOf(entry.followerId) : ''}</td>
                 <td>{entry.event}</td>
                 <td><StatusPill status={entry.status} /></td>
-                <td>{entry.message}</td>
+                <td className="is-wrapping">{entry.message}</td>
                 <td className="num">{entry.latencyMs !== undefined ? `${entry.latencyMs} ms` : ''}</td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
     </Section>
   );

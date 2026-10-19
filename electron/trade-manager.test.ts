@@ -140,6 +140,16 @@ test('bulk close filters by profit and side', async () => {
   assert.deepEqual(link.positions.map((item) => item.ticket), [2]);
 });
 
+test('a bulk request with a symbol only touches that symbol', async () => {
+  const { link, manager } = await setup();
+  link.positions = [position({ ticket: 1, profit: 10 }), position({ ticket: 2, symbol: 'GBPUSD', profit: 4 }), position({ ticket: 3, side: 'sell', profit: -2 })];
+  const profitable = await manager.bulk({ kind: 'closeProfitable', symbol: 'EURUSD' });
+  assert.deepEqual(profitable.map((outcome) => outcome.ticket), [1]);
+  const sells = await manager.bulk({ kind: 'closeSells', symbol: 'GBPUSD' });
+  assert.equal(sells.length, 0);
+  assert.deepEqual(link.positions.map((item) => item.ticket), [2, 3]);
+});
+
 test('risk order sizes, splits targets and attaches break-even after the first target', async () => {
   const { link, manager } = await setup();
   const outcome = await manager.placeRisk({

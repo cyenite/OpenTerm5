@@ -12,6 +12,7 @@ import { replayModes, replaySpeeds, type ReplayMode, type ReplaySpeed } from './
 import { isReplayingChart, replay, replayTradingHint } from './replay-session';
 import { applyTemplate, captureProfile, captureTemplate, restoreProfiles, restoreTemplates, restoreWorkspaceCharts, type ChartProfile, type ChartTemplate } from './presets';
 import type { IndicatorSection } from './indicator-catalog';
+import { clampDockWidth, clampToolboxHeight, defaultDockLayout, dockPanels, restoreDockLayout, withoutWeights, type DockLayout, type DockPanel, type DockSide, type StackItem } from './dock';
 
 export type { Drawing, IndicatorConfig } from './chart-model';
 
@@ -105,6 +106,8 @@ export interface WorkspaceState {
   depthSymbol: string | null;
   dialog: Dialog | null;
   drawingSync: DrawingSync;
+  // Panel sides, dock widths, stacked panel shares and the Toolbox height.
+  dock: DockLayout;
   replayMode: ReplayMode;
   replaySpeed: ReplaySpeed;
   tabs: ChartTab[];
@@ -118,6 +121,7 @@ export interface WorkspaceState {
   isDataWindowShown: boolean;
   isChartBarShown: boolean;
   isMarketWatchShown: boolean;
+  isTradeAssistantShown: boolean;
   // Trade mode keeps the chart's drawing rail closed unless asked; analysis mode always shows it.
   isTradeDrawingToolbarShown: boolean;
   isOneClickEnabled: boolean;
@@ -164,6 +168,7 @@ function initialState(): WorkspaceState {
     depthSymbol: null,
     dialog: null,
     drawingSync: 'layout',
+    dock: structuredClone(defaultDockLayout),
     replayMode: 'allCharts',
     replaySpeed: '1x',
     tabs: [tab],
@@ -177,6 +182,7 @@ function initialState(): WorkspaceState {
     isDataWindowShown: false,
     isChartBarShown: true,
     isMarketWatchShown: true,
+    isTradeAssistantShown: false,
     isTradeDrawingToolbarShown: false,
     isOneClickEnabled: false,
     hasAcceptedOneClick: false,
@@ -196,7 +202,7 @@ function initialState(): WorkspaceState {
       const drawingSync = drawingSyncs.find((candidate) => candidate.key === saved.drawingSync)?.key ?? defaults.drawingSync;
       const replayMode = replayModes.find((candidate) => candidate.key === saved.replayMode)?.key ?? defaults.replayMode;
       const replaySpeed = replaySpeeds.find((candidate) => candidate.key === saved.replaySpeed)?.key ?? defaults.replaySpeed;
-      const restored = { ...defaults, ...saved, ...charts, drawingSync, replayMode, replaySpeed, profiles: restoreProfiles(saved.profiles), templates: restoreTemplates(saved.templates), dialog: null, depthSymbol: null, tool: 'cursor' as const, isChartMaximized: false };
+      const restored = { ...defaults, ...saved, ...charts, drawingSync, dock: restoreDockLayout(saved.dock), replayMode, replaySpeed, profiles: restoreProfiles(saved.profiles), templates: restoreTemplates(saved.templates), dialog: null, depthSymbol: null, tool: 'cursor' as const, isChartMaximized: false };
       if (!restored.profiles.some((profile) => profile.name === restored.activeProfile)) restored.activeProfile = 'Default';
       if (!restored.profiles.some((profile) => profile.name === 'Default')) restored.profiles = [captureProfile(restored, 'Default'), ...restored.profiles];
       if (saved.defaultChartSettings === undefined) delete restored.defaultChartSettings;
@@ -481,6 +487,32 @@ export function openDialog(dialog: Dialog): void {
     return;
   }
   workspace.set({ dialog });
+}
+
+function setDock(patch: (dock: DockLayout) => Partial<DockLayout>): void {
+  workspace.set((state) => ({ dock: { ...state.dock, ...patch(state.dock) } }));
+}
+
+// Moving a panel also shows it, so a menu's "Dock Right" never leaves it hidden.
+export function moveDockPanel(panel: DockPanel, side: DockSide): void {
+  const flag = dockPanels.find((candidate) => candidate.key === panel)!.flag;
+  workspace.set((state) => ({ [flag]: true, dock: { ...state.dock, sides: { ...state.dock.sides, [panel]: side } } }));
+}
+
+export function setDockWidth(side: DockSide, width: number): void {
+  setDock((dock) => ({ widths: { ...dock.widths, [side]: clampDockWidth(width) } }));
+}
+
+export function setDockWeights(weights: DockLayout['weights']): void {
+  setDock(() => ({ weights }));
+}
+
+export function resetDockWeights(items: readonly StackItem[]): void {
+  setDock((dock) => ({ weights: withoutWeights(dock.weights, items) }));
+}
+
+export function setToolboxHeight(height: number, available?: number): void {
+  setDock(() => ({ toolboxHeight: clampToolboxHeight(height, available) }));
 }
 
 export function toggleAnalysisMode(): void {

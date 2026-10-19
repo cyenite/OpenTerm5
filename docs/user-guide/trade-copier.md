@@ -62,6 +62,8 @@ Further options:
 - Copy pending orders and their expiry.
 - **Strict close** ignores the master's closes: copies close only at their own stop loss or take
   profit. It needs copied or fixed stop losses, otherwise a copy would never close.
+- A copy closed on the follower itself (its own stop, or by hand) is recognised once it has been
+  missing from the follower for 10 seconds; the copier then stops following it and never reopens it.
 
 ### Filters and trading hours
 

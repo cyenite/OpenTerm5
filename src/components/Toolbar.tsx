@@ -170,6 +170,7 @@ function PanelsMenu({ isAnalysis }: PanelsMenuProps) {
       : [
         { label: 'Navigator', shortcut: 'Ctrl+N', isChecked: state.isNavigatorShown, action: () => togglePanel('isNavigatorShown') },
         { label: 'Toolbox', shortcut: 'Ctrl+T', isChecked: state.isToolboxShown, action: () => togglePanel('isToolboxShown') },
+        { label: 'Trade Assistant', isChecked: state.isTradeAssistantShown, action: () => togglePanel('isTradeAssistantShown') },
         { label: 'Depth of Market', shortcut: 'Alt+B', isChecked: state.depthSymbol !== null, isDisabled: !hasChart, action: () => toggleDepth() },
       ]),
     { label: '', isSeparator: true },
