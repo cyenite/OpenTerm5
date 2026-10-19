@@ -15,6 +15,8 @@ export interface ReplaySession {
   readonly isSelecting: boolean;
   // The update interval chosen in the replay toolbar; null steps automatically.
   readonly chosenInterval: ChartTimeframe | null;
+  // Stepping stops here, as at the end of the data; a backtest's end date. Null runs to the end.
+  readonly limit?: number | null;
 }
 
 export const replay = new Store<{ session: ReplaySession | null }>({ session: null });

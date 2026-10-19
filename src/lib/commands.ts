@@ -1,6 +1,7 @@
 import type { ChartTimeframe } from './mt5-timeframes';
 import { defaultSymbol } from './broker-symbols';
 import { cancelReplaySelection, replay, stepReplay, toggleReplayPlay } from './replay';
+import { isBacktestingChart } from './backtest/runtime';
 import { activeChart, closeChart, openChart, openDialog, pages, setChartSymbol, setChartTimeframe, stepChart, toggleAnalysisMode, toggleMaximized, updateActiveChart, workspace, type ChartType, type ToolboxTab, type WorkspaceState } from './workspace';
 
 type PanelFlag = 'isMarketWatchShown' | 'isNavigatorShown' | 'isToolboxShown' | 'isDataWindowShown' | 'isStatusBarShown' | 'isChartBarShown' | 'isTradeDrawingToolbarShown';
@@ -13,10 +14,15 @@ export function showToolbox(tab: ToolboxTab): void {
   workspace.set({ isToolboxShown: true, toolboxTab: tab });
 }
 
-// Without a symbol the ticket is for the active chart, so it counts as opened from that chart.
+// Without a symbol the ticket is for the active chart, so it counts as opened from that chart; a
+// chart in a running backtest opens the backtest's ticket.
 export function newOrder(symbol?: string): void {
-  const chartId = symbol ? undefined : activeChart(workspace.get())?.id;
-  openDialog({ kind: 'order', symbol: symbol ?? defaultSymbol(), ...(chartId ? { chartId } : {}) });
+  const chart = symbol ? undefined : activeChart(workspace.get());
+  if (chart && isBacktestingChart(chart.id)) {
+    openDialog({ kind: 'backtestOrder', symbol: chart.symbol });
+    return;
+  }
+  openDialog({ kind: 'order', symbol: symbol ?? defaultSymbol(), ...(chart ? { chartId: chart.id } : {}) });
 }
 
 export function setChartType(type: ChartType): void {
@@ -104,7 +110,9 @@ export function handleShortcut(event: KeyboardEvent): boolean {
   const action: (() => void) | undefined = (() => {
     if (isCtrl && event.shiftKey && key === 'a') return toggleAnalysisMode;
     // Analysis mode has no order ticket, depth, pages or terminal panels; their keys stay free.
-    if (isAnalysis && (event.key === 'F9' || event.altKey && key === 'b' || isCtrl && (key === 't' || key === 'n' || !!pageForKey(key)))) return undefined;
+    // A running backtest's ticket is not live trading, so F9 still opens it there.
+    const isBacktestTicket = event.key === 'F9' && isBacktestingChart(activeChart(workspace.get())?.id);
+    if (isAnalysis && !isBacktestTicket && (event.key === 'F9' || event.altKey && key === 'b' || isCtrl && (key === 't' || key === 'n' || !!pageForKey(key)))) return undefined;
     // TradingView's key for the Indicators dialog.
     if (event.key === '/' && !isCtrl && !event.altKey) return () => openDialog({ kind: 'indicators' });
     if (event.key === 'F9') return () => newOrder();

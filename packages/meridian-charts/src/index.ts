@@ -1,4 +1,4 @@
-export { MeridianChart, drawingFavorites, meridianUiVariables, saveDrawingFavorites, type MeridianChartOptions, type MeridianDrawingTools, type MeridianContextInfo, type MeridianCrosshair, type MeridianHover, type MeridianIndicator, type MeridianPriceLine, type MeridianReplayRequest, type MeridianReplayState, type MeridianTimeRange, type PlotBox, type ReadoutRow } from './chart';
+export { MeridianChart, drawingFavorites, meridianUiVariables, saveDrawingFavorites, type MeridianChartOptions, type MeridianDrawingTools, type MeridianContextInfo, type MeridianCrosshair, type MeridianHover, type MeridianIndicator, type MeridianPriceLine, type MeridianReplayRequest, type MeridianReplayState, type MeridianTimeRange, type MeridianTradeMarker, type PlotBox, type ReadoutRow } from './chart';
 export type { ScaleMode } from './core/price-scale';
 export { defaultSettings, restoreSettings, type ChartSettings } from './settings';
 export { isTimeframe, timeframeMs } from './core/timeframes';

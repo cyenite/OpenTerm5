@@ -13,75 +13,7 @@ import { useRiskPreview } from '../../lib/risk-preview';
 import { workspace } from '../../lib/workspace';
 import { Segmented, Switch } from '../ui/Controls';
 import type { MeridianChart } from '@meridian/charts';
-
-type LineRole = 'entry' | 'position' | 'stop' | 'target' | 'pending';
-
-interface OverlayLine {
-  id: string;
-  role: LineRole;
-  price: number;
-  label: string;
-  isDraggable: boolean;
-  title?: string;
-  moneyAt?: (price: number) => number;
-  ghosts?: { kind: 'sl' | 'tp'; line: OverlayLine }[];
-  onClose?: () => void;
-  onMove?: (price: number) => void;
-  onDrop?: (price: number) => void;
-}
-
-interface Edit {
-  id: string;
-  price: number;
-  error?: string;
-  apply: (price: number) => Promise<void>;
-}
-
-const HANDLE = 6;
-
-interface LineHandleProps {
-  line: OverlayLine;
-  y: number;
-  width: number;
-  edit?: Edit;
-  digits: number;
-  currency: string;
-  onStartDrag: (line: OverlayLine, event: ReactPointerEvent) => void;
-  onApply: () => void;
-  onDiscard: () => void;
-}
-
-function LineHandle({ line, y, width, edit, digits, currency, onStartDrag, onApply, onDiscard }: LineHandleProps) {
-  const money = line.moneyAt?.(line.price);
-  return (
-    <div
-      className={`overlay-line is-${line.role}${line.isDraggable ? ' is-draggable' : ''}${edit ? ' is-edited' : ''}`}
-      style={{ top: y - HANDLE, width }}
-      onPointerDown={line.isDraggable ? (event) => onStartDrag(line, event) : undefined}
-      role={line.isDraggable ? 'slider' : undefined}
-      aria-label={line.label}
-      aria-valuenow={line.price}
-      title={line.title}
-    >
-      <span className="overlay-rule" />
-      <span className="overlay-label">
-        <span>{line.label}</span>
-        {money !== undefined && Number.isFinite(money) && <b className={money > 0 ? 'is-up' : money < 0 ? 'is-down' : ''}>{money > 0 ? '+' : ''}{formatMoney(money)} {currency}</b>}
-        <span className="overlay-price">{formatPrice(line.price, digits)}</span>
-        {line.ghosts?.map((ghost) => (
-          <button key={ghost.kind} type="button" className={`overlay-ghost is-${ghost.kind}`} title={`Drag ${ghost.kind === 'tp' ? 'up or down' : 'away'} to set the ${ghost.kind === 'tp' ? 'take profit' : 'stop loss'}`} onPointerDown={(event) => onStartDrag(ghost.line, event)}>{ghost.kind.toUpperCase()}</button>
-        ))}
-        {line.onClose && <button type="button" className="overlay-close" title="Close position" aria-label="Close position" onPointerDown={(event) => event.stopPropagation()} onClick={line.onClose}>×</button>}
-        {edit && (
-          <span className="overlay-actions" onPointerDown={(event) => event.stopPropagation()}>
-            {edit.error ? <em>{edit.error}</em> : <button type="button" onClick={onApply}>Apply</button>}
-            <button type="button" onClick={onDiscard}>Cancel</button>
-          </span>
-        )}
-      </span>
-    </div>
-  );
-}
+import { LineHandle, priceAtPointer, useLineGeometry, type Edit, type OverlayLine } from './OverlayLines';
 
 interface PlannerPanelProps {
   symbol: string;
@@ -163,7 +95,6 @@ export function TradeOverlay({ chart: controller, symbol, digits, isReplaying }:
   const [isBusy, setIsBusy] = useState(false);
   const [isPlacing, setIsPlacing] = useState(false);
   const [edit, setEdit] = useState<Edit | null>(null);
-  const [geometry, setGeometry] = useState<{ ys: Record<string, number | null>; left: number; width: number; height: number }>({ ys: {}, left: 0, width: 0, height: 0 });
   const drag = useRef<{ line: OverlayLine; pointerId: number } | null>(null);
   const linesRef = useRef<OverlayLine[]>([]);
   const isPlanning = tool === 'riskOrder' && !isReadOnly;
@@ -271,29 +202,9 @@ export function TradeOverlay({ chart: controller, symbol, digits, isReplaying }:
   const shown = lines.map((line) => (edit?.id === line.id ? { ...line, price: edit.price } : line));
   linesRef.current = shown;
 
-  // Price-to-pixel mapping changes with every scroll, zoom and autoscale, which the
-  // chart does not announce, so positions are re-read each frame.
-  useEffect(() => {
-    if (!controller) return;
-    let frame = 0;
-    let last = '';
-    const update = () => {
-      const box = controller.plotBox();
-      const ys: Record<string, number | null> = {};
-      for (const line of linesRef.current) ys[line.id] = controller.priceToY(line.price);
-      const key = JSON.stringify([ys, box]);
-      if (key !== last) { last = key; setGeometry({ ys, left: box.left, width: box.width, height: box.height }); }
-      frame = requestAnimationFrame(update);
-    };
-    frame = requestAnimationFrame(update);
-    return () => cancelAnimationFrame(frame);
-  }, [controller]);
+  const geometry = useLineGeometry(controller, linesRef);
 
-  const priceAt = (clientY: number, element: HTMLElement) => {
-    const bounds = element.closest('.chart-window')!.querySelector('.chart-canvas')!.getBoundingClientRect();
-    const price = controller?.yToPrice(clientY - bounds.top);
-    return price === null || price === undefined ? null : round(price);
-  };
+  const priceAt = (clientY: number, element: HTMLElement) => priceAtPointer(controller, clientY, element, round);
 
   const startDrag = (line: OverlayLine, event: ReactPointerEvent) => {
     if (event.button !== 0) return;

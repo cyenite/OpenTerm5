@@ -78,17 +78,18 @@ export function startReplay(chartId?: string): void {
   const session = current();
   stopTimer();
   const chartIds = participants(state, tab, null, chartId);
-  replay.set({ session: { tabId: tab.id, time: session?.time ?? null, notice: null, chartIds, isPlaying: false, isFinished: false, isSelecting: true, chosenInterval: session?.chosenInterval ?? null } });
+  replay.set({ session: { tabId: tab.id, time: session?.time ?? null, notice: null, chartIds, isPlaying: false, isFinished: false, isSelecting: true, chosenInterval: session?.chosenInterval ?? null, limit: session?.limit ?? null } });
   for (const id of session?.chartIds ?? []) if (!chartIds.includes(id)) chartInstance(id)?.setReplay(null);
   chartIds.forEach((id) => chartInstance(id)?.selectReplayStart());
 }
 
-// No chart can start before the latest of their first bars.
+// No chart can start before the latest of their first bars, nor after the replay's limit.
 export function pickReplayStart(time: number): void {
   const session = current();
   if (!session) return;
   const earliest = Math.max(...engines(session).map((engine) => engine.earliestReplayTime() ?? -Infinity));
-  update({ time: Math.max(time, earliest), isSelecting: false, isFinished: false, notice: null });
+  const latest = session.limit ?? Infinity;
+  update({ time: Math.min(Math.max(time, earliest), latest), isSelecting: false, isFinished: false, notice: null });
   apply();
 }
 
@@ -113,8 +114,33 @@ export function stepReplay(): void {
     update({ isPlaying: false, isFinished: true, notice: 'End of data: the replay has reached the latest bar.' });
     return;
   }
+  if (session.limit && Math.min(...next) > session.limit) {
+    stopTimer();
+    update({ isPlaying: false, isFinished: true, notice: 'The replay has reached its end date.' });
+    return;
+  }
   update({ time: Math.min(...next) });
   apply();
+}
+
+// Starts the replay at `time` without a pick, as a backtest does. A replay picks among loaded
+// bars, so each chart first pages in history back to that time; a chart without data that far
+// back starts the replay at its first bar. Resolves with the time the replay starts at.
+export async function replayFrom(time: number, limit: number | null = null, chartId?: string): Promise<number | null> {
+  const state = workspace.get();
+  const tab = chartId ? tabOfChart(state, chartId) : activeTab(state);
+  if (!tab) return null;
+  exitReplay();
+  const loaded = participants(state, tab, null, chartId).map((id) => chartInstance(id)).filter((engine): engine is MeridianChart => !!engine);
+  await Promise.all(loaded.map((engine) => engine.loadHistoryTo(time)));
+  startReplay(chartId);
+  update({ limit });
+  pickReplayStart(time);
+  return current()?.time ?? null;
+}
+
+export function setReplayLimit(limit: number | null): void {
+  update({ limit, ...(current()?.isFinished && current()?.notice?.includes('end date') ? { isFinished: false, notice: null } : {}) });
 }
 
 export function toggleReplayPlay(): void {

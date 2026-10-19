@@ -58,6 +58,19 @@ export interface MeridianPriceLine {
   label?: string;
 }
 
+// A trade the host shows on the chart: an arrow on the bar it opened in and, once closed, a cross
+// on the bar it closed in, joined by a dotted line in the colour of its result. Times are chart
+// times; each mark sits on the bar holding its time, whatever the chart's interval.
+export interface MeridianTradeMarker {
+  id: string;
+  side: 'buy' | 'sell';
+  openTime: number;
+  openPrice: number;
+  closeTime?: number;
+  closePrice?: number;
+  isProfit?: boolean;
+}
+
 // Where the user right-clicked, for host entries in the chart's context menu.
 export interface MeridianContextInfo {
   price: number | null;
@@ -375,6 +388,7 @@ export class MeridianChart {
   private studies: StudyState[] = [];
   private drawingList: SerializedDrawing[] = [];
   private priceLines: MeridianPriceLine[] = [];
+  private tradeMarkers: MeridianTradeMarker[] = [];
   private selectedId: string | null = null;
   private tool: string | null = null;
   private cursorMode: CursorMode = 'cross';
@@ -620,6 +634,11 @@ export class MeridianChart {
     this.invalidate();
   }
 
+  setTradeMarkers(markers: MeridianTradeMarker[]): void {
+    this.tradeMarkers = markers;
+    this.invalidate();
+  }
+
   setWatermark(text: string | null): void {
     this.watermark = text;
     this.invalidate();
@@ -713,6 +732,22 @@ export class MeridianChart {
     this.requestedView = { kind: 'time', time };
     this.applyRequestedView();
     this.invalidate();
+  }
+
+  // Pages in history until `context` bars lie before `time`, the source has no more, or the chart
+  // holds its most. A replay picks its start among loaded bars only, so a host starting one far
+  // back loads first. Out of replay only; resolves with the earliest loaded bar's time.
+  async loadHistoryTo(time: number, context = 300): Promise<number | null> {
+    await this.readyPromise.catch(() => undefined);
+    const generation = this.generation;
+    for (let guard = 0; guard < 100; guard++) {
+      if (generation !== this.generation || this.replay || !this.barList.length) break;
+      if (this.barList[0].time <= time - context * this.interval) break;
+      if (this.isHistoryExhausted || this.barList.length >= this.maxBars) break;
+      if (this.isPaging) await new Promise((resolve) => setTimeout(resolve, 50));
+      else await this.fetchOlder();
+    }
+    return this.barList[0]?.time ?? null;
   }
 
   // ── Context menu ────────────────────────────────────────────────────────
@@ -1262,10 +1297,14 @@ export class MeridianChart {
   // older means the source has no more history.
   private pageHistory(): void {
     if (this.isPaging || !this.barList.length || !this.wantsOlderBars()) return;
+    void this.fetchOlder();
+  }
+
+  private fetchOlder(): Promise<void> {
     this.isPaging = true;
     const generation = this.generation;
     const oldest = this.barList[0].time;
-    this.provider.getBars(this.symbol, this.timeframe, { to: oldest, limit: Math.min(this.pageBars, this.maxBars - this.barList.length) })
+    return this.provider.getBars(this.symbol, this.timeframe, { to: oldest, limit: Math.min(this.pageBars, this.maxBars - this.barList.length) })
       .then((page) => {
         if (generation !== this.generation) return;
         const older = page.filter((bar) => bar.time < oldest).sort((left, right) => left.time - right.time);
@@ -2783,6 +2822,7 @@ export class MeridianChart {
         }
         for (const study of this.studies) if (study.isVisible && study.paneId === pane.id) this.paintStudy(study, pane, from, to);
         this.paintPriceLines(pane);
+        if (hasBars) this.paintTradeMarkers(pane);
         if (hasBars && settings.isLastPriceLineShown) this.paintLastPrice(pane);
         if (!this.isHidden) this.paintDrawings();
       } else {
@@ -3283,6 +3323,55 @@ export class MeridianChart {
         ctx.textBaseline = 'middle';
         ctx.fillText(line.label, 14, y);
       }
+    }
+  }
+
+  private paintTradeMarkers(pane: Pane): void {
+    if (!this.tradeMarkers.length) return;
+    const ctx = this.context;
+    const { ui } = this.theme;
+    const colors = this.colors();
+    const xOf = (time: number) => {
+      const index = this.timeScale.barContaining(time);
+      return index === null ? null : this.timeScale.indexToX(index);
+    };
+    const size = Math.max(4, Math.min(7, this.timeScale.spacing / 2));
+    for (const marker of this.tradeMarkers) {
+      const x = xOf(marker.openTime);
+      if (x === null) continue;
+      const y = pane.scale.priceToY(marker.openPrice);
+      const isBuy = marker.side === 'buy';
+      if (marker.closeTime !== undefined && marker.closePrice !== undefined) {
+        const closeX = xOf(marker.closeTime);
+        if (closeX !== null) {
+          const closeY = pane.scale.priceToY(marker.closePrice);
+          ctx.strokeStyle = marker.isProfit ? colors.up : colors.down;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([2, 3]);
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(closeX, closeY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(closeX - size * 0.7, closeY - size * 0.7);
+          ctx.lineTo(closeX + size * 0.7, closeY + size * 0.7);
+          ctx.moveTo(closeX + size * 0.7, closeY - size * 0.7);
+          ctx.lineTo(closeX - size * 0.7, closeY + size * 0.7);
+          ctx.stroke();
+        }
+      }
+      // Buys point up from below the entry, sells down from above it.
+      const tip = isBuy ? y + 2 : y - 2;
+      const base = isBuy ? tip + size * 1.6 : tip - size * 1.6;
+      ctx.fillStyle = isBuy ? ui.buy : ui.sell;
+      ctx.beginPath();
+      ctx.moveTo(x, tip);
+      ctx.lineTo(x - size, base);
+      ctx.lineTo(x + size, base);
+      ctx.closePath();
+      ctx.fill();
     }
   }
 

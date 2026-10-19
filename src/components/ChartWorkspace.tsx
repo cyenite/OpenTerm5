@@ -11,6 +11,7 @@ import { ChartWindow } from './chart/ChartWindow';
 import { DrawingRail } from './chart/DrawingRail';
 import { LayoutIcon } from './chart/LayoutIcon';
 import { ReplayToolbar } from './chart/ReplayToolbar';
+import { BacktestPanel } from './backtest/BacktestPanel';
 import { Icon } from './ui/Icon';
 
 const symbolType = 'text/x-openterm-symbol';
@@ -243,6 +244,7 @@ export function ChartWorkspace() {
         </div>
       </div>
       {replayTabId !== undefined && replayTabId === tab?.id && <ReplayToolbar />}
+      {replayTabId !== undefined && replayTabId === tab?.id && <BacktestPanel />}
       {isChartBarShown && (
         <nav className="chart-bar" role="tablist" aria-label="Chart tabs">
           {tabs.map((candidate) => <TabLabel key={candidate.id} tab={candidate} charts={charts} isActive={candidate.id === tab?.id} />)}

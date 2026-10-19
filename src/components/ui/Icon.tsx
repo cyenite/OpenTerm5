@@ -34,6 +34,7 @@ const paths = {
   undo: <><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" /></>,
   redo: <><path d="m15 14 5-5-5-5" /><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" /></>,
   replay: <><path d="M5 4v16" /><path d="m9 6 10 6-10 6z" /></>,
+  backtest: <><path d="M3 20h18" /><path d="M6 4v12M10.5 7v9" /><rect x="4.5" y="7" width="3" height="6" rx="0.6" /><path d="m14 8 7 4.5-7 4.5z" /></>,
   objectTree: <><path d="M4 5h6M4 5v14M4 12h5M4 19h5" /><rect x="12" y="3" width="8" height="4" rx="1" /><rect x="11" y="10" width="9" height="4" rx="1" /><rect x="11" y="17" width="9" height="4" rx="1" /></>,
   chartSettings: <><circle cx="12" cy="12" r="3" /><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" /></>,
   chevron: <path d="m7 10 5 5 5-5" />,

@@ -19,6 +19,7 @@ import {
 } from './workspace';
 import { chartTimeframes } from './mt5-timeframes';
 import { isReplayingChart, replay, replayTradingHint } from './replay-session';
+import { activeBacktest, backtest, backtestQuote, closeBacktestPositions, isBacktestingChart, reportBacktest } from './backtest/runtime';
 
 const separator: MenuItem = { label: '', isSeparator: true };
 
@@ -36,6 +37,29 @@ function tradingItems(chartId: string, symbol: string, price: number | undefined
     ? [{ label: `Buy Limit at ${label}`, action: () => openDialog({ kind: 'order', symbol, chartId, type: 'buyLimit', price: level }) }, { label: `Sell Stop at ${label}`, action: () => openDialog({ kind: 'order', symbol, chartId, type: 'sellStop', price: level }) }]
     : level > tick.ask
       ? [{ label: `Sell Limit at ${label}`, action: () => openDialog({ kind: 'order', symbol, chartId, type: 'sellLimit', price: level }) }, { label: `Buy Stop at ${label}`, action: () => openDialog({ kind: 'order', symbol, chartId, type: 'buyStop', price: level }) }]
+      : [];
+  return pending.length ? [...items, separator, ...pending] : items;
+}
+
+// The live Trading submenu's entries, for the backtest's simulated account at the replay price.
+function backtestItems(symbol: string, price: number | undefined, digits: number): MenuItem[] {
+  const state = backtest.get();
+  const quote = backtestQuote(state, symbol);
+  const positions = activeBacktest(state)?.book.positions.filter((position) => position.symbol === symbol) ?? [];
+  const items: MenuItem[] = [
+    { label: 'New Order', shortcut: 'F9', action: () => openDialog({ kind: 'backtestOrder', symbol }) },
+    { label: 'Buy by Market', action: () => openDialog({ kind: 'backtestOrder', symbol, type: 'buy' }) },
+    { label: 'Sell by Market', action: () => openDialog({ kind: 'backtestOrder', symbol, type: 'sell' }) },
+    { label: `Close All ${symbol}`, isDisabled: !positions.length, action: () => reportBacktest(closeBacktestPositions((position) => position.symbol === symbol)) },
+  ];
+  if (price === undefined || !quote) return items;
+  const level = Number(price.toFixed(digits));
+  const label = formatPrice(level, digits);
+  const at = (type: 'buyLimit' | 'sellLimit' | 'buyStop' | 'sellStop') => () => openDialog({ kind: 'backtestOrder', symbol, type, price: level });
+  const pending: MenuItem[] = level < quote.bid
+    ? [{ label: `Buy Limit at ${label}`, action: at('buyLimit') }, { label: `Sell Stop at ${label}`, action: at('sellStop') }]
+    : level > quote.ask
+      ? [{ label: `Sell Limit at ${label}`, action: at('sellLimit') }, { label: `Buy Stop at ${label}`, action: at('buyStop') }]
       : [];
   return pending.length ? [...items, separator, ...pending] : items;
 }
@@ -59,14 +83,18 @@ export function chartMenu(chartId: string, price?: number): MenuItem[] {
     { label: state.isChartMaximized ? 'Restore Layout' : 'Maximize Chart', shortcut: 'Alt+Enter', isDisabled: !isMultiChart, action: toggleMaximized },
     { label: 'Apply Indicators to All Charts', isDisabled: !others.length, action: () => applyIndicatorsToLayout(chartId) },
   ] : [];
-  // A replaying chart keeps the submenu's place, disabled, so the reason is where trading was.
-  const trading: MenuItem[] = state.isAnalysisMode ? [] : [
-    isReplayingChart(replay.get().session, chartId)
-      ? { label: replayTradingHint, isDisabled: true }
-      : { label: 'Trading', items: tradingItems(chartId, chart.symbol, price, digits) },
-    { label: 'Depth of Market', shortcut: 'Alt+B', action: () => toggleDepth(chart.symbol) },
-    separator,
-  ];
+  // A replaying chart keeps the submenu's place, disabled, so the reason is where trading was; in a
+  // running backtest it trades the backtest instead, in either mode.
+  const isBacktesting = isBacktestingChart(chartId);
+  const trading: MenuItem[] = isBacktesting
+    ? [{ label: 'Backtest', items: backtestItems(chart.symbol, price, digits) }, separator]
+    : state.isAnalysisMode ? [] : [
+      isReplayingChart(replay.get().session, chartId)
+        ? { label: replayTradingHint, isDisabled: true }
+        : { label: 'Trading', items: tradingItems(chartId, chart.symbol, price, digits) },
+      { label: 'Depth of Market', shortcut: 'Alt+B', action: () => toggleDepth(chart.symbol) },
+      separator,
+    ];
   return [
     ...trading,
     { label: 'Timeframes', items: chartTimeframes.map((timeframe) => ({ label: timeframe.label, isChecked: chart.timeframe === timeframe.label, action: () => setTimeframe(timeframe.label) })) },

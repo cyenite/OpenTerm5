@@ -36,6 +36,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   bar under the charts, an update interval, speeds from 10x to 0.1x, and starts from a bar, a date,
   the first available bar or a random bar. Shift+Right steps and Shift+Down plays. Longer timeframes
   show their current bar forming from bars of the update interval.
+- Backtesting on bar replay. A backtest session replays the layout from a start date (optionally to
+  an end date) while you trade a simulated account with its own balance, leverage, spread, slippage,
+  commission and stop out. Trade from the chart's buy and sell buttons, the backtest ticket (F9:
+  market, limit, stop and stop limit orders sized in lots or by risk), the context menu, the Risk
+  Order tool and draggable lines. Orders fill on the bars the replay passes, along each bar's
+  open, low, high and close (or high before low), with gaps filled at the opening price, from the
+  finest history available. Jump To moves on to the next Sydney, Tokyo, London or New York open or a
+  later date. A panel under the replay bar shows the account, positions, orders, closed trades with
+  R, MAE and MFE, statistics with an equity curve, and a journal; trades are marked on the chart.
+  Sessions save as they go and can be resumed, restarted or deleted; trades export to CSV.
 
 ### Changed
 

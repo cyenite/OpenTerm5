@@ -4001,3 +4001,319 @@ button.is-link {
   color: var(--muted);
 }
 
+
+/* The balance line pairs with the accent's equity line; both were checked for colour-blind
+   separation on the light and dark surfaces. */
+:root {
+  --series-balance: #eb6834;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --series-balance: #d95926;
+  }
+}
+
+:root[data-theme-mode='light'] {
+  --series-balance: #eb6834;
+}
+
+:root[data-theme-mode='dark'] {
+  --series-balance: #d95926;
+}
+
+.backtest-panel {
+  display: flex;
+  flex-direction: column;
+  height: 200px;
+  border-top: 1px solid var(--border-soft);
+  background: var(--surface);
+}
+
+.backtest-panel.is-collapsed {
+  height: auto;
+}
+
+.backtest-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 2px 6px;
+  background: var(--chrome);
+}
+
+.backtest-header > .tool-button {
+  flex: none;
+}
+
+.backtest-header .tool-button[aria-label='Show Backtest Panel'] .icon {
+  transform: rotate(180deg);
+}
+
+.backtest-name {
+  white-space: nowrap;
+}
+
+.backtest-figures {
+  display: flex;
+  flex: 1;
+  gap: 14px;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.backtest-figures div {
+  display: flex;
+  gap: 5px;
+  align-items: baseline;
+}
+
+.backtest-figures dt {
+  color: var(--muted);
+}
+
+.backtest-figures dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.backtest-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 10px;
+  background: rgb(255 149 0 / 0.13);
+  font-size: 11.5px;
+}
+
+.backtest-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.backtest-body .empty {
+  padding: 18px;
+}
+
+.backtest-panel .panel-tabs {
+  align-items: center;
+}
+
+.backtest-panel .panel-tabs .panel-tabs-action {
+  margin: 2px 6px;
+  padding: 2px 10px;
+  border: 0;
+}
+
+.backtest-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 300px;
+}
+
+.backtest-dialog > .segmented {
+  align-self: flex-start;
+}
+
+.backtest-sessions {
+  max-height: 420px;
+}
+
+.backtest-sessions tr.is-active td {
+  background: var(--accent-soft);
+}
+
+.backtest-sessions .grid td {
+  white-space: normal;
+}
+
+.backtest-sessions .grid td.num {
+  white-space: nowrap;
+}
+
+.backtest-sessions input {
+  width: 100%;
+}
+
+.backtest-row-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.backtest-row-actions button {
+  padding: 2px 9px;
+  min-height: 22px;
+}
+
+.backtest-form .dialog-actions {
+  align-items: center;
+  margin-top: 16px;
+}
+
+.backtest-form-problem {
+  margin-right: auto;
+  color: var(--muted);
+}
+
+.backtest-ticket > p {
+  margin: 0;
+}
+
+.backtest-statistics {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(260px, 2fr);
+  gap: 12px;
+  min-height: 100%;
+  padding: 10px 12px;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+  align-content: start;
+}
+
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  background: var(--surface-alt);
+  min-width: 0;
+}
+
+.stat-tile span {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.stat-tile strong {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-tile small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.equity-curve {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 160px;
+  margin: 0;
+}
+
+.equity-curve figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  font-size: 11.5px;
+}
+
+.equity-key::before {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 2px;
+  margin-right: 5px;
+  vertical-align: middle;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+.equity-key.is-balance::before {
+  background: var(--series-balance);
+}
+
+.equity-readout {
+  margin-left: auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.equity-readout b {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.equity-plot {
+  position: relative;
+  flex: 1;
+  min-height: 120px;
+}
+
+.equity-plot svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.equity-grid {
+  stroke: var(--border-soft);
+  stroke-width: 1;
+}
+
+.equity-start {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.equity-tick {
+  fill: var(--muted);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.equity-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.equity-line.is-equity {
+  stroke: var(--accent);
+}
+
+.equity-line.is-balance {
+  stroke: var(--series-balance);
+}
+
+.equity-dot {
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.equity-dot.is-equity {
+  fill: var(--accent);
+}
+
+.equity-dot.is-balance {
+  fill: var(--series-balance);
+}
+
+.equity-crosshair {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+
+@media (max-width: 900px) {
+  .backtest-statistics {
+    grid-template-columns: 1fr;
+  }
+}

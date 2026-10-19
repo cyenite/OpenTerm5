@@ -30,6 +30,8 @@ usually pay for as Expert Advisors, VPS add-ons or monthly subscriptions come bu
 
 - 📈 **Charts that feel like TradingView**, drawn by Meridian, OpenTerm5's own chart engine: 86 studies,
   82 drawing tools, layouts of up to 16 synced charts, bar replay, undo and redo.
+- 🧪 **Backtesting on replayed history**: trade a simulated account bar by bar, with realistic fills,
+  saved sessions and full statistics.
 - 🎯 **Risk-based orders.** Say "1% of balance, stop under that low", and OpenTerm5 works out the lots,
   commission included.
 - 🔁 **A trade copier** between any of your accounts, across brokers, with six sizing modes.
@@ -97,6 +99,14 @@ evens them out), and maximise the active chart with <kbd>Alt</kbd>+<kbd>Enter</k
 (<kbd>Shift</kbd>+<kbd>→</kbd>) or change the speed, and every chart moves together. Each shows only
 what had happened by then: a chart on a longer timeframe builds its current bar step by step, so H4
 and daily candles never give away their own future. Trading from a replaying chart is switched off.
+
+**Backtest by hand, on the same replay.** Start a session with a balance, leverage, spread,
+slippage and commission, then trade it from the chart: buy and sell buttons, limit, stop and stop
+limit orders, the risk planner and draggable stops. Orders fill on the bars the replay passes,
+stops and targets in the order each bar traded, and gaps at the opening price. Jump to the next
+London or New York open, and read the results as R multiples, win rate, profit factor, drawdown and
+an equity curve. Sessions save as you go and resume where they stopped.
+[How backtesting works](docs/user-guide/backtesting.md).
 
 ![Bar replay across four charts at 08:30: EURUSD H1, H4 and M15 and XAUUSD D1, each cut at the same moment, with the replay bar below](docs/images/screenshots/bar-replay.png)
 
@@ -210,6 +220,9 @@ TradingView theme.
   visibility.
 - Layouts of 1 to 16 charts per tab with symbol, interval, crosshair, time, date range and drawing
   sync, and bar replay that runs every chart of a layout on one clock.
+- Backtesting sessions on the replay: a simulated account with spread, slippage, commission,
+  leverage and stop out; market, limit, stop and stop limit orders filled along each bar; R, MAE and
+  MFE per trade; statistics, an equity curve and CSV export.
 - Undo and redo, copy and paste between charts and an object tree.
 - Price alerts drawn on the chart, and Chart Settings saved with each chart and its templates.
 - Older history loads as you scroll, panes resize and axes drag.

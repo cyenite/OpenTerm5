@@ -41,6 +41,7 @@ import {
 } from '../lib/workspace';
 import { chartTimeframes } from '../lib/mt5-timeframes';
 import { useIsReplayingChart } from '../lib/replay-session';
+import { useIsBacktestingChart } from '../lib/backtest/runtime';
 
 export interface MenuItem {
   label: string;
@@ -60,6 +61,7 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
   const chart = activeChart(state);
   const hasChart = chart !== undefined;
   const isReplaying = useIsReplayingChart(chart?.id);
+  const isBacktesting = useIsBacktestingChart(chart?.id);
   const symbolObjectCount = useStore(symbolDrawings, (current) => (chart ? drawingsForSymbol(current, chart.symbol).length : 0));
   const tab = activeTab(state);
   const isMultiChart = !!tab && visibleChartIds(tab).length > 1;
@@ -162,7 +164,8 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
     {
       label: 'Tools',
       items: [
-        ...unlessAnalysis([{ label: 'New Order', shortcut: 'F9', isDisabled: isReplaying, action: () => newOrder() }]),
+        ...(isBacktesting ? [{ label: 'New Backtest Order', shortcut: 'F9', action: () => newOrder() }] : unlessAnalysis([{ label: 'New Order', shortcut: 'F9', isDisabled: isReplaying, action: () => newOrder() }])),
+        { label: 'Backtesting...', action: () => openDialog({ kind: 'backtests' }) },
         { label: 'Price Alerts...', action: () => openDialog({ kind: 'alerts' }) },
         ...unlessAnalysis([{ label: 'One Click Trading', isChecked: state.isOneClickEnabled, action: toggleOneClick }]),
         separator,

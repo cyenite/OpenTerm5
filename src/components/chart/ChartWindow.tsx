@@ -24,6 +24,9 @@ import { OneClickPanel } from './OneClickPanel';
 import { TradeOverlay } from './TradeOverlay';
 import { SigningIn } from '../ui/SigningIn';
 import { pineScriptsReady } from '../../lib/pine/pine-scripts';
+import { activeBacktest, backtest, useIsBacktestingChart } from '../../lib/backtest/runtime';
+import { netOf } from '../../lib/backtest/stats';
+import { BacktestOverlay, BacktestTradePanel } from '../backtest/BacktestOverlay';
 
 interface ChartWindowProps {
   chart: ChartConfig;
@@ -102,6 +105,8 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
   const isOneClickEnabled = useStore(workspace, (state) => state.isOneClickEnabled && !state.isAnalysisMode);
   const isTradeOverlayShown = useStore(workspace, (state) => !state.isAnalysisMode || state.isAnalysisPositionsShown);
   const isReplaying = useIsReplayingChart(chart.id);
+  const isBacktesting = useIsBacktestingChart(chart.id);
+  const backtestBook = useStore(backtest, (state) => (isBacktesting ? activeBacktest(state)?.book : undefined));
   const isCollectingTicks = useCollectingTicks(chart);
   const isLinked = useStore(session, (state) => state.link.state === 'open' && (state.status?.mode !== 'mt5-web' || !!state.account));
   const signIn = useStore(session, signingIn);
@@ -310,6 +315,16 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
     instance?.setPriceLines(lines);
   }, [instance, ask, theme, alerts]);
   useEffect(() => void requireSymbols([chart.symbol]), [chart.symbol]);
+  // A backtest marks its trades on the bars they opened and closed in.
+  useEffect(() => {
+    if (!instance) return;
+    const trades = backtestBook?.trades.filter((trade) => trade.symbol === chart.symbol) ?? [];
+    const positions = backtestBook?.positions.filter((position) => position.symbol === chart.symbol) ?? [];
+    instance.setTradeMarkers([
+      ...trades.map((trade) => ({ id: `trade-${trade.ticket}`, side: trade.side, openTime: trade.openTime, openPrice: trade.priceOpen, closeTime: trade.closeTime, closePrice: trade.priceClose, isProfit: netOf(trade) > 0 })),
+      ...positions.map((position) => ({ id: `position-${position.ticket}`, side: position.side, openTime: position.time, openPrice: position.priceOpen })),
+    ]);
+  }, [instance, backtestBook?.trades, backtestBook?.positions, chart.symbol]);
 
   useEffect(() => {
     if (isActive) cursor.set({ digits, symbol: chart.symbol, hasSeconds: isSecondsTimeframe(chart.timeframe) });
@@ -351,9 +366,11 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
       onMouseDown={() => focusChart(chart.id)}
     >
       <div className="chart-canvas" ref={container} data-tool={tool} />
-      {isTradeOverlayShown && <TradeOverlay chart={instance} symbol={chart.symbol} digits={digits} isReplaying={isReplaying} />}
-      {isOneClickEnabled && !isReplaying && <OneClickPanel symbol={chart.symbol} digits={digits} />}
-      {isOneClickEnabled && isReplaying && <div className="one-click-off" role="status">{replayTradingHint}</div>}
+      {isBacktesting && <BacktestOverlay chart={instance} symbol={chart.symbol} digits={digits} />}
+      {isBacktesting && <BacktestTradePanel symbol={chart.symbol} digits={digits} />}
+      {!isBacktesting && isTradeOverlayShown && <TradeOverlay chart={instance} symbol={chart.symbol} digits={digits} isReplaying={isReplaying} />}
+      {!isBacktesting && isOneClickEnabled && !isReplaying && <OneClickPanel symbol={chart.symbol} digits={digits} />}
+      {!isBacktesting && isOneClickEnabled && isReplaying && <div className="one-click-off" role="status">{replayTradingHint}</div>}
       {signIn && <div className="chart-status"><SigningIn signIn={signIn} /></div>}
       {!signIn && !isLinked && <div className="chart-status">Waiting for connection</div>}
       {!signIn && isLinked && isCollectingTicks && <div className="chart-status">Building {chart.timeframe} bars from live quotes. Seconds charts start when OpenTerm5 receives the symbol's first quotes.</div>}

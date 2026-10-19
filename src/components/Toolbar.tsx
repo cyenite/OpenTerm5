@@ -14,6 +14,7 @@ import { visibleChartIds } from '../lib/chart-tabs';
 import { exitReplay, replay, setReplayMode, startReplay } from '../lib/replay';
 import { replayModes } from '../lib/replay-model';
 import { replayTradingHint, useIsReplayingChart } from '../lib/replay-session';
+import { backtest, useIsBacktestingChart } from '../lib/backtest/runtime';
 import { drawingSyncMenuItems } from '../lib/layout-menu';
 import { activeChart, activeTab, chartTypes, openChart, openDialog, openTab, toggleAnalysisPositions, workspace, type ChartType } from '../lib/workspace';
 import { LayoutPicker } from './chart/LayoutPicker';
@@ -202,6 +203,15 @@ function ReplayButton({ isDisabled }: ReplayButtonProps) {
   );
 }
 
+interface BacktestButtonProps {
+  isDisabled: boolean;
+}
+
+function BacktestButton({ isDisabled }: BacktestButtonProps) {
+  const isRunning = useStore(backtest, (state) => !!state.activeId);
+  return <ToolButton icon="backtest" text="Backtest" textLevel={1} isActive={isRunning} isDisabled={isDisabled} hint={{ title: 'Backtesting', description: 'Replay history bar by bar and trade a simulated account. Sessions are saved with their trades and statistics.' }} onClick={() => openDialog({ kind: 'backtests' })} />;
+}
+
 // TradingView shows drawing sync only where there is another chart to sync with.
 function DrawingSyncMenu() {
   const isMultiChart = useStore(workspace, (state) => { const tab = activeTab(state); return !!tab && visibleChartIds(tab).length > 1; });
@@ -216,11 +226,12 @@ function TradingActions() {
   const chartId = useStore(workspace, (state) => activeChart(state)?.id);
   const isOneClickEnabled = useStore(workspace, (state) => state.isOneClickEnabled);
   const isReplaying = useIsReplayingChart(chartId);
+  const isBacktesting = useIsBacktestingChart(chartId);
   return (
     <ToolGroup label="Trading">
       <ToolButton icon="riskOrder" isActive={tool === 'riskOrder'} hint={{ title: 'Risk Order', description: 'Drag the entry, then the stop loss and take profit on the chart; the volume follows your risk setting.' }} onClick={() => workspace.set({ tool: tool === 'riskOrder' ? 'cursor' : 'riskOrder' })} />
       <ToolButton icon="oneClick" text="One-Click" textLevel={1} isActive={isOneClickEnabled} hint={{ title: 'One-Click Trading', description: 'Buy and sell from the chart immediately, without a confirmation ticket.' }} onClick={toggleOneClick} />
-      <ToolButton text="New Order" isPrimary isDisabled={isReplaying} hint={{ title: 'New Order', shortcut: 'F9', description: isReplaying ? `${replayTradingHint}.` : 'Open the order ticket for the active symbol.' }} onClick={() => newOrder()} />
+      <ToolButton text="New Order" isPrimary isDisabled={isReplaying && !isBacktesting} hint={{ title: 'New Order', shortcut: 'F9', description: isBacktesting ? 'An order in the running backtest.' : isReplaying ? `${replayTradingHint}.` : 'Open the order ticket for the active symbol.' }} onClick={() => newOrder()} />
     </ToolGroup>
   );
 }
@@ -250,6 +261,7 @@ export function Toolbar() {
         <IndicatorsButton chartId={chart?.id} />
         <ToolButton icon="alert" text="Alert" textLevel={1} hint={{ title: 'Price Alerts', description: 'Get notified when price reaches a level.' }} onClick={() => openDialog({ kind: 'alerts' })} />
         <ReplayButton isDisabled={!ui} />
+        <BacktestButton isDisabled={!ui} />
       </ToolGroup>
       <span className="toolbar-divider" />
       <ToolGroup label="Edit">

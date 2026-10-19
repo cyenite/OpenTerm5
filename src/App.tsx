@@ -13,6 +13,8 @@ import { AccountsDialog } from './components/dialogs/AccountsDialog';
 import { WorkspacePresetDialog } from './components/dialogs/WorkspacePresetDialog';
 import { TradingViewDialog } from './components/dialogs/TradingViewDialog';
 import { IndicatorsDialog } from './components/dialogs/IndicatorsDialog';
+import { BacktestDialog } from './components/backtest/BacktestDialog';
+import { BacktestOrderDialog, BacktestOrderEditDialog, BacktestPositionDialog } from './components/backtest/BacktestTickets';
 import { useEffect } from 'react';
 import { AppBar } from './components/AppBar';
 import { ChartWorkspace } from './components/ChartWorkspace';
@@ -60,6 +62,10 @@ function ActiveDialog({ dialog }: ActiveDialogProps) {
     case 'alerts': return <PriceAlertsDialog />;
     case 'tradingview': return <TradingViewDialog />;
     case 'indicators': return <IndicatorsDialog initialSection={dialog.section} />;
+    case 'backtests': return <BacktestDialog />;
+    case 'backtestOrder': return <BacktestOrderDialog initialSymbol={dialog.symbol} initialType={dialog.type} initialPrice={dialog.price} />;
+    case 'backtestPosition': return <BacktestPositionDialog ticket={dialog.ticket} />;
+    case 'backtestOrderEdit': return <BacktestOrderEditDialog ticket={dialog.ticket} />;
     case 'about':
       return <AboutDialog />;
   }

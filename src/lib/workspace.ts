@@ -88,6 +88,11 @@ export type Dialog =
   | { kind: 'template'; chartId: string }
   | { kind: 'tradingview' }
   | { kind: 'indicators'; section?: IndicatorSection }
+  | { kind: 'backtests' }
+  // Backtest tickets trade the simulated account, so analysis mode does not withhold them.
+  | { kind: 'backtestOrder'; symbol: string; type?: OrderTypeKey; price?: number }
+  | { kind: 'backtestPosition'; ticket: number }
+  | { kind: 'backtestOrderEdit'; ticket: number }
   | { kind: 'about' };
 
 export interface WorkspaceState {

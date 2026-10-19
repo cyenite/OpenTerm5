@@ -42,6 +42,7 @@ OpenTerm5 follows MetaTrader 5's shortcuts where they exist. On macOS, use **Cmd
 | Alt+Enter | Maximise the active chart, or restore the layout |
 | Shift+Right | Bar replay: step forward |
 | Shift+Down | Bar replay: play or pause |
+| F9 (on a chart in a backtest) | Backtest order ticket |
 
 These work while a chart has the keyboard focus (click it first):
 
