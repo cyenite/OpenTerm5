@@ -25,6 +25,8 @@ export interface CopyMapping {
   masterTarget: number;
   masterPrice: number;
   createdAt: number;
+  // When the copy was first missing from a follower snapshot; cleared when it shows up again.
+  missingSince?: number;
 }
 
 export interface Protection {
@@ -55,6 +57,10 @@ export interface CopierDeps {
 
 const MASTER_POLL_MS = 500;
 const UNKNOWN_ADOPT_MS = 60_000;
+// A follower snapshot taken just before a copy filled does not list it yet; seen live on
+// 2026-10-19, where every copy was declared closed 1 ms after it opened. A copy counts as gone only
+// after it has been missing this long.
+const MISSING_GRACE_MS = 10_000;
 const TRANSIENT_RETCODES = new Set([10004, 10018, 10020, 10021, 10024]);
 const RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000, 60_000, 120_000, 240_000, 420_000];
 const user = (copierId: string) => `copier:${copierId}`;
@@ -244,8 +250,10 @@ export class Copier extends EventEmitter {
     return this.state.mappings.find((mapping) => mapping.copierId === copierId && mapping.followerId === followerId && mapping.masterTicket === masterTicket && (!kind || mapping.kind === kind));
   }
 
+  // Patches the stored mapping, not the caller's copy, which may be older than a change made
+  // since (a close that finishes after the master closed would otherwise reopen it).
   private update(mapping: CopyMapping, patch: Partial<CopyMapping>): CopyMapping {
-    const next = { ...mapping, ...patch };
+    const next = { ...(this.state.mappings.find((item) => item.id === mapping.id) ?? mapping), ...patch };
     this.state.mappings = this.state.mappings.map((item) => item.id === mapping.id ? next : item);
     this.persist();
     return next;
@@ -254,6 +262,20 @@ export class Copier extends EventEmitter {
   private drop(mapping: CopyMapping): void {
     this.state.mappings = this.state.mappings.filter((item) => item.id !== mapping.id);
     this.persist();
+  }
+
+  // Whether a copy the follower snapshot does not list is really gone, rather than not listed yet.
+  private isGone(mapping: CopyMapping, isListed: boolean): boolean {
+    const stored = this.state.mappings.find((item) => item.id === mapping.id) ?? mapping;
+    if (isListed) {
+      if (stored.missingSince !== undefined) this.update(stored, { missingSince: undefined });
+      return false;
+    }
+    if (stored.missingSince === undefined) {
+      this.update(stored, { missingSince: this.now() });
+      return false;
+    }
+    return this.now() - stored.missingSince >= MISSING_GRACE_MS;
   }
 
   private enqueue(followerId: string, work: () => Promise<void>): Promise<void> {
@@ -339,7 +361,7 @@ export class Copier extends EventEmitter {
       if (mapping?.kind === 'order') {
         const filled = snapshot.positions.find((item) => item.ticket === mapping!.followerTicket);
         const stillPending = snapshot.orders.find((item) => item.ticket === mapping!.followerTicket);
-        if (filled) mapping = this.update(mapping, { kind: 'position', status: 'open', followerVolume: filled.volume, masterVolume: position.volume, masterStop: position.sl, masterTarget: position.tp });
+        if (filled) mapping = this.update(mapping, { kind: 'position', status: 'open', followerVolume: filled.volume, masterVolume: position.volume, masterStop: position.sl, masterTarget: position.tp, missingSince: undefined });
         else if (stillPending) {
           const pending = mapping;
           await this.enqueue(follower.id, async () => {
@@ -348,7 +370,8 @@ export class Copier extends EventEmitter {
             if (result.isSuccess) this.drop(pending);
           });
           continue;
-        } else { this.drop(mapping); mapping = undefined; }
+        } else if (!this.isGone(mapping, false)) continue;
+        else { this.drop(mapping); mapping = undefined; }
       }
       if (!mapping) {
         if (ignored.has(position.ticket) || !isOpeningAllowed) continue;
@@ -361,13 +384,20 @@ export class Copier extends EventEmitter {
         continue;
       }
       if (mapping.status === 'unknown') { this.adopt(config, follower, snapshot, mapping); continue; }
+      // Copies wrongly taken for closed before the missing-copy grace existed, or after a long
+      // snapshot gap, are managed again while both sides are still open.
+      if (mapping.status === 'closed' && mapping.reason === 'closed on the follower' && snapshot.positions.some((item) => item.ticket === mapping!.followerTicket)) {
+        mapping = this.update(mapping, { status: 'open', reason: 'still open on the follower', missingSince: undefined });
+        this.log({ copierId: config.id, followerId: follower.id, event: 'reconcile', status: 'ok', symbol: mapping.symbol, message: `Follower #${mapping.followerTicket} is still open; following master #${position.ticket} again`, masterTicket: position.ticket, followerTicket: mapping.followerTicket });
+      }
       if (mapping.status !== 'open') continue;
       const copy = snapshot.positions.find((item) => item.ticket === mapping!.followerTicket);
-      if (!copy) {
+      if (this.isGone(mapping, !!copy)) {
         this.update(mapping, { status: 'closed', reason: 'closed on the follower' });
         this.log({ copierId: config.id, followerId: follower.id, event: 'close', status: 'ok', symbol: mapping.symbol, message: `Follower #${mapping.followerTicket} closed on its own (stop or manual); master #${position.ticket} is still open`, masterTicket: position.ticket, followerTicket: mapping.followerTicket });
         continue;
       }
+      if (!copy) continue;
       if (position.volume < mapping.masterVolume - 1e-9) {
         const current = mapping;
         const spec = await this.spec(link, follower.accountId, copy.symbol);
@@ -392,6 +422,8 @@ export class Copier extends EventEmitter {
           void this.enqueue(follower.id, () => this.close(config, follower, link, mapping, copy, copy.volume, 'close'));
           continue;
         }
+        // The master closed before the follower's snapshot listed the copy; wait for it to close it.
+        if (!this.isGone(mapping, false)) continue;
       }
       if (mapping.status !== 'opening') this.drop(mapping);
     }
@@ -420,6 +452,7 @@ export class Copier extends EventEmitter {
     for (const mapping of this.state.mappings.filter((item) => item.copierId === config.id && item.followerId === follower.id && item.kind === 'order')) {
       if (live.has(mapping.masterTicket)) continue;
       const copy = snapshot.orders.find((item) => item.ticket === mapping.followerTicket);
+      if (!copy && mapping.status === 'open' && !this.isGone(mapping, false)) continue;
       this.drop(mapping);
       if (copy) void this.enqueue(follower.id, async () => {
         const result = await this.send(link, { action: 'remove', order: copy.ticket });
