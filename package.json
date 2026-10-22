@@ -44,7 +44,7 @@
     "icons": "electron scripts/render-icons.cjs"
   },
   "dependencies": {
-    "react": "19.3.0",
+    "react": "19.3.1",
     "react-dom": "19.3.0",
     "ws": "8.22.0"
   },
