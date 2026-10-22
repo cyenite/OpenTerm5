@@ -2,12 +2,14 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, screen, session, shell, type
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { Account, AccountProfile, AccountSignIn, TerminalEvent, TerminalMethod, ConnectionSettings, JournalEntry } from '../shared/protocol';
+import { bybitEnvironment, type Account, type AccountProfile, type AccountSignIn, type ExchangeLogin, type Platform, type TerminalEvent, type TerminalMethod, type ConnectionSettings, type JournalEntry } from '../shared/protocol';
 import type { JournalingEvent, JournalingMethod } from '../shared/journaling';
 import { loadSettings, saveSettings } from './settings';
 import { migrateLegacyProfile } from './legacy-migration';
 import { Mt5WebLink } from './mt5-web-link';
 import { Mt5WebClient } from './mt5-web-client';
+import { BybitLink } from './bybit-link';
+import { UiLink } from './ui-link';
 import { BotCheckError } from './bot-check';
 import { browserFetch, openBrowserSocket, verifyBrokerAccess } from './browser-network';
 import { loadAccounts, secretCipher } from './accounts';
@@ -21,7 +23,7 @@ import { orderType } from '../shared/protocol';
 import { parseSettings } from './connection-settings';
 import { BrokerDirectory } from './broker-directory';
 import { DeviceIdentity, navigatorPlatform } from './device-identity';
-import type { AccountRegistry } from './account-registry';
+import { exchangeAccountId, type AccountRegistry } from './account-registry';
 import type { TerminalMethods } from '../shared/protocol';
 import { JournalingService } from './journaling';
 import { findConnectLink, protocolScheme } from './journaling-links';
@@ -35,7 +37,9 @@ const device = new DeviceIdentity(path.join(app.getPath('userData'), 'device.jso
   return { scale: display.scaleFactor, width: display.size.width, height: display.size.height, platform: navigatorPlatform(process.platform, process.arch), language: app.getLocale() };
 });
 const createLink = () => new Mt5WebLink((endpoint) => new Mt5WebClient(endpoint, openBrowserSocket, device.clientId));
-const direct = createLink();
+const createPlatformLink = (platform: Platform) => platform === 'bybit' ? new BybitLink() : createLink();
+const mt5 = createLink();
+const direct = new UiLink(mt5);
 let automation: AutomationHost | undefined;
 let journaling: JournalingService | undefined;
 let isChanging = false;
@@ -82,13 +86,9 @@ function receiveLink(link: string): void {
 }
 
 const pool = new SessionPool(direct, (accountId) => {
-  if (!accounts) return undefined;
-  try {
-    const profile = accounts.get(accountId);
-    const password = accounts.password(accountId);
-    return password ? { login: profile.login, password, endpoint: profile.webEndpoint } : undefined;
-  } catch { return undefined; }
-}, createLink);
+  try { return accounts?.credentials(accountId); }
+  catch { return undefined; }
+}, createPlatformLink);
 
 function leaveAccount(): void {
   const previous = activeAccount;
@@ -104,8 +104,9 @@ function journal(message: string, source = 'Terminal'): void {
 }
 
 async function applySettings(): Promise<void> {
-  direct.disconnect();
-  try { await direct.connect(settings.webEndpoint); }
+  direct.use(mt5);
+  mt5.disconnect();
+  try { await mt5.connect(settings.webEndpoint); }
   catch (error) { journal((error as Error).message, 'Network'); }
 }
 
@@ -253,13 +254,14 @@ async function loginAccount(params: TerminalMethods['account.login'][0]) {
   const next = parseSettings({ webEndpoint: params.webEndpoint ?? settings.webEndpoint });
   leaveAccount();
   send('accountChanged', { id: null });
-  direct.disconnect();
+  direct.use(mt5);
+  mt5.disconnect();
   // Each connection creates its client from device.clientId, so a new ID applies to this login.
   if (params.isUniqueClientIdRequested && await device.ensureUnique()) journal('This computer now sends a unique client ID at login.', 'Accounts');
   await pool.beforeUiLogin(`${next.webEndpoint}|${params.login}`);
   await saveSettings(next);
   settings = next;
-  await direct.connect(settings.webEndpoint);
+  await mt5.connect(settings.webEndpoint);
   const account = await direct.request('account.login', { login: params.login, password: params.password, ...(params.otp ? { otp: params.otp } : {}) });
   pool.afterUiChange(`${settings.webEndpoint}|${account.login}`, null);
   void brokers().remember(account.server, settings.webEndpoint, account.company).catch(() => undefined);
@@ -274,6 +276,49 @@ async function loginAccount(params: TerminalMethods['account.login'][0]) {
   uiAccount = account;
   journaling?.setActive(account);
   return account;
+}
+
+function exchangeTarget(params: ExchangeLogin): SignInTarget {
+  const environment = bybitEnvironment(params.environment);
+  const server = `Bybit ${environment?.label ?? params.environment}`;
+  const known = accounts?.list().find((profile) => profile.platform === 'bybit' && profile.webEndpoint === environment?.restUrl && profile.label === params.label?.trim());
+  return { id: known?.id ?? null, label: params.label?.trim() || known?.label || server, server, login: known?.login ?? 0 };
+}
+
+async function loginExchange(params: ExchangeLogin): Promise<Account> {
+  if (params.platform !== 'bybit' || !bybitEnvironment(params.environment)) throw new Error('Choose a Bybit environment.');
+  if (params.isPasswordSaved && !accounts?.canSavePasswords()) throw new Error('Secure storage is unavailable. Leave Save API secret unchecked.');
+  leaveAccount();
+  send('accountChanged', { id: null });
+  const link = new BybitLink();
+  direct.use(link);
+  let account: Account;
+  try {
+    account = await link.signIn({ platform: 'bybit', environment: params.environment, apiKey: params.apiKey, apiSecret: params.apiSecret });
+  } catch (error) {
+    await applySettings();
+    throw error;
+  }
+  const id = exchangeAccountId(params.environment, account.login);
+  await pool.beforeUiLogin(id);
+  pool.afterUiChange(id, null);
+  activeAccount = id;
+  if (accounts) {
+    try {
+      const profile = await accounts.rememberExchange(account, params.environment, { apiKey: params.apiKey.trim(), apiSecret: params.apiSecret.trim() }, params.label, params.isPasswordSaved);
+      activeAccount = profile.id;
+      send('accounts', accountProfiles());
+    } catch { journal('Connected, but the account profile could not be saved.', 'Accounts'); }
+  }
+  send('accountChanged', { id: activeAccount });
+  uiAccount = account;
+  return account;
+}
+
+function savedExchangeLogin(profile: AccountProfile, isPasswordSaved: boolean): ExchangeLogin {
+  const credentials = accounts!.credentials(profile.id);
+  if (credentials?.platform !== 'bybit') throw new Error('Enter the API key and secret for this saved account.');
+  return { platform: 'bybit', environment: credentials.environment, apiKey: credentials.apiKey, apiSecret: credentials.apiSecret, label: profile.label, isPasswordSaved };
 }
 
 ipcMain.handle('terminal:request', async (_event, method: TerminalMethod, params: unknown) => {
@@ -291,10 +336,15 @@ ipcMain.handle('terminal:request', async (_event, method: TerminalMethod, params
       const values = params as TerminalMethods['account.login'][0];
       return { result: await changeConnection(() => signingIn(loginTarget(values), () => clearingBotCheck(() => loginAccount(values)))) };
     }
+    if (method === 'exchange.login') {
+      const values = params as TerminalMethods['exchange.login'][0];
+      return { result: await changeConnection(() => signingIn(exchangeTarget(values), () => loginExchange(values))) };
+    }
     if (method === 'accounts.connect') return { result: await changeConnection(async () => {
       if (!accounts) throw new Error('Account storage is unavailable.');
       const values = params as TerminalMethods['accounts.connect'][0];
       const profile = accounts.get(values.id);
+      if (profile.platform === 'bybit') return signingIn(profileTarget(profile), () => loginExchange(savedExchangeLogin(profile, values.isPasswordSaved ?? profile.isPasswordSaved)));
       return signingIn(profileTarget(profile), () => {
         const password = values.password ?? accounts!.password(values.id);
         if (!password) throw new Error('Enter the password for this saved account.');
@@ -407,7 +457,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     await journaling.init();
     const recent = accounts?.list()[0];
-    const automatic = recent?.isPasswordSaved && recent.hasPassword && recent.webEndpoint === settings.webEndpoint ? recent : undefined;
+    const automatic = recent?.isPasswordSaved && recent.hasPassword && (recent.platform === 'bybit' || recent.webEndpoint === settings.webEndpoint) ? recent : undefined;
     // Announced before the window loads and before the endpoint connects, so the window never looks logged out meanwhile.
     if (automatic) setSignIn({ ...profileTarget(automatic), state: 'signing-in' });
     const announced = signIn;
@@ -416,6 +466,7 @@ if (!app.requestSingleInstanceLock()) {
     if (automatic) {
       try {
         await changeConnection(() => signingIn(profileTarget(automatic), () => {
+          if (automatic.platform === 'bybit') return loginExchange(savedExchangeLogin(automatic, true));
           const password = accounts!.password(automatic.id);
           if (!password) throw new Error('The saved password is unavailable');
           return loginAccount({ login: automatic.login, password, webEndpoint: automatic.webEndpoint, label: automatic.label, isPasswordSaved: true });
@@ -448,4 +499,5 @@ app.on('before-quit', () => {
   journaling?.shutdown();
   pool.shutdown();
   direct.disconnect();
+  mt5.disconnect();
 });

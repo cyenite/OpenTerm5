@@ -1,4 +1,4 @@
-import type { SymbolSpec } from '../../shared/protocol';
+import type { Platform, SymbolSpec } from '../../shared/protocol';
 import { matchSymbol } from '../../shared/symbol-match';
 import { log, session, setWatchedSymbols } from './session';
 import { Store, useStore } from './store';
@@ -9,24 +9,34 @@ import {
   type Resolve, type Watchlist, type WatchlistsState, type WatchRow,
 } from './watchlist-model';
 
-const STORAGE_KEY = 'openterm.watchlists.v2';
+// MT5 and exchange accounts keep separate lists: forex names do not exist on a crypto exchange.
+const storageKeys: Record<Platform, string> = { mt5: 'openterm.watchlists.v2', bybit: 'openterm.watchlists.bybit.v1' };
 const LEGACY_KEY = 'openterm.watchlists.v1';
 
-function load(): WatchlistsState {
+function load(platform: Platform): WatchlistsState {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(storageKeys[platform]);
     const restored = saved ? restoreWatchlists(JSON.parse(saved)) : null;
     if (restored) return restored;
     if (saved) log('Saved watchlists were unreadable; starting from the default list.', 'Market Watch');
+    if (platform !== 'mt5') return defaultWatchlists(newId(), platform);
     const legacy = localStorage.getItem(LEGACY_KEY);
     return importLegacySets(defaultWatchlists(newId()), legacy ? JSON.parse(legacy) : null, newId);
   } catch (error) {
     log(`Saved watchlists could not be read: ${(error as Error).message}`, 'Market Watch');
-    return defaultWatchlists(newId());
+    return defaultWatchlists(newId(), platform);
   }
 }
 
-export const watchlists = new Store<WatchlistsState>(load());
+let platform: Platform = 'mt5';
+
+export const watchlists = new Store<WatchlistsState>(load(platform));
+
+// Logged out, the last platform's lists stay on screen.
+function activePlatform(): Platform | null {
+  const { accounts, profileId } = session.get();
+  return accounts.find((profile) => profile.id === profileId)?.platform ?? null;
+}
 
 const resolvers = new WeakMap<Record<string, SymbolSpec>, Resolve>();
 
@@ -165,16 +175,25 @@ export function startWatchlists(): void {
   let isSaveFailing = false;
   const save = () => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(watchlists.get()));
+      localStorage.setItem(storageKeys[platform], JSON.stringify(watchlists.get()));
       isSaveFailing = false;
     } catch (error) {
       if (!isSaveFailing) log(`Watchlists could not be saved: ${(error as Error).message}`, 'Market Watch');
       isSaveFailing = true;
     }
   };
+  const follow = () => {
+    const next = activePlatform();
+    if (!next || next === platform) return;
+    save();
+    platform = next;
+    watchlists.set(load(next));
+  };
   save();
   watchlists.subscribe(save);
   watchlists.subscribe(sync);
+  session.subscribe(follow);
   session.subscribe(sync);
+  follow();
   sync();
 }

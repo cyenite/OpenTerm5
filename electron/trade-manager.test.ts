@@ -266,3 +266,40 @@ test('a news blackout blocks opening trades on affected currencies', async () =>
   assert.match(await manager.canOpen(ACCOUNT, 'EURUSD', 0.1) ?? '', /News blackout for EURUSD: USD CPI m\/m/);
   assert.deepEqual(seen.at(-1), ['EUR', 'USD'], 'currencies come from the symbol record');
 });
+
+async function exchangeSetup() {
+  const link = new FakeLink();
+  const pool = new SessionPool(link, () => undefined, () => new FakeLink());
+  pool.afterUiChange('bybit:demo|1', null);
+  const manager = new TradeManager(pool, memoryStore<ManagerState>({ rules: [], guards: [], guardStates: [], requestCounts: [] }), () => {}, () => Date.UTC(2026, 9, 13, 12));
+  await manager.init();
+  const check = { retcode: 0, isSuccess: true, comment: '', margin: 120, equity: 10000, balance: 10000, marginFree: 9000, marginLevel: 0, hasMarginEstimate: true, leverage: 10, maintenanceRate: 0.005 };
+  return { link, manager, check };
+}
+
+test('exchange risk orders report margin and refuse a stop beyond liquidation', async () => {
+  const { link, manager, check } = await exchangeSetup();
+  link.check = { ...check, liquidationPrice: 1.05 };
+  const preview = await manager.placeRisk({ accountId: 'bybit:demo|1', type: 'buy', mode: 'money', value: 50, symbol: 'EURUSD', stopLoss: { unit: 'pips', value: 50 }, isDryRun: true });
+  assert.deepEqual([preview.margin, preview.leverage, preview.liquidationPrice], [120, 10, 1.05]);
+  assert.equal(Number(preview.safeLeverage!.toFixed(2)), Number((1 / (1.5 * 0.005 / 1.1001 + 0.005)).toFixed(2)));
+  assert.equal(preview.warnings.length, 0);
+  link.check = { ...check, liquidationPrice: 1.094 };
+  const close = await manager.placeRisk({ accountId: 'bybit:demo|1', type: 'buy', mode: 'money', value: 50, symbol: 'EURUSD', stopLoss: { unit: 'pips', value: 50 }, isDryRun: true });
+  assert.match(close.warnings.join(' '), /close behind the stop/);
+  link.check = { ...check, liquidationPrice: 1.098 };
+  await assert.rejects(manager.placeRisk({ accountId: 'bybit:demo|1', type: 'buy', mode: 'money', value: 50, symbol: 'EURUSD', stopLoss: { unit: 'pips', value: 50 } }), /liquidation price 1.09800 comes before the stop loss 1.09510. Use \d+(\.\d+)?x or less/);
+  link.check = { ...check, isSuccess: false, comment: 'Not enough free margin' };
+  await assert.rejects(manager.placeRisk({ accountId: 'bybit:demo|1', type: 'buy', mode: 'money', value: 50, symbol: 'EURUSD', stopLoss: { unit: 'pips', value: 50 } }), /Not enough free margin/);
+  assert.equal(link.sent.length, 0);
+});
+
+test('legs that land in one netted position share one management rule sized to their sum', async () => {
+  const { link, manager, check } = await exchangeSetup();
+  link.check = check;
+  link.respond = () => ({ retcode: 10009, isSuccess: true, comment: 'Done', order: 900 + link.sent.length, position: 77 });
+  await manager.placeRisk({ accountId: 'bybit:demo|1', type: 'buy', mode: 'percentBalance', value: 1, symbol: 'EURUSD', stopLoss: { unit: 'pips', value: 50 }, takeProfitR: [1, 2], management: { breakEvenR: 1 } });
+  const rules = manager.state().rules;
+  assert.equal(rules.length, 1);
+  assert.deepEqual([rules[0].ticket, rules[0].initialVolume], [77, 0.2]);
+});

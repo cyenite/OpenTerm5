@@ -96,6 +96,8 @@ export function TradeOverlay({ chart: controller, symbol, digits, isReplaying, i
   const { positions, orders } = venue;
   const preferences = useStore(riskPreferences, (state) => state);
   const currency = venue.account?.currency ?? '';
+  // Exchange fees are a share of the traded value, which the trade manager reads from the exchange.
+  const isExchange = useStore(session, (state) => state.status?.mode === 'bybit');
   const isOneClick = useStore(workspace, (state) => state.isOneClickEnabled);
   const assistant = useStore(assistantPlan, (state) => state.plan?.symbol === symbol ? state.plan : null);
   const focusState = useStore(tradeFocus, (state) => state);
@@ -144,7 +146,7 @@ export function TradeOverlay({ chart: controller, symbol, digits, isReplaying, i
     ...(decision.isMarket ? {} : { price: decision.entry }),
     stopLoss: { unit: 'price', value: plan.stop },
     ...(plan.target ? { takeProfits: [{ distance: { unit: 'price', value: plan.target }, share: 100 }] } : {}),
-    commissionPerLot: preferences.commissionPerLot || undefined,
+    commissionPerLot: isExchange ? undefined : preferences.commissionPerLot || undefined,
   } : null;
   const { preview, problem: previewError, setProblem: setPreviewError } = useRiskPreview(request, decision?.isMarket ? Math.round((tick?.bid ?? 0) / point / 5) : undefined, venue.previewRisk);
 

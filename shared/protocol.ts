@@ -45,7 +45,52 @@ export function orderType(key: string) {
   return orderTypes.find((type) => type.key === key);
 }
 
-export type TerminalMode = 'mt5-web';
+export type TerminalMode = 'mt5-web' | 'bybit';
+
+export const platforms = [
+  { key: 'mt5', label: 'MetaTrader 5' },
+  { key: 'bybit', label: 'Bybit' },
+] as const;
+
+export type Platform = (typeof platforms)[number]['key'];
+
+// Demo trading takes public market data from mainnet; only its REST API and private stream differ.
+export const bybitEnvironments = [
+  { key: 'demo', label: 'Demo trading', tradeMode: 'demo', restUrl: 'https://api-demo.bybit.com', publicUrl: 'wss://stream.bybit.com/v5/public', privateUrl: 'wss://stream-demo.bybit.com/v5/private' },
+  { key: 'mainnet', label: 'Live', tradeMode: 'real', restUrl: 'https://api.bybit.com', publicUrl: 'wss://stream.bybit.com/v5/public', privateUrl: 'wss://stream.bybit.com/v5/private' },
+  { key: 'testnet', label: 'Testnet', tradeMode: 'demo', restUrl: 'https://api-testnet.bybit.com', publicUrl: 'wss://stream-testnet.bybit.com/v5/public', privateUrl: 'wss://stream-testnet.bybit.com/v5/private' },
+] as const;
+
+export type BybitEnvironment = (typeof bybitEnvironments)[number]['key'];
+
+export const bybitEnvironment = (key: string) => bybitEnvironments.find((item) => item.key === key);
+
+export const marginModes = [
+  { key: 'cross', label: 'Cross', apiValue: 'REGULAR_MARGIN' },
+  { key: 'isolated', label: 'Isolated', apiValue: 'ISOLATED_MARGIN' },
+  { key: 'portfolio', label: 'Portfolio', apiValue: 'PORTFOLIO_MARGIN' },
+] as const;
+
+export type MarginMode = (typeof marginModes)[number]['key'];
+
+export interface LeverageState {
+  symbol: string;
+  leverage: number;
+  leverageMin: number;
+  leverageMax: number;
+  leverageStep: number;
+  maintenanceRate?: number;
+  marginMode?: MarginMode;
+}
+
+export interface ExchangeLogin {
+  platform: 'bybit';
+  environment: BybitEnvironment;
+  apiKey: string;
+  apiSecret: string;
+  label?: string;
+  isPasswordSaved?: boolean;
+}
 
 export interface TerminalStatus {
   mode: TerminalMode;
@@ -156,6 +201,8 @@ export interface Position {
   profit: number;
   priceOpen: number;
   priceCurrent: number;
+  leverage?: number;
+  liquidationPrice?: number;
 }
 
 export interface Order {
@@ -234,6 +281,8 @@ export interface TradeResult {
   order?: number;
   price?: number;
   volume?: number;
+  // Set when the deal went into a position whose ticket differs from the order's, as on netting accounts.
+  position?: number;
   retcode: number;
   isSuccess: boolean;
 }
@@ -248,6 +297,9 @@ export interface CheckResult {
   marginLevel: number;
   isSuccess: boolean;
   hasMarginEstimate?: boolean;
+  leverage?: number;
+  maintenanceRate?: number;
+  liquidationPrice?: number;
 }
 
 export interface JournalEntry {
@@ -300,6 +352,9 @@ export interface TerminalMethods {
   'order.send': [TradeRequest, TradeResult];
   'symbols.valuation': [{ symbol: string }, Valuation];
   'symbols.quote': [{ symbol: string }, { symbol: string; bid: number; ask: number; time: number }];
+  'exchange.login': [ExchangeLogin, Account];
+  'symbols.leverage': [{ symbol: string }, LeverageState];
+  'symbols.setLeverage': [{ symbol: string; leverage: number }, LeverageState];
 }
 
 export type TerminalMethod = keyof TerminalMethods;
@@ -336,6 +391,7 @@ export interface ConnectionSettings {
 
 export interface AccountProfile {
   readonly id: string;
+  readonly platform: Platform;
   readonly name: string;
   readonly label: string;
   readonly server: string;

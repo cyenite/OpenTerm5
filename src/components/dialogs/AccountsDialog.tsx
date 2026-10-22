@@ -13,6 +13,11 @@ interface AccountsState {
   isBusy: boolean;
 }
 
+const credentialState = (profile: AccountProfile) => {
+  const name = profile.platform === 'bybit' ? 'API secret' : 'Password';
+  return profile.isPasswordSaved ? `${name} saved securely` : profile.hasPassword ? `${name} in memory` : `${name} required`;
+};
+
 export class AccountsDialog extends Component<Record<string, never>, AccountsState> {
   state: AccountsState = { error: '', removeId: '', activeId: session.get().profileId, signIn: session.get().signIn, profiles: session.get().accounts, isBusy: false };
   private unsubscribe?: () => void;
@@ -55,7 +60,7 @@ export class AccountsDialog extends Component<Record<string, never>, AccountsSta
               <tr key={profile.id}>
                 <td title={profile.webEndpoint}><b>{profile.label}</b><br />{profile.login} · {profile.name}{profile.id === activeId ? ' · Active' : ''}</td>
                 <td>{profile.server}<br /><span className="is-muted">{profile.company}</span></td>
-                <td>{profile.tradeMode}<br />{profile.isPasswordSaved ? 'Password saved securely' : profile.hasPassword ? 'Password in memory' : 'Password required'}{signIn?.id === profile.id && signIn.state === 'failed' && <><br /><span className="is-loss" title={signIn.error}>Last sign-in failed</span></>}</td>
+                <td>{profile.tradeMode}<br />{credentialState(profile)}{signIn?.id === profile.id && signIn.state === 'failed' && <><br /><span className="is-loss" title={signIn.error}>Last sign-in failed</span></>}</td>
                 <td>
                   <button disabled={isBusy || isSigningIn} title={isSigningIn && signIn.id !== profile.id ? 'Available once the current sign-in finishes' : undefined} onClick={() => void this.connect(profile)}>{isSigningIn && signIn.id === profile.id ? <><span className="spinner" aria-hidden /> Signing in…</> : 'Connect'}</button>{' '}
                   <button disabled={isBusy} onClick={() => openDialog({ kind: 'login', profileId: profile.id })}>Edit login</button>{' '}

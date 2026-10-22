@@ -1,6 +1,7 @@
 # Accounts and brokers
 
 OpenTerm5 works with MetaTrader 5 accounts at brokers that offer MT5 web trading. Most MT5 brokers do.
+It also connects to [Bybit](#bybit-accounts) Unified Trading Accounts with an API key.
 
 ## Logging in
 
@@ -92,3 +93,56 @@ positions, orders and history again. It never re-sends an order whose outcome wa
 
 **Tools → Options** shows the raw server address of the current connection. You rarely need to change
 it; the login dialog sets it for you.
+
+## Bybit accounts
+
+OpenTerm5 trades the USDT and USDC perpetual and futures contracts of a Bybit Unified Trading
+Account. Spot and inverse contracts are not supported yet.
+
+### Creating an API key
+
+1. On Bybit, open **API Management** and create a **system-generated** key. For **Demo trading**,
+   switch your Bybit account to Demo Trading first and create the key there; demo keys only work on
+   demo. Testnet keys come from testnet.bybit.com.
+2. Allow **Contract: Orders and Positions** (read-write).
+3. Leave **Withdraw** off. OpenTerm5 refuses a key that can withdraw funds.
+4. Optionally bind the key to your IP address. Bybit disables keys without an IP binding after 90
+   days; OpenTerm5 warns in the Journal two weeks before.
+
+### Logging in
+
+Choose **File → Login to Trade Account**, set **Platform** to **Bybit**, pick the environment
+(**Demo trading**, **Live** or **Testnet**), and paste the API key and secret. Tick **Save API
+secret securely** to have it stored in your operating system's credential storage, as for MT5
+passwords. Otherwise it stays in memory until you quit.
+
+### How Bybit trading differs
+
+- **Volumes are coin quantities.** A volume of 0.01 on BTCUSDT is 0.01 BTC, not a lot.
+- **One position per contract.** Bybit adds every order on a contract to a single position.
+  Positions opened from a risk order with several targets therefore show as one position. Each
+  target closes only its own share, and each share has its own stop order, so the position closes
+  as it would in MT5.
+- **Leverage is set per contract on Bybit.** The risk ticket shows the current leverage; change it
+  and click **Set**. Leverage changes the margin the trade uses and where it would be liquidated,
+  not the money at risk. A change also applies to a position already open on that contract.
+- **Suggested leverage.** **Suggest** fills in the highest leverage that keeps the liquidation price
+  at least one and a half stop distances from the entry, so the stop closes the trade first. With
+  isolated margin, the margin it uses is then about the money at risk. It only fills the field; you
+  still click **Set**.
+- **Margin and liquidation are checked before sending.** A risk order is refused when it needs more
+  than the free margin, or when its stop lies beyond the estimated liquidation price, because the
+  stop would then not limit the loss, and the message says which leverage would work. The preview
+  also warns when liquidation is close behind the stop. The estimate ignores fees, so keep a margin of
+  safety.
+- **Fees count inside the risk.** The risk includes your own Bybit taker fee on the entry and at the
+  stop, read from Bybit.
+- **Stops as a percentage.** The risk ticket offers **% of price** as a stop unit, and on Bybit it
+  starts at a 1% stop. Its settings, like your watchlists, are kept apart from your MT5 ones.
+- **Watchlists.** Bybit accounts have their own watchlists, starting with BTC, ETH, SOL, XRP, BNB
+  and DOGE contracts. Your MT5 lists come back when you switch to an MT5 account.
+- **Limit prices stay near the market.** Bybit only accepts limit orders within a band around the
+  market price (about 1% for BTC): a buy limit cannot be far above the price, nor a sell limit far
+  below it. OpenTerm5 tells you the limit before sending. To enter beyond it, use a stop order.
+  Orders Bybit refuses are listed in the Journal with what was sent.
+- **Not available yet:** market depth, order expiry, close by, and Journaling sync.

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { RiskOrderRequest } from '../../../shared/automation';
-import { orderType, type OrderTypeKey, type TradeResult } from '../../../shared/protocol';
+import { orderType, type OrderTypeKey, type Platform, type TradeResult } from '../../../shared/protocol';
 import { distanceUnits, riskModes, type DistanceUnit, type RiskMode } from '../../../shared/risk';
 import { placeRiskOrder } from '../../lib/automation';
 import { formatMoney, formatPrice } from '../../lib/format';
@@ -8,6 +8,7 @@ import { session } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useRiskPreview } from '../../lib/risk-preview';
 import { NumberField, Segmented, SelectField, Switch, TextField } from '../ui/Controls';
+import { LeverageField } from './LeverageField';
 
 interface RiskTicketProps {
   symbol: string;
@@ -23,7 +24,9 @@ const entryKinds = [
 
 type EntryKind = (typeof entryKinds)[number]['key'];
 
-const STORAGE_KEY = 'openterm.riskTicket.v1';
+// MT5 and exchange accounts keep separate settings: a pip stop or a per-lot commission means
+// nothing on a crypto contract.
+const storageKeys = { mt5: 'openterm.riskTicket.v1', bybit: 'openterm.riskTicket.bybit.v1' } as const;
 
 interface Preferences {
   mode: RiskMode;
@@ -38,27 +41,50 @@ interface Preferences {
   isBreakEvenAfterFirst: boolean;
 }
 
-function loadPreferences(): Preferences {
-  const fallback: Preferences = { mode: 'percentBalance', value: 1, unit: 'pips', stop: 20, targets: '1, 2', commission: 0, breakEvenR: 0, trailing: 0, isStealth: false, isBreakEvenAfterFirst: true };
-  try { return { ...fallback, ...JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') }; }
+function loadPreferences(platform: Platform): Preferences {
+  const fallback: Preferences = platform === 'mt5'
+    ? { mode: 'percentBalance', value: 1, unit: 'pips', stop: 20, targets: '1, 2', commission: 0, breakEvenR: 0, trailing: 0, isStealth: false, isBreakEvenAfterFirst: true }
+    : { mode: 'percentBalance', value: 1, unit: 'percent', stop: 1, targets: '1, 2', commission: 0, breakEvenR: 0, trailing: 0, isStealth: false, isBreakEvenAfterFirst: true };
+  try { return { ...fallback, ...JSON.parse(localStorage.getItem(storageKeys[platform]) ?? '{}') }; }
   catch { return fallback; }
 }
 
-export function RiskTicket({ symbol, canTrade, onResult }: RiskTicketProps) {
+export function RiskTicket(props: RiskTicketProps) {
+  const platform = useStore(session, (state): Platform => state.status?.mode === 'bybit' ? 'bybit' : 'mt5');
+  return <RiskTicketForm key={platform} platform={platform} {...props} />;
+}
+
+interface RiskTicketFormProps extends RiskTicketProps {
+  platform: Platform;
+}
+
+function RiskTicketForm({ symbol, canTrade, platform, onResult }: RiskTicketFormProps) {
   const tick = useStore(session, (state) => state.ticks[symbol]);
   const digits = useStore(session, (state) => state.symbols[symbol]?.digits ?? 5);
   const currency = useStore(session, (state) => state.account?.currency ?? '');
+  const baseCurrency = useStore(session, (state) => state.symbols[symbol]?.currencyBase ?? '');
+  const isExchange = platform !== 'mt5';
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [entry, setEntry] = useState<EntryKind>('market');
   const [price, setPrice] = useState(0);
-  const [preferences, setPreferences] = useState(loadPreferences);
+  const [preferences, setPreferences] = useState(() => loadPreferences(platform));
   const [isBusy, setIsBusy] = useState(false);
+  const [leverageVersion, setLeverageVersion] = useState(0);
+  const unit = isExchange ? baseCurrency : 'lots';
   const set = (patch: Partial<Preferences>) => setPreferences({ ...preferences, ...patch });
 
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences)); }
+    try { localStorage.setItem(storageKeys[platform], JSON.stringify(preferences)); }
     catch { /* preferences are a convenience */ }
-  }, [preferences]);
+  }, [preferences, platform]);
+
+  // The entry price belongs to the symbol it was set for; another symbol starts from its own quote.
+  const pricedSymbol = useRef(symbol);
+  useEffect(() => {
+    if (pricedSymbol.current === symbol) return;
+    pricedSymbol.current = symbol;
+    setPrice(0);
+  }, [symbol]);
 
   useEffect(() => {
     if (entry !== 'market' && price === 0 && tick) setPrice(side === 'buy' ? tick.ask : tick.bid);
@@ -71,7 +97,7 @@ export function RiskTicket({ symbol, canTrade, onResult }: RiskTicketProps) {
     ...(entry !== 'market' ? { price } : {}),
     ...(preferences.stop > 0 ? { stopLoss: { unit: preferences.unit, value: preferences.stop } } : {}),
     ...(multiples.length && preferences.stop > 0 ? { takeProfitR: multiples } : {}),
-    commissionPerLot: preferences.commission || undefined,
+    commissionPerLot: isExchange ? undefined : preferences.commission || undefined,
     management: {
       isStealth: preferences.isStealth,
       isBreakEvenAfterFirstTarget: preferences.isBreakEvenAfterFirst && multiples.length > 1,
@@ -79,7 +105,7 @@ export function RiskTicket({ symbol, canTrade, onResult }: RiskTicketProps) {
       ...(preferences.trailing > 0 ? { trailing: { startPoints: preferences.trailing, distancePoints: preferences.trailing, stepPoints: 10 } } : {}),
     },
   };
-  const { preview, problem } = useRiskPreview(request, entry === 'market' ? `${tick?.bid}:${tick?.ask}` : tick?.bid === undefined);
+  const { preview, problem } = useRiskPreview(request, `${entry === 'market' ? `${tick?.bid}:${tick?.ask}` : tick?.bid === undefined}:${leverageVersion}`);
 
   const place = async () => {
     const label = `Risk ${orderType(type)?.label.toLowerCase() ?? type} ${preview?.lots ?? ''} ${symbol}`.replace(/\s+/g, ' ');
@@ -108,9 +134,11 @@ export function RiskTicket({ symbol, canTrade, onResult }: RiskTicketProps) {
         <SelectField label="Risk" value={preferences.mode} options={riskModes} onChange={(mode) => set({ mode })} />
         <NumberField label="Amount" value={preferences.value} step={preferences.mode === 'lots' ? 0.01 : 0.1} suffix={preferences.mode === 'money' ? currency : riskModes.find((mode) => mode.key === preferences.mode)?.unit} onChange={(value) => set({ value })} />
         <SelectField label="Stop in" value={preferences.unit} options={distanceUnits} onChange={(unit) => set({ unit })} />
-        <NumberField label="Stop loss" value={preferences.stop} step={preferences.unit === 'price' ? 10 ** -digits : 1} onChange={(stop) => set({ stop })} />
+        <NumberField label="Stop loss" value={preferences.stop} step={preferences.unit === 'price' ? 10 ** -digits : preferences.unit === 'percent' ? 0.1 : 1} suffix={preferences.unit === 'percent' ? '%' : undefined} onChange={(stop) => set({ stop })} />
         <TextField label="Targets (R)" value={preferences.targets} placeholder="1, 2, 3" hint="Multiples of the stop distance. Volume is split evenly across targets." onChange={(targets) => set({ targets })} />
-        <NumberField label="Commission per lot" value={preferences.commission} step={0.5} suffix={currency} hint="Round turn. Counted inside the risk." onChange={(commission) => set({ commission })} />
+        {isExchange
+          ? <LeverageField symbol={symbol} suggested={preview?.safeLeverage} onChanged={() => setLeverageVersion((version) => version + 1)} />
+          : <NumberField label="Commission per lot" value={preferences.commission} step={0.5} suffix={currency} hint="Round turn. Counted inside the risk." onChange={(commission) => set({ commission })} />}
       </div>
       <details className="reference">
         <summary>Management</summary>
@@ -124,18 +152,21 @@ export function RiskTicket({ symbol, canTrade, onResult }: RiskTicketProps) {
       <div className={`risk-preview${problem ? ' is-bad' : ''}`} aria-live="polite">
         {problem ? <span>{problem}</span> : preview ? (
           <>
-            <span><b>{preview.lots}</b> lots</span>
+            <span><b>{preview.lots}</b> {unit}</span>
             <span>Entry <b>{formatPrice(preview.entry, digits)}</b></span>
             <span>Stop <b>{preview.stopLoss ? formatPrice(preview.stopLoss, digits) : 'none'}</b></span>
             <span>Risk <b>{Number.isFinite(preview.riskMoney) ? `${formatMoney(preview.riskMoney)} ${currency}` : 'unlimited'}</b></span>
+            {preview.leverage !== undefined && <span>Margin <b>{formatMoney(preview.margin ?? Number.NaN)} {currency}</b> at {preview.leverage}x</span>}
+            {preview.liquidationPrice !== undefined && <span>Liquidation about <b>{formatPrice(preview.liquidationPrice, digits)}</b></span>}
             {preview.takeProfits.some(Boolean) && <span>Targets <b>{preview.takeProfits.map((value) => formatPrice(value, digits)).join(' / ')}</b></span>}
             {preview.warnings.map((warning) => <small key={warning}>{warning}</small>)}
+            {isExchange && <small className="is-muted">Risk includes your Bybit taker fee on the entry and at the stop.</small>}
           </>
         ) : <span className="is-muted">Calculating…</span>}
       </div>
       <div className="dialog-actions is-split">
         <button type="button" className={side === 'buy' ? 'is-buy' : 'is-sell'} disabled={!canTrade || isBusy || !preview || !!problem} onClick={() => void place()}>
-          {side === 'buy' ? 'Buy' : 'Sell'} {preview ? `${preview.lots} lots` : ''} with {preferences.mode === 'lots' ? 'fixed size' : 'risk sizing'}
+          {side === 'buy' ? 'Buy' : 'Sell'} {preview ? `${preview.lots} ${unit}` : ''} with {preferences.mode === 'lots' ? 'fixed size' : 'risk sizing'}
         </button>
       </div>
     </div>

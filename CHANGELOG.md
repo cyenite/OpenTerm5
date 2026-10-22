@@ -9,6 +9,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Bybit accounts. Log in to a Bybit Unified Trading Account (demo trading, live or testnet) with an
+  API key, and trade its USDT and USDC perpetual and futures contracts. Risk orders size by coin
+  quantity with Bybit's taker fee inside the risk, and set partial take-profits and stops on one
+  position. They check the free margin at the contract's leverage and refuse a stop beyond the
+  estimated liquidation price. The risk ticket shows and sets the contract's leverage and suggests
+  one that keeps liquidation well behind the stop. Bybit accounts keep their own watchlists (starting
+  with major crypto contracts) and risk ticket settings. Keys that can withdraw funds are refused.
+- Stops can be set as a percentage of the price in the risk ticket and as a signal source's default.
 - Backtesting. A backtest session hides the layout's later bars from a start date (optionally to an
   end date) and moves forward on its own clock while you trade a simulated account with its own
   balance, leverage, spread, slippage, commission and stop out. Backtesting is a mode beside Trade
@@ -24,6 +32,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   orders, trades with R, MAE and MFE, and a journal, in sections that fold; trades are marked on the
   chart. Sessions save as they go and can be resumed, restarted or deleted; trades export to CSV.
   Bar replay is not used: the Replay button stays off and the charts are not shaded.
+
+### Fixed
+
+- The order dialog and risk ticket no longer keep a pending price (and the dialog's stop loss and take
+  profit) from the previous symbol after you switch symbols, which sent orders at another symbol's
+  price.
+- Bybit limit orders priced outside Bybit's band around the market are refused with the price Bybit
+  will accept, before anything is sent, and every order Bybit refuses is recorded in the Journal.
 
 ## [0.4.0] - 2026-10-19
 

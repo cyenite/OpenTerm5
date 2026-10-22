@@ -1,3 +1,4 @@
+import type { Platform } from '../../shared/protocol';
 import { presetName } from './presets';
 
 export type WatchEntry =
@@ -21,15 +22,18 @@ export type WatchRow =
 
 export type Resolve = (name: string) => string | null;
 
-export const defaultSymbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCHF', 'USDCAD', 'XAUUSD'] as const;
+export const defaultSymbols: Record<Platform, readonly string[]> = {
+  mt5: ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCHF', 'USDCAD', 'XAUUSD'],
+  bybit: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'BNBUSDT', 'DOGEUSDT'],
+};
 
 const MAX_LISTS = 100;
 const MAX_ENTRIES = 1000;
 
 const symbolEntry = (name: string): WatchEntry => ({ name, kind: 'symbol' });
 
-export function defaultWatchlists(id: string): WatchlistsState {
-  return { activeId: id, lists: [{ id, name: 'Watchlist', entries: defaultSymbols.map(symbolEntry) }] };
+export function defaultWatchlists(id: string, platform: Platform = 'mt5'): WatchlistsState {
+  return { activeId: id, lists: [{ id, name: 'Watchlist', entries: defaultSymbols[platform].map(symbolEntry) }] };
 }
 
 export function activeWatchlist(state: WatchlistsState): Watchlist {

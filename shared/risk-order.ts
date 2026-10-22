@@ -12,6 +12,9 @@ export interface RiskOrderContext {
   readonly equity: number;
   readonly balance: number;
   readonly moneyPerUnit: number;
+  // Exchanges charge a share of the traded value; it stands in for a per-lot commission the
+  // request does not give, paid on the entry and again at the stop.
+  readonly takerFeeRate?: number;
 }
 
 export type LegRule = Pick<PositionRule, 'breakEven' | 'trailing' | 'virtualStop' | 'virtualTarget'>;
@@ -51,7 +54,8 @@ export function planRiskOrder(request: RiskOrderRequest, context: RiskOrderConte
   const plan = planRisk({
     side, entry, stopLoss, mode: request.mode, value: request.value, limits, takeProfits: targets,
     balance: context.balance, equity: context.equity,
-    moneyPerUnit: context.moneyPerUnit, maxLots: request.maxLots, commissionPerLot: request.commissionPerLot,
+    moneyPerUnit: context.moneyPerUnit, maxLots: request.maxLots,
+    commissionPerLot: request.commissionPerLot ?? (context.takerFeeRate ? context.takerFeeRate * (entry + stopLoss) * context.moneyPerUnit : undefined),
   });
   if (!plan.isValid) throw new Error(plan.warnings.join(' '));
   const management = request.management ?? {};

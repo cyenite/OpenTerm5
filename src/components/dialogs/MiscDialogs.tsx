@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { ConnectionSettings, ResolvedServer, SymbolSpec } from '../../../shared/protocol';
+import { platforms, type ConnectionSettings, type Platform, type ResolvedServer, type SymbolSpec } from '../../../shared/protocol';
 import { refreshSession, session, signingIn, signInName, terminal } from '../../lib/session';
 import { searchSymbols } from '../../lib/symbol-search';
 import { rowsOf, toggleWatched, useActiveWatchlist, watchedSpecs } from '../../lib/watchlists';
@@ -7,6 +7,7 @@ import { useStore } from '../../lib/store';
 import { closeDialog } from '../../lib/workspace';
 import { Dialog } from './Dialog';
 import { BrokerServerField } from './BrokerServerField';
+import { BybitLoginForm } from './BybitLoginForm';
 import { JournalingPlatformField } from '../journaling/JournalingPlatformField';
 import { SigningIn } from '../ui/SigningIn';
 import { InfoTip } from '../ui/InfoTip';
@@ -122,6 +123,7 @@ export function LoginDialog({ profileId }: { profileId?: string }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [platform, setPlatform] = useState<Platform>(profile?.platform ?? 'mt5');
   useEffect(() => {
     let isCancelled = false;
     void terminal.request('accounts.storage', {}).then((storage) => { if (!isCancelled) setCanSavePassword(storage.canSavePasswords); });
@@ -152,7 +154,14 @@ export function LoginDialog({ profileId }: { profileId?: string }) {
 
   return (
     <Dialog title="Login to Trade Account" width={460}>
-      <form
+      <div className="order-form">
+        <label className="field">
+          <span>Platform</span>
+          <select value={platform} disabled={isBusy || !!profile} onChange={(event) => setPlatform(event.target.value as Platform)}>
+            {platforms.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
+          </select>
+        </label>
+      {platform === 'bybit' ? <BybitLoginForm profile={profile} /> : <form
         className="order-form"
         onSubmit={(event) => {
           event.preventDefault();
@@ -194,7 +203,8 @@ export function LoginDialog({ profileId }: { profileId?: string }) {
             {isOwnSignIn ? 'Signing in…' : 'Login'}
           </button>
         </div>
-      </form>
+      </form>}
+      </div>
     </Dialog>
   );
 }

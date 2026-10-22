@@ -15,7 +15,7 @@ much to risk and where the stop is; OpenTerm5 calculates the volume.
 | Setting | Options |
 |---|---|
 | Risk | % of balance, % of equity, an amount of money, or fixed lots |
-| Stop loss | A price, or a distance in points or pips |
+| Stop loss | A price, or a distance as a % of the price, in points or in pips |
 | Take profit | Up to 5 targets, as prices, distances or multiples of the risk (R) |
 | Commission | Optional commission per lot, counted inside the risk |
 | Management | Trailing stop, break-even, hidden stops |
@@ -28,7 +28,10 @@ How the volume is calculated:
   over-risked.
 - Profit is converted from the symbol's profit currency to your account currency with live rates.
 - With several targets, the volume is split into one position per target. Later positions can move
-  to break-even when the first target is hit.
+  to break-even when the first target is hit. On Bybit the targets share one position; see
+  [Bybit accounts](accounts-and-brokers.md#bybit-accounts).
+- On Bybit the order must also fit the free margin at the contract's leverage, and the stop must come
+  before the estimated liquidation price. The ticket suggests a leverage that keeps it so.
 
 The preview shows the volume, the money at risk, the entry and the reward before anything is sent.
 
