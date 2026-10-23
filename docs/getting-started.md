@@ -34,6 +34,19 @@ launch:
 - **Windows:** choose **More info → Run anyway**.
 - **macOS:** right-click the app, choose **Open**, then confirm.
 
+### Updates
+
+OpenTerm5 checks GitHub for a new release when it starts and every four hours, and reports what it
+finds in the Journal. **Help → Check for Updates** checks now, and **Tools → Options** turns the
+automatic checks and downloads off.
+
+- **Windows and the AppImage:** the update downloads in the background. Choose **Restart to update**
+  in the status bar to install it now, or it installs when you quit. OpenTerm5 never restarts by
+  itself, because the trade copier, signal API and equity guards stop while it is closed.
+- **Debian and Ubuntu (`.deb`):** the same, but installing asks for your administrator password.
+- **macOS:** builds are not signed yet, and macOS only installs signed updates. The status bar shows
+  when a new version is out; click it to open the release page and install it by hand.
+
 ### From source
 
 You need [Node.js](https://nodejs.org/) 22.12 or later and Git.

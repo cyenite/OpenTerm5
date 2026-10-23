@@ -7,6 +7,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Automatic updates. OpenTerm5 checks GitHub Releases at start and every four hours, downloads a new
+  version in the background on Windows and Linux (AppImage and `.deb`) and installs it when you
+  choose Restart to update in the status bar or quit. It never restarts on its own, so the trade
+  copier, signal API and equity guards keep running. Progress and errors appear in the Journal,
+  Help > Check for Updates checks now, and Tools > Options turns automatic checks off. On macOS,
+  which only installs signed updates, the status bar links to the new release instead.
+
 ## [0.5.0] - 2026-10-23
 
 ### Added

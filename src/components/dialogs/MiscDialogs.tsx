@@ -9,6 +9,7 @@ import { Dialog } from './Dialog';
 import { BrokerServerField } from './BrokerServerField';
 import { BybitLoginForm } from './BybitLoginForm';
 import { JournalingPlatformField } from '../journaling/JournalingPlatformField';
+import { UpdateOptionsField } from '../updates/UpdateOptionsField';
 import { SigningIn } from '../ui/SigningIn';
 import { InfoTip } from '../ui/InfoTip';
 
@@ -104,6 +105,7 @@ export function ConnectionDialog() {
           </button>
         </div>
         <JournalingPlatformField />
+        <UpdateOptionsField />
       </div>
     </Dialog>
   );

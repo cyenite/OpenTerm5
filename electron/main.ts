@@ -28,6 +28,9 @@ import type { TerminalMethods } from '../shared/protocol';
 import { JournalingService } from './journaling';
 import { findConnectLink, protocolScheme } from './journaling-links';
 import { accountKey } from './journaling-store';
+import { autoUpdater, DebUpdater } from 'electron-updater';
+import { UpdateService } from './updater';
+import type { UpdateMethod, UpdateState } from '../shared/updates';
 
 migrateLegacyProfile();
 
@@ -42,6 +45,7 @@ const mt5 = createLink();
 const direct = new UiLink(mt5);
 let automation: AutomationHost | undefined;
 let journaling: JournalingService | undefined;
+let updates: UpdateService | undefined;
 let isChanging = false;
 let isWindowLoaded = false;
 let uiAccount: Account | null = null;
@@ -70,6 +74,23 @@ async function saveFile(name: string, contents: string): Promise<string | null> 
 
 function sendJournaling(event: JournalingEvent, data: unknown): void {
   window?.webContents.send('journaling:event', event, data);
+}
+
+function sendUpdate(state: UpdateState): void {
+  window?.webContents.send('updates:event', 'state', state);
+}
+
+async function confirmRestart(version: string): Promise<boolean> {
+  const options = {
+    type: 'question' as const,
+    buttons: ['Restart now', 'Later'],
+    defaultId: 0,
+    cancelId: 1,
+    message: `Restart to install OpenTerm5 ${version}?`,
+    detail: 'The trade copier, signal API and equity guards stop while OpenTerm5 restarts, and run again once it opens. If you choose Later, the update installs when you quit.',
+  };
+  const { response } = window ? await dialog.showMessageBox(window, options) : await dialog.showMessageBox(options);
+  return response === 0;
 }
 
 // Protocol links can arrive before the service has loaded or the page can show a prompt.
@@ -395,6 +416,14 @@ ipcMain.handle('journaling:request', async (_event, method: JournalingMethod, pa
     return { error: { code: 0, message: (error as Error).message } };
   }
 });
+ipcMain.handle('updates:request', async (_event, method: UpdateMethod, params: unknown) => {
+  try {
+    if (!updates) throw new Error('Updates are still starting');
+    return { result: await updates.handle(method, params as never) };
+  } catch (error) {
+    return { error: { code: 0, message: (error as Error).message } };
+  }
+});
 ipcMain.handle('settings:get', () => settings);
 ipcMain.handle('zoom:step', (_event, step: unknown) => window && isZoomStep(step) ? zoom.step(window.webContents, step) : 1);
 ipcMain.handle('settings:save', async (_event, next: ConnectionSettings) => changeConnection(async () => {
@@ -484,6 +513,19 @@ if (!app.requestSingleInstanceLock()) {
       clientId: () => device.clientId.toString('hex'),
     });
     await automation.init();
+    // Squirrel.Mac only installs signed builds, so macOS checks and links to the release page.
+    const isMac = process.platform === 'darwin';
+    updates = new UpdateService({
+      file: path.join(app.getPath('userData'), 'updates.json'),
+      updater: autoUpdater,
+      canInstall: !isMac,
+      isPasswordAsked: autoUpdater instanceof DebUpdater,
+      send: sendUpdate,
+      journal: (message) => journal(message, 'Updates'),
+      openExternal: (url) => shell.openExternal(url),
+      confirmRestart,
+    });
+    await updates.init();
     app.on('activate', () => !window && createWindow());
   });
 }
@@ -495,6 +537,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  updates?.shutdown();
   void automation?.shutdown();
   journaling?.shutdown();
   pool.shutdown();

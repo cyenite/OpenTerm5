@@ -10,6 +10,10 @@ files:
   - dist-electron/**
   - build/icon.png
   - package.json
+publish:
+  provider: github
+  owner: cyenite
+  repo: OpenTerm5
 protocols:
   - name: OpenTerm5
     schemes: [openterm5]
@@ -19,7 +23,8 @@ linux:
   category: Office
   maintainer: The OpenTerm5 contributors
 mac:
-  target: [dmg]
+  # Squirrel.Mac updates from the zip, not the dmg.
+  target: [dmg, zip]
   category: public.app-category.finance
 win:
   target: [nsis]

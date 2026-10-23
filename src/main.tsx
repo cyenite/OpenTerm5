@@ -7,6 +7,7 @@ import { startBrokerSymbols } from './lib/broker-symbols';
 import { startWatchlists } from './lib/watchlists';
 import { startAutomation } from './lib/automation';
 import { startJournaling } from './lib/journaling';
+import { startUpdates } from './lib/updates';
 import { startTickBars } from './lib/mt5-provider';
 import { registerMt5Studies } from './lib/mt5-studies';
 import { startTheming } from './lib/theme';
@@ -34,6 +35,7 @@ startPineScripts();
 startIndicatorFavorites();
 startAutomation();
 startJournaling();
+startUpdates();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
