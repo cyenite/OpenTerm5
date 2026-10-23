@@ -1,4 +1,4 @@
-import { bybitEnvironment, bybitEnvironments, type Account, type AccountProfile, type BybitEnvironment, type Platform } from '../shared/protocol';
+import { exchangeEnvironment, exchangeEnvironments, isExchangePlatform, platforms, type Account, type AccountProfile, type ExchangeCredentials, type ExchangeEnvironmentInfo, type ExchangePlatform, type Platform } from '../shared/protocol';
 import { parseSettings } from './connection-settings';
 import type { SessionCredentials } from './session-pool';
 
@@ -6,9 +6,9 @@ interface StoredProfile extends Omit<AccountProfile, 'hasPassword' | 'isPassword
   readonly encryptedPassword?: string;
 }
 
-export const exchangeAccountId = (environment: BybitEnvironment, login: number) => `bybit:${environment}|${login}`;
+export const exchangeAccountId = (platform: ExchangePlatform, environment: string, login: number) => `${platform}:${environment}|${login}`;
 
-export const platformOf = (accountId: string): Platform => accountId.startsWith('bybit:') ? 'bybit' : 'mt5';
+export const platformOf = (accountId: string): Platform => platforms.find((item) => item.key !== 'mt5' && accountId.startsWith(`${item.key}:`))?.key ?? 'mt5';
 
 export interface PasswordCipher {
   canEncrypt(): boolean;
@@ -27,15 +27,15 @@ export class AccountRegistry {
     const profiles = value.map((item): StoredProfile => {
       if (!item || typeof item !== 'object') throw new Error('Invalid saved account.');
       const { login, name, label, server, company, tradeMode, lastUsed, encryptedPassword } = item;
-      const platform = item.platform ?? 'mt5';
-      if (platform !== 'mt5' && platform !== 'bybit') throw new Error('Invalid saved account.');
-      const webEndpoint = platform === 'mt5' ? parseSettings(item).webEndpoint : this.environmentOf(item.webEndpoint).restUrl;
+      const platform = platforms.find((candidate) => candidate.key === (item.platform ?? 'mt5'))?.key;
+      if (!platform) throw new Error('Invalid saved account.');
+      const webEndpoint = isExchangePlatform(platform) ? this.environmentOf(platform, item.webEndpoint).restUrl : parseSettings(item).webEndpoint;
       if (!Number.isSafeInteger(login) || login <= 0 || !['demo', 'real', 'contest'].includes(tradeMode) ||
         ![name, label, server, company].every((field) => typeof field === 'string' && field.length <= 512) ||
         !Number.isFinite(lastUsed) || (encryptedPassword !== undefined && typeof encryptedPassword !== 'string')) {
         throw new Error('Invalid saved account.');
       }
-      const id = platform === 'mt5' ? this.key(webEndpoint, login) : this.exchangeKey(this.environmentOf(webEndpoint).key, login);
+      const id = isExchangePlatform(platform) ? exchangeAccountId(platform, this.environmentOf(platform, webEndpoint).key, login) : this.key(webEndpoint, login);
       return { id, platform, login, name, label, server, company, webEndpoint, tradeMode, lastUsed, ...(encryptedPassword ? { encryptedPassword } : {}) };
     });
     if (new Set(profiles.map((profile) => profile.id)).size !== profiles.length) throw new Error('Duplicate saved accounts.');
@@ -87,14 +87,15 @@ export class AccountRegistry {
 
   // The API key and secret are kept together as the profile's secret, under the same storage
   // rules as an MT5 password.
-  async rememberExchange(account: Account, environment: BybitEnvironment, key: { apiKey: string; apiSecret: string }, label?: string, isPasswordSaved = false): Promise<AccountProfile> {
-    const { restUrl, key: environmentKey } = this.environmentOf(bybitEnvironment(environment)?.restUrl);
-    const id = this.exchangeKey(environmentKey, account.login);
+  async rememberExchange(account: Account, credentials: ExchangeCredentials, label?: string, isPasswordSaved = false): Promise<AccountProfile> {
+    const { platform } = credentials;
+    const { restUrl, key: environmentKey } = this.environmentOf(platform, exchangeEnvironment(platform, credentials.environment)?.restUrl);
+    const id = exchangeAccountId(platform, environmentKey, account.login);
     if (isPasswordSaved && !this.cipher.canEncrypt()) throw new Error('Secure storage is unavailable. The API secret was not saved.');
-    const secret = JSON.stringify({ apiKey: key.apiKey, apiSecret: key.apiSecret });
+    const secret = JSON.stringify({ apiKey: credentials.apiKey, apiSecret: credentials.apiSecret });
     const existing = this.profiles.find((profile) => profile.id === id);
     const profile: StoredProfile = {
-      id, platform: 'bybit', name: account.name, label: label?.trim() || existing?.label || `${account.server} ${account.login}`,
+      id, platform, name: account.name, label: label?.trim() || existing?.label || `${account.server} ${account.login}`,
       server: account.server, company: account.company, webEndpoint: restUrl, tradeMode: account.tradeMode,
       login: account.login, lastUsed: Date.now(),
       ...(isPasswordSaved ? { encryptedPassword: this.cipher.encrypt(secret) } : {}),
@@ -110,9 +111,9 @@ export class AccountRegistry {
     const profile = this.get(id);
     const secret = this.password(id);
     if (!secret) return undefined;
-    if (profile.platform === 'mt5') return { platform: 'mt5', login: profile.login, password: secret, endpoint: profile.webEndpoint };
+    if (!isExchangePlatform(profile.platform)) return { platform: 'mt5', login: profile.login, password: secret, endpoint: profile.webEndpoint };
     const { apiKey, apiSecret } = JSON.parse(secret) as { apiKey: string; apiSecret: string };
-    return { platform: 'bybit', environment: this.environmentOf(profile.webEndpoint).key, apiKey, apiSecret };
+    return { platform: profile.platform, environment: this.environmentOf(profile.platform, profile.webEndpoint).key, apiKey, apiSecret } as ExchangeCredentials;
   }
 
   // Keeps a password in memory for background sessions (copier, webhooks) without
@@ -133,10 +134,8 @@ export class AccountRegistry {
 
   private key(endpoint: string, login: number): string { return `${endpoint}|${login}`; }
 
-  private exchangeKey(environment: BybitEnvironment, login: number): string { return exchangeAccountId(environment, login); }
-
-  private environmentOf(restUrl: unknown) {
-    const environment = bybitEnvironments.find((item) => item.restUrl === restUrl);
+  private environmentOf(platform: ExchangePlatform, restUrl: unknown): ExchangeEnvironmentInfo {
+    const environment = (exchangeEnvironments[platform] as readonly ExchangeEnvironmentInfo[]).find((item) => item.restUrl === restUrl);
     if (!environment) throw new Error('Invalid saved account.');
     return environment;
   }

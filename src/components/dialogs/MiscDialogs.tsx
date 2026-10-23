@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { platforms, type ConnectionSettings, type Platform, type ResolvedServer, type SymbolSpec } from '../../../shared/protocol';
+import { isExchangePlatform, platforms, type ConnectionSettings, type Platform, type ResolvedServer, type SymbolSpec } from '../../../shared/protocol';
 import { refreshSession, session, signingIn, signInName, terminal } from '../../lib/session';
 import { searchSymbols } from '../../lib/symbol-search';
 import { rowsOf, toggleWatched, useActiveWatchlist, watchedSpecs } from '../../lib/watchlists';
@@ -7,7 +7,7 @@ import { useStore } from '../../lib/store';
 import { closeDialog } from '../../lib/workspace';
 import { Dialog } from './Dialog';
 import { BrokerServerField } from './BrokerServerField';
-import { BybitLoginForm } from './BybitLoginForm';
+import { ExchangeLoginForm } from './ExchangeLoginForm';
 import { JournalingPlatformField } from '../journaling/JournalingPlatformField';
 import { UpdateOptionsField } from '../updates/UpdateOptionsField';
 import { SigningIn } from '../ui/SigningIn';
@@ -163,7 +163,7 @@ export function LoginDialog({ profileId }: { profileId?: string }) {
             {platforms.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
           </select>
         </label>
-      {platform === 'bybit' ? <BybitLoginForm profile={profile} /> : <form
+      {isExchangePlatform(platform) ? <ExchangeLoginForm key={platform} platform={platform} profile={profile} /> : <form
         className="order-form"
         onSubmit={(event) => {
           event.preventDefault();

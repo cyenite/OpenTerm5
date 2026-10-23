@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { timeframes, type Account, type Bar, type Deal, type Order, type OrderTypeKey, type Position, type SymbolSpec, type Tick, type Timeframe } from '../shared/protocol';
+import type { Account, Deal, Order, OrderTypeKey, Position, SymbolSpec, Tick, Timeframe } from '../shared/protocol';
+import { num, planKlines, ticketOf, type KlinePlan } from './exchange-common';
 
 export interface RawInstrument {
   symbol: string;
@@ -104,33 +104,9 @@ export interface AccountIdentity {
   isTradeAllowed: boolean;
 }
 
-export const num = (value: unknown): number => {
-  if (value === '' || value === null || value === undefined) return 0;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
-// Bybit identifies orders by UUID and positions by symbol; the terminal needs numeric tickets.
-// 52 bits of a hash stay safe integers and collide with negligible probability.
-export function ticketOf(id: string): number {
-  return parseInt(createHash('sha256').update(id).digest('hex').slice(0, 13), 16) || 1;
-}
-
 export const positionTicket = (symbol: string, positionIdx: number, openTime: number) => ticketOf(`position|${symbol}|${positionIdx}|${openTime}`);
 
 export const isBuy = (side: string) => side === 'Buy';
-
-const decimalsOf = (step: number) => {
-  const text = String(step);
-  if (text.includes('e-')) return Number(text.split('e-')[1]);
-  return text.includes('.') ? text.split('.')[1].length : 0;
-};
-
-export const roundTo = (value: number, step: number) => step > 0 ? Number((Math.round(value / step) * step).toFixed(decimalsOf(step))) : value;
-
-export const formatQty = (value: number, step: number) => (Math.floor(value / step + 1e-9) * step).toFixed(decimalsOf(step));
-
-export const formatPrice = (value: number, tickSize: number) => roundTo(value, tickSize).toFixed(decimalsOf(tickSize));
 
 const contractLabels: Record<string, string> = {
   LinearPerpetual: 'perpetual',
@@ -318,36 +294,4 @@ export const klineIntervals: Partial<Record<Timeframe, string>> = {
   M1: '1', M3: '3', M5: '5', M15: '15', M30: '30', H1: '60', H2: '120', H4: '240', H6: '360', H12: '720', D1: 'D', W1: 'W', MN1: 'M',
 };
 
-export interface KlinePlan {
-  interval: string;
-  seconds: number;
-  sourceSeconds: number;
-  isAggregated: boolean;
-}
-
-// Every non-native period divides a day, so epoch-aligned buckets match Bybit's UTC sessions.
-export function klinePlan(timeframe: Timeframe): KlinePlan {
-  const target = timeframes.find((period) => period.label === timeframe);
-  if (!target) throw new RangeError('Unknown chart timeframe');
-  const native = klineIntervals[timeframe];
-  if (native) return { interval: native, seconds: target.seconds, sourceSeconds: target.seconds, isAggregated: false };
-  const source = timeframes.filter((period) => klineIntervals[period.label] && period.seconds < target.seconds && target.seconds % period.seconds === 0 && period.seconds < 86400).at(-1);
-  if (!source) throw new RangeError(`Bybit has no data for ${timeframe}`);
-  return { interval: klineIntervals[source.label]!, seconds: target.seconds, sourceSeconds: source.seconds, isAggregated: true };
-}
-
-export const klineBar = (row: readonly string[]): Bar => ({
-  time: Math.floor(num(row[0]) / 1000), open: num(row[1]), high: num(row[2]), low: num(row[3]), close: num(row[4]), volume: num(row[5]),
-});
-
-export function aggregateBars(bars: readonly Bar[], seconds: number): Bar[] {
-  const ordered = [...new Map(bars.map((bar) => [bar.time, bar])).values()].sort((left, right) => left.time - right.time);
-  const result: Bar[] = [];
-  for (const bar of ordered) {
-    const time = Math.floor(bar.time / seconds) * seconds;
-    const previous = result.at(-1);
-    if (!previous || previous.time !== time) result.push({ ...bar, time });
-    else result[result.length - 1] = { time, open: previous.open, high: Math.max(previous.high, bar.high), low: Math.min(previous.low, bar.low), close: bar.close, volume: previous.volume + bar.volume };
-  }
-  return result;
-}
+export const klinePlan = (timeframe: Timeframe): KlinePlan => planKlines(timeframe, klineIntervals, 'Bybit');

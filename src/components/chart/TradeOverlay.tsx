@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { plannerRiskModes, type RiskOrderOutcome, type RiskOrderRequest } from '../../../shared/automation';
 import { decidePlan, validateDrag, type PlanLines } from '../../../shared/order-plan';
-import { orderType, type Order, type Position } from '../../../shared/protocol';
+import { marketOfMode, orderType, type Order, type Position } from '../../../shared/protocol';
 import { formatMoney, formatPrice, formatVolume } from '../../lib/format';
 import { replayTradingHint } from '../../lib/replay-session';
 import { riskPreferences, setRiskPreferences } from '../../lib/risk-preferences';
@@ -99,7 +99,7 @@ export function TradeOverlay({ chart: controller, symbol, digits, isReplaying, i
   const preferences = useStore(riskPreferences, (state) => state);
   const currency = venue.account?.currency ?? '';
   // Exchange fees are a share of the traded value, which the trade manager reads from the exchange.
-  const isExchange = useStore(session, (state) => state.status?.mode === 'bybit');
+  const isExchange = useStore(session, (state) => marketOfMode(state.status?.mode) === 'crypto');
   const isOneClick = useStore(workspace, (state) => state.isOneClickEnabled);
   const assistant = useStore(assistantPlan, (state) => state.plan?.symbol === symbol ? state.plan : null);
   const focusState = useStore(tradeFocus, (state) => state);

@@ -33,6 +33,7 @@ import {
   chartTypes,
   tools,
   openChart,
+  marketTabs,
   openDialog,
   loadProfile,
   loadTemplate,
@@ -193,7 +194,7 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
         { label: 'Previous Chart', shortcut: 'Shift+Tab', isDisabled: !isMultiChart, action: () => stepChart(-1) },
         { label: 'Maximize Chart', shortcut: 'Alt+Enter', isChecked: state.isChartMaximized, isDisabled: !isMultiChart, action: toggleMaximized },
         separator,
-        ...state.tabs.map((candidate, index) => ({
+        ...marketTabs(state).map((candidate, index) => ({
           label: `${index + 1} ${tabTitle(candidate, state.charts)}${visibleChartIds(candidate).length > 1 ? ` (${visibleChartIds(candidate).length} charts)` : ''}`,
           isChecked: candidate.id === tab?.id,
           action: () => focusTab(candidate.id),

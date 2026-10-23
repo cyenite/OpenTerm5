@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { makeTab, steppedChartId, syncPeers, tabActiveChartId, visibleChartIds, withChartMoved, withLayout, withoutChart } from './chart-tabs';
+import { inferMarket, makeTab, steppedChartId, syncPeers, tabActiveChartId, visibleChartIds, withChartMoved, withLayout, withoutChart } from './chart-tabs';
 import { makeChart, type ChartConfig } from './workspace';
 
 const chart = (id: string, linkGroup?: ChartConfig['linkGroup']): ChartConfig => ({ ...makeChart('EURUSD'), id, ...(linkGroup ? { linkGroup } : {}) });
@@ -43,4 +43,10 @@ test('stepping and moving charts follow reading order, not slot order', () => {
   assert.deepEqual(withChartMoved(tab, 'a', 1).chartIds, ['c', 'b', 'a', 'd']);
   assert.equal(withChartMoved(tab, 'a', -1), tab);
   assert.equal(tabActiveChartId({ ...tab, activeChartId: 'gone' }), 'a');
+});
+
+test('exchange contracts read as crypto, broker CFDs and forex as forex', () => {
+  for (const symbol of ['BTCUSDT', 'ETHUSDC', 'BTCPERP', 'BTCUSDT-26DEC25', 'BTCUSDT_251226', 'BTC-26DEC25', '1000PEPEUSDT']) assert.equal(inferMarket([symbol]), 'crypto', symbol);
+  for (const symbol of ['EURUSD', 'BTCUSD', 'XAUUSD', 'US30', 'EURUSD.m']) assert.equal(inferMarket([symbol]), 'fx', symbol);
+  assert.equal(inferMarket([]), 'fx');
 });

@@ -4,15 +4,17 @@ export function initialMargin(price: number, volume: number, contractSize: numbe
 
 // Isolated linear contracts: the position is liquidated once its loss consumes the initial
 // margin down to the maintenance margin. Fees and the tier deduction are ignored, so the
-// result is an estimate that errs slightly early for longs and late for shorts.
+// result is an estimate that errs slightly early for longs and late for shorts. Like the
+// cross estimate, 0 means no price can liquidate the position (a long at 1x).
 export function isolatedLiquidation(side: 'buy' | 'sell', entry: number, leverage: number, maintenanceRate: number): number {
   if (!(entry > 0) || !(leverage > 0)) return Number.NaN;
   const distance = 1 / leverage - maintenanceRate;
-  return side === 'buy' ? entry * (1 - distance) : entry * (1 + distance);
+  return side === 'buy' ? Math.max(0, entry * (1 - distance)) : entry * (1 + distance);
 }
 
 // Cross margin: the whole free margin absorbs the loss, less the new position's maintenance
-// margin. Other positions moving at the same time shift it, so this is a rough guide.
+// margin. Other positions moving at the same time shift it, so this is a rough guide. 0 means
+// the price would have to fall below zero: no liquidation at this size.
 export function crossLiquidation(side: 'buy' | 'sell', entry: number, volume: number, contractSize: number, marginFree: number, maintenanceRate: number): number {
   const units = volume * contractSize;
   if (!(entry > 0) || !(units > 0)) return Number.NaN;
@@ -41,7 +43,7 @@ export function safeLeverage(entry: number, stop: number, maintenanceRate: numbe
 }
 
 export function isLiquidationClose(entry: number, stop: number, liquidation: number): boolean {
-  if (!(stop > 0) || !Number.isFinite(liquidation)) return false;
+  if (!(stop > 0) || !(liquidation > 0)) return false;
   return Math.abs(entry - liquidation) < LIQUIDATION_BUFFER * Math.abs(entry - stop);
 }
 

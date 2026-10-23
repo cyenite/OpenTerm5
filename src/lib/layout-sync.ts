@@ -2,7 +2,7 @@ import type { MeridianChart, MeridianHover } from '@meridian/charts';
 import { chartInstance } from './chart-instances';
 import { isReplaySelecting } from './replay';
 import { hasSync, tabActiveChartId, visibleChartIds, type ChartTab } from './chart-tabs';
-import { tabOfChart, workspace, type WorkspaceState } from './workspace';
+import { activeTab, tabOfChart, workspace, type WorkspaceState } from './workspace';
 
 // Keeps the charts of a layout tab in step: the crosshair, a clicked time and the active chart's
 // date range, each as the tab's sync settings allow. Symbol and interval sync change the saved
@@ -72,7 +72,7 @@ export function setLayoutResizing(isOn: boolean): void {
   isResizing = isOn;
   if (isOn) return;
   const state = workspace.get();
-  const tab = state.tabs.find((candidate) => candidate.id === state.activeTabId);
+  const tab = activeTab(state);
   if (tab && hasSync(tab, 'dateRange')) followActiveRange(tab);
 }
 

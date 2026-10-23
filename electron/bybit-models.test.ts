@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { aggregateBars, dealFrom, formatQty, klinePlan, orderTypeOf, ticketOf } from './bybit-models';
+import { dealFrom, klinePlan, orderTypeOf } from './bybit-models';
+import { aggregateBars, formatQty, ticketOf } from './exchange-common';
 import { rawOrder } from './bybit-fixtures';
 
 test('tickets are stable positive safe integers', () => {

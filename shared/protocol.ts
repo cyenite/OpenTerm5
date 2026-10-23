@@ -45,14 +45,31 @@ export function orderType(key: string) {
   return orderTypes.find((type) => type.key === key);
 }
 
-export type TerminalMode = 'mt5-web' | 'bybit';
+export type TerminalMode = 'mt5-web' | Exclude<Platform, 'mt5'>;
 
-export const platforms = [
-  { key: 'mt5', label: 'MetaTrader 5' },
-  { key: 'bybit', label: 'Bybit' },
+// What an account trades. Charts, watchlists and risk ticket settings belong to a market, so a
+// crypto chart never opens on a forex account and the other way round.
+export const markets = [
+  { key: 'fx', label: 'Forex and CFDs' },
+  { key: 'crypto', label: 'Crypto' },
 ] as const;
 
+export type Market = (typeof markets)[number]['key'];
+
+export const platforms = [
+  { key: 'mt5', label: 'MetaTrader 5', market: 'fx' },
+  { key: 'bybit', label: 'Bybit', market: 'crypto' },
+  { key: 'binance', label: 'Binance', market: 'crypto' },
+] as const satisfies readonly { key: string; label: string; market: Market }[];
+
 export type Platform = (typeof platforms)[number]['key'];
+
+export const marketOf = (platform: Platform): Market => platforms.find((item) => item.key === platform)?.market ?? 'fx';
+
+export const platformOfMode = (mode: TerminalMode): Platform => mode === 'mt5-web' ? 'mt5' : mode;
+
+// Before the status arrives the window treats the account as forex, as MT5 was the only kind.
+export const marketOfMode = (mode: TerminalMode | undefined): Market => mode ? marketOf(platformOfMode(mode)) : 'fx';
 
 // Demo trading takes public market data from mainnet; only its REST API and private stream differ.
 export const bybitEnvironments = [
@@ -64,6 +81,44 @@ export const bybitEnvironments = [
 export type BybitEnvironment = (typeof bybitEnvironments)[number]['key'];
 
 export const bybitEnvironment = (key: string) => bybitEnvironments.find((item) => item.key === key);
+
+// USDⓈ-M futures. Since 2026-04-23 the streams are split: book tickers on /public, mark prices
+// and klines on /market, user data on /private. The spot API holds the key's permissions and UID.
+export const binanceEnvironments = [
+  {
+    key: 'demo', label: 'Demo trading', tradeMode: 'demo', restUrl: 'https://demo-fapi.binance.com', spotUrl: 'https://demo-api.binance.com',
+    publicUrl: 'wss://demo-fstream.binance.com/public', marketUrl: 'wss://demo-fstream.binance.com/market', privateUrl: 'wss://demo-fstream.binance.com/private',
+  },
+  {
+    key: 'mainnet', label: 'Live', tradeMode: 'real', restUrl: 'https://fapi.binance.com', spotUrl: 'https://api.binance.com',
+    publicUrl: 'wss://fstream.binance.com/public', marketUrl: 'wss://fstream.binance.com/market', privateUrl: 'wss://fstream.binance.com/private',
+  },
+] as const;
+
+export type BinanceEnvironment = (typeof binanceEnvironments)[number]['key'];
+
+export const binanceEnvironment = (key: string) => binanceEnvironments.find((item) => item.key === key);
+
+export type ExchangePlatform = Exclude<Platform, 'mt5'>;
+
+export const exchangeEnvironments = { bybit: bybitEnvironments, binance: binanceEnvironments } as const;
+
+export interface ExchangeEnvironmentInfo {
+  key: string;
+  label: string;
+  restUrl: string;
+  tradeMode: Account['tradeMode'];
+}
+
+export const isExchangePlatform = (platform: Platform): platform is ExchangePlatform => platform !== 'mt5';
+
+export const exchangeEnvironment = (platform: ExchangePlatform, key: string): ExchangeEnvironmentInfo | undefined =>
+  (exchangeEnvironments[platform] as readonly ExchangeEnvironmentInfo[]).find((item) => item.key === key);
+
+// An API key pair for one exchange environment; the environment keys differ per exchange.
+export type ExchangeCredentials = {
+  [P in ExchangePlatform]: { platform: P; environment: (typeof exchangeEnvironments)[P][number]['key']; apiKey: string; apiSecret: string };
+}[ExchangePlatform];
 
 export const marginModes = [
   { key: 'cross', label: 'Cross', apiValue: 'REGULAR_MARGIN' },
@@ -83,14 +138,10 @@ export interface LeverageState {
   marginMode?: MarginMode;
 }
 
-export interface ExchangeLogin {
-  platform: 'bybit';
-  environment: BybitEnvironment;
-  apiKey: string;
-  apiSecret: string;
+export type ExchangeLogin = ExchangeCredentials & {
   label?: string;
   isPasswordSaved?: boolean;
-}
+};
 
 export interface TerminalStatus {
   mode: TerminalMode;
@@ -299,6 +350,7 @@ export interface CheckResult {
   hasMarginEstimate?: boolean;
   leverage?: number;
   maintenanceRate?: number;
+  // 0 when no price can liquidate the position.
   liquidationPrice?: number;
 }
 

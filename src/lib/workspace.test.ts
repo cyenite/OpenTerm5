@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { defaultSettings } from '@meridian/charts';
 import { makeTab } from './chart-tabs';
-import { applyChartSettingsToAll, closeChart, loadProfile, makeChart, openChart, openDialog, openTab, toggleAnalysisMode, removeProfile, saveProfile, setChartSymbol, setChartTimeframe, setLinkGroup, setTabLayout, toggleLayoutSync, updateActiveChart, workspace } from './workspace';
+import { activeTab, applyChartSettingsToAll, closeChart, closeTab, loadProfile, marketTabs, makeChart, openChart, openDialog, openTab, toggleAnalysisMode, removeProfile, saveProfile, setChartSymbol, setMarket, setChartTimeframe, setLinkGroup, setTabLayout, toggleLayoutSync, updateActiveChart, workspace } from './workspace';
 
 test('profile switches retain current edits and persist them without transient UI state', () => {
   const writes = new Map<string, string>();
@@ -123,4 +123,30 @@ test('new tabs follow the last crosshair sync choice', () => {
   assert.equal(state.isCrosshairSyncedByDefault, false);
   assert.deepEqual(state.tabs.at(-1)?.syncs, []);
   assert.equal(state.activeTabId, state.tabs.at(-1)?.id);
+});
+
+test('tabs show only on accounts of their market, each market keeping the tab it had in front', () => {
+  const [eur, gbp] = [makeChart('EURUSD'), makeChart('GBPUSD')];
+  workspace.set({ market: 'fx', marketTabIds: {}, charts: [eur, gbp], tabs: [makeTab('eur', [eur.id]), makeTab('gbp', [gbp.id])], activeTabId: 'gbp', defaultChartSettings: undefined });
+  setMarket('crypto');
+  let state = workspace.get();
+  assert.deepEqual(marketTabs(state).map((tab) => tab.market), ['crypto'], 'a first visit starts from the default crypto layout');
+  assert.deepEqual(state.charts.slice(2).map((chart) => chart.symbol), ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT']);
+  assert.equal(activeTab(state)?.chartIds.length, 4);
+  openChart('LINKUSDT');
+  const cryptoTabId = workspace.get().activeTabId;
+  assert.equal(activeTab(workspace.get())?.market, 'crypto', 'new charts open in a tab of the market in use');
+  setMarket('fx');
+  state = workspace.get();
+  assert.deepEqual(marketTabs(state).map((tab) => tab.id), ['eur', 'gbp']);
+  assert.equal(activeTab(state)?.id, 'gbp', 'the tab that was in front comes back');
+  closeTab('gbp');
+  assert.equal(workspace.get().activeTabId, 'eur', 'closing a tab brings a neighbour of the same market forward');
+  closeTab('eur');
+  assert.equal(activeTab(workspace.get()), undefined);
+  setMarket('crypto');
+  assert.equal(workspace.get().activeTabId, cryptoTabId);
+  setMarket('fx');
+  assert.deepEqual(marketTabs(workspace.get()), [], 'a market whose tabs were all closed stays empty');
+  workspace.set({ market: 'fx', marketTabIds: {} });
 });

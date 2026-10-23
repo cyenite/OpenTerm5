@@ -4,7 +4,7 @@ import { tabActiveChartId, visibleChartIds, type ChartTab } from './chart-tabs';
 import { toChartTimeframe, type ChartTimeframe } from './mt5-timeframes';
 import { replaySpeeds, updateInterval, updateIntervals, type ReplayMode, type ReplaySpeed } from './replay-model';
 import { replay, type ReplayPurpose, type ReplaySession } from './replay-session';
-import { activeTab, tabOfChart, workspace, type WorkspaceState } from './workspace';
+import { activeTab, marketTabs, tabOfChart, workspace, type WorkspaceState } from './workspace';
 
 // Bar replay for a layout tab, as TradingView runs it: one clock for every chart taking part, so
 // stepping, playing and picking a start move them together. Each chart reveals only what had
@@ -231,13 +231,14 @@ export function attachReplay(chartId: string, engine: MeridianChart): () => void
   };
 }
 
-// The replay ends with its tab, pauses while another tab is in front, and takes in charts a
-// changed layout shows (they join through `followReplay` once loaded).
+// The replay ends with its tab (closed, or hidden by an account of another market), pauses while
+// another tab is in front, and takes in charts a changed layout shows (they join through
+// `followReplay` once loaded).
 workspace.subscribe(() => {
   const session = current();
   if (!session) return;
   const state = workspace.get();
-  if (!state.tabs.some((tab) => tab.id === session.tabId)) exitReplay();
+  if (!marketTabs(state).some((tab) => tab.id === session.tabId)) exitReplay();
   else if (session.isPlaying && state.activeTabId !== session.tabId) {
     update({ isPlaying: false });
     stopTimer();
