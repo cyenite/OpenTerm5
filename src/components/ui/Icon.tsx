@@ -52,6 +52,8 @@ const paths = {
   user: <><circle cx="12" cy="8" r="4" /><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0" /></>,
   flame: <path d="M12 21a6.5 6.5 0 0 0 6.5-6.5c0-4-3.5-6-4-10.5-2.5 2-3.2 4.3-3 6.5-1.3-.6-2.2-1.8-2.5-3.3C7.2 9.5 5.5 11.8 5.5 14.5A6.5 6.5 0 0 0 12 21z" />,
   search: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.5 15.5 5 5" /></>,
+  popout: <><path d="M11 5H5v14h14v-6" /><path d="M14 4h6v6M20 4l-8 8" /></>,
+  dock: <><rect x="3" y="4" width="18" height="16" rx="2" /><rect x="12" y="12" width="6" height="5" rx="0.8" /><path d="M7 8l4 4M11 8.5V12H7.5" /></>,
 } as const;
 
 export type IconName = keyof typeof paths;

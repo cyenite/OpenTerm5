@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { closeDialog } from '../../lib/workspace';
+import { useSurface } from '../ui/Surface';
 
 interface DialogProps {
   title: string;
@@ -17,12 +18,13 @@ export function Dialog({ title, width = 420, children }: DialogProps) {
   const box = useRef<HTMLDivElement>(null);
   const drag = useRef<{ startX: number; startY: number; origin: Offset } | null>(null);
   const [offset, setOffset] = useState<Offset>({ x: 0, y: 0 });
+  const view = useSurface();
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => event.key === 'Escape' && closeDialog();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+    view.addEventListener('keydown', onKey);
+    return () => view.removeEventListener('keydown', onKey);
+  }, [view]);
 
   const begin = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return;
@@ -35,8 +37,8 @@ export function Dialog({ title, width = 420, children }: DialogProps) {
     if (!current || !rect) return;
     const x = current.origin.x + event.clientX - current.startX;
     const y = current.origin.y + event.clientY - current.startY;
-    const limitX = (window.innerWidth - rect.width) / 2;
-    const limitY = (window.innerHeight - rect.height) / 2;
+    const limitX = (view.innerWidth - rect.width) / 2;
+    const limitY = (view.innerHeight - rect.height) / 2;
     setOffset({ x: Math.max(-limitX, Math.min(limitX, x)), y: Math.max(-limitY, Math.min(limitY, y)) });
   };
   const end = () => { drag.current = null; };

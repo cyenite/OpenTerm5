@@ -21,7 +21,8 @@ import { openMenu, separator, type MenuEntry } from './ui/menu';
 import { ObjectTree } from './ui/object-tree';
 import { ReplayBar } from './ui/replay-bar';
 import { StyleBar } from './ui/stylebar';
-import { ensureStyles, element } from './ui/styles';
+import { ensureStyles, element, isTag } from './ui/styles';
+import { candleWidths } from './core/candles';
 import { DrawingToolbar, type CursorMode, type MagnetMode } from './ui/toolbar';
 
 export interface MeridianChartOptions {
@@ -369,7 +370,11 @@ export class MeridianChart {
   private readonly context: CanvasRenderingContext2D;
   private readonly toolbar: DrawingToolbar;
   private readonly styleBar: StyleBar;
+  private readonly view: Window & typeof globalThis;
   private readonly resizeObserver: ResizeObserver;
+  private canvasObserver: ResizeObserver | null = null;
+  // The canvas in device pixels as the compositor shows it, when the engine reports it.
+  private deviceSize: { width: number; height: number } | null = null;
   private readonly timeScale = new TimeScale();
   private readonly provider: DataProvider;
   private readonly pageBars: number;
@@ -456,6 +461,7 @@ export class MeridianChart {
 
   constructor(container: HTMLElement, options: MeridianChartOptions) {
     ensureStyles(container.ownerDocument);
+    this.view = (container.ownerDocument.defaultView ?? window) as Window & typeof globalThis;
     this.provider = options.provider;
     this.symbol = options.symbol;
     this.timeframe = options.timeframe;
@@ -533,9 +539,12 @@ export class MeridianChart {
     this.canvas.addEventListener('contextmenu', this.onCanvasMenu);
     this.canvas.addEventListener('wheel', this.onWheel, { passive: false });
     this.main.addEventListener('keydown', this.onKeyDown);
-    window.addEventListener('keyup', this.onKeyUp);
-    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.view.addEventListener('keyup', this.onKeyUp);
+    // Created from the chart's own window: observers and frames of the main window stop when it is
+    // minimised, while a chart popped out into its own window is still on screen.
+    this.resizeObserver = new this.view.ResizeObserver(() => this.resize());
     this.resizeObserver.observe(this.root);
+    this.observeCanvas();
     this.countdownTimer = setInterval(() => { if (this.barList.length && this.interval < timeUnits.DAY) this.invalidate(); }, 1000);
     this.resize();
     this.readyPromise = this.load();
@@ -544,14 +553,15 @@ export class MeridianChart {
   destroy(): void {
     this.generation++;
     for (const study of this.studies) study.controller?.abort();
-    cancelAnimationFrame(this.frame);
+    this.view.cancelAnimationFrame(this.frame);
     clearInterval(this.countdownTimer);
     this.unsubscribe?.();
     this.closeDialog?.();
     this.closeMenu?.();
     this.stopReplayTimer();
     this.resizeObserver.disconnect();
-    window.removeEventListener('keyup', this.onKeyUp);
+    this.canvasObserver?.disconnect();
+    this.view.removeEventListener('keyup', this.onKeyUp);
     this.toolbar.destroy();
     this.styleBar.destroy();
     this.replayBar.destroy();
@@ -1438,13 +1448,36 @@ export class MeridianChart {
     const box = this.main.getBoundingClientRect();
     this.width = Math.max(0, Math.floor(box.width));
     this.height = Math.max(0, Math.floor(box.height));
-    this.ratio = window.devicePixelRatio || 1;
-    this.canvas.width = Math.round(this.width * this.ratio);
-    this.canvas.height = Math.round(this.height * this.ratio);
+    this.ratio = this.view.devicePixelRatio || 1;
     this.canvas.style.width = `${this.width}px`;
     this.canvas.style.height = `${this.height}px`;
+    // A backing store that is not exactly the displayed device pixels gets resampled, which blurs
+    // every 1px line and thin candle into its neighbours: charts at fractional offsets (layout
+    // cells, interface zoom, 125% scaling) looked washed out, most of all on light backgrounds.
+    const device = this.deviceSize;
+    const isDeviceCurrent = !!device && Math.abs(device.width - this.width * this.ratio) < 2 && Math.abs(device.height - this.height * this.ratio) < 2;
+    const width = isDeviceCurrent ? device.width : Math.round(this.width * this.ratio);
+    const height = isDeviceCurrent ? device.height : Math.round(this.height * this.ratio);
+    if (this.canvas.width !== width) this.canvas.width = width;
+    if (this.canvas.height !== height) this.canvas.height = height;
     this.layout();
     this.render();
+  }
+
+  private observeCanvas(): void {
+    try {
+      const observer = new this.view.ResizeObserver(([entry]) => {
+        const size = entry?.devicePixelContentBoxSize?.[0];
+        if (!size) return;
+        if (this.deviceSize?.width === size.inlineSize && this.deviceSize.height === size.blockSize && this.canvas.width === size.inlineSize && this.canvas.height === size.blockSize) return;
+        this.deviceSize = { width: size.inlineSize, height: size.blockSize };
+        this.resize();
+      });
+      observer.observe(this.canvas, { box: 'device-pixel-content-box' });
+      this.canvasObserver = observer;
+    } catch {
+      // Without device-pixel boxes the canvas is sized from devicePixelRatio alone.
+    }
   }
 
   private layout(): void {
@@ -1924,7 +1957,7 @@ export class MeridianChart {
   };
 
   private onKeyDown = (event: KeyboardEvent): void => {
-    if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement) return;
+    if (isTag(event.target, 'TEXTAREA', 'INPUT')) return;
     // The host steps (Shift+Right) and plays (Shift+Down) a hosted replay from its own listener.
     if (this.replay && this.isReplayHosted && event.shiftKey && (event.key === 'ArrowRight' || event.key === 'ArrowDown')) return;
     const isMod = event.ctrlKey || event.metaKey;
@@ -2677,7 +2710,7 @@ export class MeridianChart {
 
   private invalidate(): void {
     if (this.frame) return;
-    this.frame = requestAnimationFrame(() => {
+    this.frame = this.view.requestAnimationFrame(() => {
       this.frame = 0;
       this.render();
     });
@@ -2984,9 +3017,8 @@ export class MeridianChart {
     // pixel wick. Edges falling between pixels get blended with the background, which washes the
     // colours out, most visibly on thin bodies and 1px wicks.
     const ratio = this.ratio;
-    const wick = Math.max(1, Math.floor(ratio));
-    const bodyWidth = Math.max(wick, Math.floor(spacing * 0.75 * ratio) - (spacing > 4 ? 1 : 0));
-    const body = bodyWidth - ((bodyWidth - wick) % 2);
+    const { wick, body } = candleWidths(spacing, ratio);
+    const isTouching = body >= Math.floor(spacing * ratio);
     const border = Math.max(1, Math.floor(ratio));
     const isBars = this.priceStyle === 'bars';
     const colors = this.colors();
@@ -3024,7 +3056,7 @@ export class MeridianChart {
         const open = Math.round(scale.priceToY(bar.open) * ratio);
         const close = Math.round(scale.priceToY(bar.close) * ratio);
         if (isBars) {
-          const tick = Math.max(wick, Math.floor(body / 2));
+          const tick = Math.max(wick, Math.floor(spacing * ratio * 0.35));
           fill(bodyColor, wickLeft, high, wick, Math.max(wick, low - high));
           fill(bodyColor, wickLeft - tick, open - Math.floor(wick / 2), tick, wick);
           fill(bodyColor, wickLeft + wick, close - Math.floor(wick / 2), tick, wick);
@@ -3037,16 +3069,20 @@ export class MeridianChart {
           fill(wickColor, wickLeft, high, wick, top - high);
           fill(wickColor, wickLeft, bottom, wick, low - bottom);
         }
-        const left = center - Math.floor(body / 2);
+        // Touching bodies split the columns at the bar boundaries, so rounding never overlaps two
+        // candles or leaves a background column between them.
+        const x = this.timeScale.indexToX(index);
+        const left = isTouching ? Math.round((x - spacing / 2) * ratio) : center - Math.floor(body / 2);
+        const width = isTouching ? Math.max(wick, Math.round((x + spacing / 2) * ratio) - left) : body;
         if (isHollow && isUp) {
-          outline(bodyColor, left, top, body, height, border);
+          outline(bodyColor, left, top, width, height, border);
           continue;
         }
-        const hasBorder = isBorderVisible && body > border * 2 + 1;
-        if (hasBorder) outline(borderColor, left, top, body, height, border);
+        const hasBorder = isBorderVisible && width > border * 2 + 1;
+        if (hasBorder) outline(borderColor, left, top, width, height, border);
         if (isBodyVisible) {
-          if (hasBorder) fill(bodyColor, left + border, top + border, body - border * 2, height - border * 2);
-          else fill(bodyColor, left, top, body, height);
+          if (hasBorder) fill(bodyColor, left + border, top + border, width - border * 2, height - border * 2);
+          else fill(bodyColor, left, top, width, height);
         }
       }
     }
@@ -3059,12 +3095,23 @@ export class MeridianChart {
     if (!largest) return;
     const height = pane.height * 0.2;
     const bottom = pane.top + pane.height;
-    const width = Math.max(1, Math.floor(this.timeScale.spacing * 0.75));
+    // Whole device pixels like the candles, half opaque like TradingView's volume.
+    const ratio = this.ratio;
+    const spacing = this.timeScale.spacing;
+    const { body } = candleWidths(spacing, ratio);
+    const isTouching = body >= Math.floor(spacing * ratio);
+    const base = Math.round(bottom * ratio);
     for (let index = Math.max(0, from - 1); index <= Math.min(this.barList.length - 1, to + 1); index++) {
       const bar = this.barList[index];
-      const size = (bar.volume ?? 0) / largest * height;
-      ctx.fillStyle = bar.close >= bar.open ? `${this.theme.chart.up}59` : `${this.theme.chart.down}59`;
-      ctx.fillRect(this.timeScale.indexToX(index) - width / 2, bottom - size, width, size);
+      const top = Math.round((bottom - (bar.volume ?? 0) / largest * height) * ratio);
+      if (top >= base) continue;
+      // Translucent columns that overlapped would draw a darker seam, so touching ones split the columns.
+      const x = this.timeScale.indexToX(index);
+      const left = isTouching ? Math.round((x - spacing / 2) * ratio) : Math.round(x * ratio) - Math.floor(body / 2);
+      const width = isTouching ? Math.round((x + spacing / 2) * ratio) - left : body;
+      if (width <= 0) continue;
+      ctx.fillStyle = bar.close >= bar.open ? `${this.theme.chart.up}80` : `${this.theme.chart.down}80`;
+      ctx.fillRect(left / ratio, top / ratio, width / ratio, (base - top) / ratio);
     }
   }
 

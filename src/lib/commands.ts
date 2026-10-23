@@ -101,13 +101,16 @@ function isReplayInFront(): boolean {
   return replay.get().session?.tabId === workspace.get().activeTabId;
 }
 
+// Duck-typed: keys pressed in a chart's pop-out window come from that window's elements.
+const closestOf = (target: EventTarget | null, selector: string) => (target as Element | null)?.closest?.(selector) ?? null;
+
 function isChartFocus(target: EventTarget | null): boolean {
-  return target === document.body || target instanceof Element && !!target.closest('.chart-area');
+  return target === (target as Node | null)?.ownerDocument?.body || !!closestOf(target, '.chart-area');
 }
 
 export function handleShortcut(event: KeyboardEvent): boolean {
   // A focused panel that used the key (typing into Market Watch starts a search) has claimed it.
-  if (event.defaultPrevented || event.target instanceof Element && event.target.closest('input, textarea, select')) {
+  if (event.defaultPrevented || closestOf(event.target, 'input, textarea, select')) {
     return false;
   }
   const key = event.key.toLowerCase();

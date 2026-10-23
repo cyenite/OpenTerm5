@@ -1,7 +1,7 @@
 import { dismissible, openColorPicker, paintSwatch, placePopup, type ColorPick } from './color-picker';
 import { dropdown, lineSample, type DropdownOption } from './dropdown';
 import { iconSvg } from './icons';
-import { element } from './styles';
+import { element, isTag } from './styles';
 
 export interface LevelValue {
   value: number;
@@ -358,7 +358,7 @@ export function openDialog(host: HTMLElement, options: DialogOptions): () => voi
     if (isClosed) return;
     isClosed = true;
     backdrop.remove();
-    document.removeEventListener('keydown', onKey, true);
+    host.ownerDocument.removeEventListener('keydown', onKey, true);
   };
   const cancel = () => {
     if (isClosed) return;
@@ -412,9 +412,9 @@ export function openDialog(host: HTMLElement, options: DialogOptions): () => voi
     if (open[open.length - 1] !== backdrop) return;
     if (backdrop.querySelector('.mc-dropdown-list, .mc-color-picker, .mc-template-list')) return;
     if (event.key === 'Escape') { event.stopPropagation(); cancel(); }
-    else if (event.key === 'Enter' && !(event.target instanceof HTMLTextAreaElement) && !(event.target instanceof HTMLButtonElement)) { event.preventDefault(); event.stopPropagation(); ok.click(); }
+    else if (event.key === 'Enter' && !isTag(event.target, 'TEXTAREA', 'BUTTON')) { event.preventDefault(); event.stopPropagation(); ok.click(); }
   };
-  document.addEventListener('keydown', onKey, true);
+  host.ownerDocument.addEventListener('keydown', onKey, true);
   backdrop.addEventListener('wheel', (event) => event.stopPropagation());
   backdrop.addEventListener('contextmenu', (event) => event.preventDefault());
   place(backdrop, dialog);

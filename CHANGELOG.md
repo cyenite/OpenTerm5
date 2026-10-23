@@ -20,6 +20,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   suggestion and margin and liquidation checks as Bybit. Stop losses and take profits follow each
   fill as conditional orders; a fill whose stop Binance refuses is closed again. Keys that can
   withdraw funds are refused.
+- Picture-in-picture charts. Any chart can pop out of its layout into its own always-on-top window,
+  from the button in the chart's corner or **Picture in Picture** in its context menu. **Lite** shows
+  the chart alone for monitoring; **Full** adds the chart toolbar, drawing tools and trading panels,
+  and its menus and dialogs open in that window. Closing the window returns the chart to its layout.
 
 ### Changed
 
@@ -30,6 +34,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Bybit and Binance accounts share one set of crypto watchlists and risk ticket settings.
 - The crypto risk ticket says "No liquidation at this size" instead of showing a liquidation price of
   0 when the free margin covers a fall to zero.
+
+### Fixed
+
+- Charts no longer look washed out when zoomed out, most visibly on light themes. Candles fill their
+  bar spacing as TradingView's do instead of leaving background between thin bodies, and the chart
+  canvas matches the screen's pixels at any interface zoom or display scaling instead of being
+  stretched and blurred. Volume columns are sharper and half opaque.
 
 ## [0.5.0] - 2026-10-23
 

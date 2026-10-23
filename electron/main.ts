@@ -135,6 +135,29 @@ async function applySettings(): Promise<void> {
 
 const zoom = new AppZoom(path.join(app.getPath('userData'), 'zoom.json'), (factor) => send('zoom', factor));
 
+// Charts popped out of the layout: windows the renderer opens on about:blank and draws into itself.
+const popoutPrefix = 'openterm-pip-';
+const popouts = new Set<BrowserWindow>();
+const windowIcon = () => process.platform === 'darwin' ? {} : { icon: path.join(app.getAppPath(), 'build', 'icon.png') };
+
+function adoptPopout(child: BrowserWindow): void {
+  popouts.add(child);
+  child.setAlwaysOnTop(true, 'floating');
+  if (process.platform === 'darwin') child.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  // The pop-out's chart runs on the main window's page; a minimised main window must not slow it.
+  window?.webContents.setBackgroundThrottling(false);
+  child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  child.webContents.on('will-navigate', (event) => event.preventDefault());
+  child.on('closed', () => {
+    popouts.delete(child);
+    if (!popouts.size) window?.webContents.setBackgroundThrottling(true);
+  });
+}
+
+function closePopouts(): void {
+  for (const child of popouts) if (!child.isDestroyed()) child.close();
+}
+
 function createWindow(): void {
   window = new BrowserWindow({
     width: 1440,
@@ -144,7 +167,7 @@ function createWindow(): void {
     title: 'OpenTerm5',
     show: false,
     // macOS takes the icon from the app bundle; Linux and Windows need it on the window.
-    ...(process.platform === 'darwin' ? {} : { icon: path.join(app.getAppPath(), 'build', 'icon.png') }),
+    ...windowIcon(),
     // On macOS the window controls sit inside the 36px app bar, centred on it, and the bar doubles as the drag region.
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 11 } } : {}),
     backgroundColor: '#1e1f22',
@@ -176,15 +199,38 @@ function createWindow(): void {
       : [{ role: 'copy' }];
     Menu.buildFromTemplate(template).popup({ window });
   });
+  // A reload or a closed main window takes the pop-outs' page with it.
+  window.webContents.on('did-start-loading', closePopouts);
   window.on('closed', () => {
+    closePopouts();
     window = undefined;
     if (process.platform !== 'darwin') app.quit();
   });
-  window.webContents.setWindowOpenHandler(({ url }) => {
+  window.webContents.setWindowOpenHandler(({ url, frameName }) => {
+    if (url === 'about:blank' && frameName.startsWith(popoutPrefix)) {
+      return {
+        action: 'allow',
+        outlivesOpener: false,
+        overrideBrowserWindowOptions: {
+          minWidth: 280,
+          minHeight: 180,
+          title: 'OpenTerm5',
+          ...windowIcon(),
+          alwaysOnTop: true,
+          fullscreenable: false,
+          autoHideMenuBar: true,
+          backgroundColor: '#1e1f22',
+          webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+        },
+      };
+    }
     if (url.startsWith('https://')) {
       void shell.openExternal(url);
     }
     return { action: 'deny' };
+  });
+  window.webContents.on('did-create-window', (child, { frameName }) => {
+    if (frameName.startsWith(popoutPrefix)) adoptPopout(child);
   });
   window.webContents.on('will-navigate', (event, url) => {
     if (url !== window?.webContents.getURL()) {

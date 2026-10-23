@@ -15,10 +15,13 @@ import { TradingViewDialog } from './components/dialogs/TradingViewDialog';
 import { IndicatorsDialog } from './components/dialogs/IndicatorsDialog';
 import { BacktestDialog } from './components/backtest/BacktestDialog';
 import { BacktestOrderEditDialog, BacktestPositionDialog } from './components/backtest/BacktestTickets';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { AppBar } from './components/AppBar';
 import { ChartWorkspace } from './components/ChartWorkspace';
 import { ContextMenuHost } from './components/ContextMenu';
+import { ChartPopouts } from './components/chart/ChartPopout';
+import { SurfacePortal } from './components/ui/Surface';
+import { focusedPopoutWindow } from './lib/popouts';
 import { Dock } from './components/Dock';
 import { AboutDialog, ConnectionDialog, LoginDialog, SymbolsDialog } from './components/dialogs/MiscDialogs';
 import { ModifyOrderDialog, ModifyPositionDialog } from './components/dialogs/ModifyDialogs';
@@ -30,7 +33,7 @@ import { HintBubble } from './components/ui/Hint';
 import { handleShortcut } from './lib/commands';
 import { dockItems } from './lib/dock';
 import { useStore } from './lib/store';
-import { workspace, type Dialog } from './lib/workspace';
+import { closeDialog, workspace, type Dialog } from './lib/workspace';
 
 interface ActiveDialogProps {
   dialog: Dialog;
@@ -68,6 +71,23 @@ function ActiveDialog({ dialog }: ActiveDialogProps) {
   }
 }
 
+interface DialogHostProps {
+  dialog: Dialog;
+}
+
+// A dialog opens in the window it was asked for from: a chart's pop-out window or the main one.
+// Closing that window closes the dialog with it.
+function DialogHost({ dialog }: DialogHostProps) {
+  const [view] = useState(focusedPopoutWindow);
+  useEffect(() => {
+    if (!view) return;
+    const close = () => closeDialog();
+    view.addEventListener('pagehide', close);
+    return () => view.removeEventListener('pagehide', close);
+  }, [view]);
+  return <SurfacePortal view={view}><ActiveDialog dialog={dialog} /></SurfacePortal>;
+}
+
 export function App() {
   const state = useStore(workspace, (current) => current);
   const isAnalysis = state.isAnalysisMode;
@@ -103,7 +123,8 @@ export function App() {
         <Dock side="right" items={dockItems(state, 'right')} depthSymbol={state.depthSymbol} />
       </main>
       {state.isStatusBarShown && <StatusBar />}
-      {state.dialog && <ActiveDialog dialog={state.dialog} />}
+      {state.dialog && <DialogHost dialog={state.dialog} />}
+      <ChartPopouts />
       <ContextMenuHost />
       <HintBubble />
     </div>

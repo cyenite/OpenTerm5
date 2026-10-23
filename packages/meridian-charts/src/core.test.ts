@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { formatCrosshairTime, precisionOf } from './core/format';
 import { PriceScale, priceTicks } from './core/price-scale';
+import { candleWidths } from './core/candles';
 import { TimeScale } from './core/time-scale';
 import { timeTicks } from './core/time-ticks';
 import { isTimeframe, timeframeMs } from './core/timeframes';
@@ -169,4 +170,21 @@ test('shapes are hit along their outline, and inside when filled', () => {
   const [a, b] = extend({ x: 0, y: 0 }, { x: 10, y: 0 }, { left: 0, top: 0, width: 800, height: 400 }, false, true);
   assert.equal(a.x, 0);
   assert.ok(b.x > 800);
+});
+
+test('candle widths fill the spacing when zoomed out and keep the wick centred', () => {
+  assert.deepEqual(candleWidths(1, 1), { wick: 1, body: 1 });
+  assert.deepEqual(candleWidths(2, 1), { wick: 1, body: 2 });
+  assert.deepEqual(candleWidths(3, 1), { wick: 1, body: 3 });
+  assert.deepEqual(candleWidths(4, 1), { wick: 1, body: 3 });
+  assert.deepEqual(candleWidths(2, 2), { wick: 2, body: 4 });
+  assert.deepEqual(candleWidths(3, 2), { wick: 2, body: 6 });
+  for (const ratio of [1, 1.25, 1.5, 2, 3]) {
+    for (let spacing = 0.5; spacing <= 50; spacing += 0.25) {
+      const { wick, body } = candleWidths(spacing, ratio);
+      assert.ok(body >= wick && body <= Math.max(wick, Math.floor(spacing * ratio)), `${spacing} at ${ratio}`);
+      if (body < Math.floor(spacing * ratio)) assert.equal((body - wick) % 2, 0, `${spacing} at ${ratio}`);
+    }
+  }
+  assert.ok(candleWidths(30, 1).body < 26);
 });

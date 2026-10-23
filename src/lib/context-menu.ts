@@ -6,6 +6,8 @@ export interface ContextMenuState {
   readonly x: number;
   readonly y: number;
   readonly items: readonly MenuItem[];
+  // The window the menu opens in: a chart's pop-out window or the main one.
+  readonly view: Window;
 }
 
 export const contextMenu = new Store<{ menu: ContextMenuState | null }>({ menu: null });
@@ -13,13 +15,14 @@ export const contextMenu = new Store<{ menu: ContextMenuState | null }>({ menu: 
 export function openContextMenu(event: ReactMouseEvent | MouseEvent, items: readonly MenuItem[]): void {
   event.preventDefault();
   event.stopPropagation();
-  if (items.length) contextMenu.set({ menu: { x: event.clientX, y: event.clientY, items } });
+  const view = (event.target as Node | null)?.ownerDocument?.defaultView ?? window;
+  if (items.length) contextMenu.set({ menu: { x: event.clientX, y: event.clientY, items, view } });
 }
 
 export function closeContextMenu(): void {
   contextMenu.set({ menu: null });
 }
 
-export function openMenuAt(x: number, y: number, items: readonly MenuItem[]): void {
-  if (items.length) contextMenu.set({ menu: { x, y, items } });
+export function openMenuAt(x: number, y: number, items: readonly MenuItem[], view: Window = window): void {
+  if (items.length) contextMenu.set({ menu: { x, y, items, view } });
 }

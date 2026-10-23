@@ -3,6 +3,7 @@ import { isEquivalentDivider, layoutCells, layoutDividers, layoutOf, linkGroups,
 import { tabActiveChartId, tabSizes, visibleChartIds, type ChartTab } from '../lib/chart-tabs';
 import { openContextMenu, openMenuAt } from '../lib/context-menu';
 import { isLinkGroupShown, linkGroupMenuItems, tabTitle } from '../lib/layout-menu';
+import { dockChart, popOutChart, popoutMenuItems, popoutModeOf, popoutOf, popouts, type Popout } from '../lib/popouts';
 import { setLayoutResizing } from '../lib/layout-sync';
 import { replay } from '../lib/replay';
 import { useStore } from '../lib/store';
@@ -36,6 +37,28 @@ function cellStyle(rect: CellRect): CSSProperties {
   };
 }
 
+interface PoppedOutChartProps {
+  chart: ChartConfig;
+  popout: Popout;
+}
+
+// What the layout shows in the slot of a chart that is in its own window.
+function PoppedOutChart({ chart, popout }: PoppedOutChartProps) {
+  return (
+    <div className="chart-window is-popped-out" onMouseDown={() => focusChart(chart.id)}>
+      <div className="popped-out-notice" role="status">
+        <Icon name="popout" size={20} />
+        <strong>{chart.symbol} {chart.timeframe}</strong>
+        <span>Shown in its own window ({popoutModeOf(popout.mode).label})</span>
+        <div className="popped-out-actions">
+          <button type="button" onClick={() => popOutChart(chart.id, popout.mode)}>Show Window</button>
+          <button type="button" onClick={() => dockChart(chart.id)}>Return Here</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface ChartCellProps {
   chart: ChartConfig;
   rect: CellRect | null;
@@ -49,6 +72,7 @@ interface ChartCellProps {
 // full size, hidden, as background charts always have.
 function ChartCell({ chart, rect, isActive, isOutlined, isLinkShown }: ChartCellProps) {
   const group = linkGroups.find((candidate) => candidate.key === chart.linkGroup);
+  const popout = useStore(popouts, (state) => popoutOf(state, chart.id));
   const classes = ['chart-cell', !rect && 'is-background', isOutlined && 'is-active'].filter(Boolean).join(' ');
   return (
     <div
@@ -63,7 +87,22 @@ function ChartCell({ chart, rect, isActive, isOutlined, isLinkShown }: ChartCell
         setChartSymbol(chart.id, symbol);
       }}
     >
-      <ChartWindow chart={chart} isActive={isActive} />
+      {popout ? <PoppedOutChart chart={chart} popout={popout} /> : <ChartWindow chart={chart} isActive={isActive} />}
+      {rect && !popout && (
+        <button
+          type="button"
+          className={`chart-popout${isLinkShown ? ' is-beside-link' : ''}`}
+          title="Picture in picture: open the chart in its own window, on top of other windows"
+          aria-label="Picture in picture"
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            const box = event.currentTarget.getBoundingClientRect();
+            openMenuAt(box.left, box.top - 4, popoutMenuItems(chart.id));
+          }}
+        >
+          <Icon name="popout" size={13} />
+        </button>
+      )}
       {rect && isLinkShown && (
         <button
           type="button"

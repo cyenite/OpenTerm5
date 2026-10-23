@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from 'react';
 import { Store, useStore } from '../../lib/store';
+import { SurfacePortal } from './Surface';
 
 export interface HintContent {
   title: string;
@@ -11,9 +12,10 @@ interface HintState {
   top: number;
   left: number;
   content: HintContent | null;
+  view: Window;
 }
 
-const hint = new Store<HintState>({ top: 0, left: 0, content: null });
+const hint = new Store<HintState>({ top: 0, left: 0, content: null, view: window });
 
 const showDelay = 380;
 const graceMs = 400;
@@ -28,7 +30,7 @@ export function hintProps(content: HintContent) {
     window.clearTimeout(timer);
     const place = () => {
       const box = target.getBoundingClientRect();
-      hint.set({ content, top: box.bottom + 6, left: box.left + box.width / 2 });
+      hint.set({ content, top: box.bottom + 6, left: box.left + box.width / 2, view: target.ownerDocument.defaultView ?? window });
     };
     if (isImmediate || hint.get().content || Date.now() - hiddenAt < graceMs) place();
     else timer = window.setTimeout(place, showDelay);
@@ -55,17 +57,19 @@ export function HintBubble() {
     const element = bubble.current;
     if (!element) return;
     const width = element.offsetWidth;
-    element.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, state.left - width / 2))}px`;
+    element.style.left = `${Math.min(state.view.innerWidth - width - 8, Math.max(8, state.left - width / 2))}px`;
   }, [state]);
 
   if (!state.content) return null;
   return (
-    <div ref={bubble} className="hint-bubble" role="tooltip" style={{ top: state.top }}>
-      <div className="hint-title">
-        <span>{state.content.title}</span>
-        {state.content.shortcut && <kbd>{state.content.shortcut}</kbd>}
+    <SurfacePortal view={state.view}>
+      <div ref={bubble} className="hint-bubble" role="tooltip" style={{ top: state.top }}>
+        <div className="hint-title">
+          <span>{state.content.title}</span>
+          {state.content.shortcut && <kbd>{state.content.shortcut}</kbd>}
+        </div>
+        {state.content.description && <div className="hint-description">{state.content.description}</div>}
       </div>
-      {state.content.description && <div className="hint-description">{state.content.description}</div>}
-    </div>
+    </SurfacePortal>
   );
 }

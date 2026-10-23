@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { closeContextMenu, contextMenu } from '../lib/context-menu';
 import { useStore } from '../lib/store';
 import { MenuList } from './MenuBar';
+import { SurfacePortal } from './ui/Surface';
 
 export function ContextMenuHost() {
   const menu = useStore(contextMenu, (state) => state.menu);
@@ -12,15 +13,16 @@ export function ContextMenuHost() {
     if (!menu) return;
     const close = () => closeContextMenu();
     const onKey = (event: KeyboardEvent) => event.key === 'Escape' && close();
-    window.addEventListener('mousedown', close);
-    window.addEventListener('blur', close);
-    window.addEventListener('resize', close);
-    window.addEventListener('keydown', onKey);
+    const { view } = menu;
+    view.addEventListener('mousedown', close);
+    view.addEventListener('blur', close);
+    view.addEventListener('resize', close);
+    view.addEventListener('keydown', onKey);
     return () => {
-      window.removeEventListener('mousedown', close);
-      window.removeEventListener('blur', close);
-      window.removeEventListener('resize', close);
-      window.removeEventListener('keydown', onKey);
+      view.removeEventListener('mousedown', close);
+      view.removeEventListener('blur', close);
+      view.removeEventListener('resize', close);
+      view.removeEventListener('keydown', onKey);
     };
   }, [menu]);
 
@@ -29,15 +31,17 @@ export function ContextMenuHost() {
     if (!menu || !element.current) return;
     const { width, height } = element.current.getBoundingClientRect();
     setPosition({
-      left: Math.max(4, Math.min(menu.x, window.innerWidth - width - 4)),
-      top: Math.max(4, menu.y + height > window.innerHeight - 4 ? menu.y - height : menu.y),
+      left: Math.max(4, Math.min(menu.x, menu.view.innerWidth - width - 4)),
+      top: Math.max(4, menu.y + height > menu.view.innerHeight - 4 ? menu.y - height : menu.y),
     });
   }, [menu]);
 
   if (!menu) return null;
   return (
-    <div ref={element} className="context-menu" style={position} onContextMenu={(event) => event.preventDefault()}>
-      <MenuList items={[...menu.items]} onDone={closeContextMenu} />
-    </div>
+    <SurfacePortal view={menu.view}>
+      <div ref={element} className="context-menu" style={position} onContextMenu={(event) => event.preventDefault()}>
+        <MenuList items={[...menu.items]} onDone={closeContextMenu} />
+      </div>
+    </SurfacePortal>
   );
 }

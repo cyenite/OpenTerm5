@@ -16,6 +16,7 @@ import { assistantEntry, assistantPlan, assistantPreferences, stopForPrice, targ
 import { spreadLabels } from '../../lib/overlay-labels';
 import { clearPinnedTrade, focusedGroup, orderGroup, pinTrade, positionGroup, tradeFocus } from '../../lib/trade-focus';
 import { Segmented, Switch } from '../ui/Controls';
+import { useSurface } from '../ui/Surface';
 import type { MeridianChart } from '@meridian/charts';
 import { LineHandle, priceAtPointer, useLineGeometry, type Edit, type OverlayLine } from './OverlayLines';
 
@@ -82,6 +83,7 @@ interface TradeOverlayProps {
 }
 
 export function TradeOverlay({ chart: controller, symbol, digits, isReplaying, isBacktesting }: TradeOverlayProps) {
+  const view = useSurface();
   const venue = useVenue(isBacktesting);
   const tool = useStore(workspace, (state) => state.tool);
   const tick = venue.quotes[symbol];
@@ -137,9 +139,9 @@ export function TradeOverlay({ chart: controller, symbol, digits, isReplaying, i
     const cancel = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { setPlan({}); setIsMarketForced(false); if (workspace.get().tool === 'riskOrder') workspace.set({ tool: 'cursor' }); }
     };
-    window.addEventListener('keydown', cancel, true);
-    return () => window.removeEventListener('keydown', cancel, true);
-  }, [isPlannerActive]);
+    view.addEventListener('keydown', cancel, true);
+    return () => view.removeEventListener('keydown', cancel, true);
+  }, [isPlannerActive, view]);
 
   const request: RiskOrderRequest | null = decision?.type && plan.stop ? {
     type: decision.type, symbol, mode: preferences.mode, value: preferences.value,
@@ -223,7 +225,7 @@ export function TradeOverlay({ chart: controller, symbol, digits, isReplaying, i
   };
   const closeFromChart = (position: Position) => {
     // A backtest closes without asking: nothing real is at stake.
-    if (!isOneClick && !isBacktesting && !window.confirm(`Close #${position.ticket} ${position.side} ${formatVolume(position.volume)} ${position.symbol}?`)) return;
+    if (!isOneClick && !isBacktesting && !view.confirm(`Close #${position.ticket} ${position.side} ${formatVolume(position.volume)} ${position.symbol}?`)) return;
     void venue.closePosition(position).then((result) => log(`close #${position.ticket} from chart: ${result.isSuccess ? 'done' : result.comment}`, 'Trades'));
   };
   const entryLine = (position: Position): OverlayLine => ({
@@ -278,10 +280,10 @@ export function TradeOverlay({ chart: controller, symbol, digits, isReplaying, i
     if (!isPinned) return;
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') clearPinnedTrade(); };
     const onDown = (event: PointerEvent) => { if (!(event.target as Element | null)?.closest?.('.overlay-line.has-group, .trades tr')) clearPinnedTrade(); };
-    window.addEventListener('keydown', onKey, true);
-    window.addEventListener('pointerdown', onDown, true);
-    return () => { window.removeEventListener('keydown', onKey, true); window.removeEventListener('pointerdown', onDown, true); };
-  }, [isPinned]);
+    view.addEventListener('keydown', onKey, true);
+    view.addEventListener('pointerdown', onDown, true);
+    return () => { view.removeEventListener('keydown', onKey, true); view.removeEventListener('pointerdown', onDown, true); };
+  }, [isPinned, view]);
   // The focused trade's risk and reward as bands from its entry to each stop and target.
   const focusedLines = focused ? shown.filter((line) => line.group === focused) : [];
   const anchor = focusedLines.find((line) => line.role === 'position' || line.role === 'pending' || line.role === 'entry');
