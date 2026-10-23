@@ -154,6 +154,7 @@ export interface RiskOrderOutcome {
   margin?: number;
   leverage?: number;
   safeLeverage?: number;
+  // 0 when no price can liquidate the position.
   liquidationPrice?: number;
 }
 

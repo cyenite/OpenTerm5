@@ -1,8 +1,5 @@
 import { createHmac } from 'node:crypto';
-
-export type Fetch = (url: string, init: RequestInit) => Promise<Response>;
-
-export type Query = Record<string, string | number | boolean | undefined>;
+import { queryString, type Fetch, type Query } from './exchange-common';
 
 export interface BybitKey {
   readonly apiKey: string;
@@ -25,12 +22,6 @@ export class BybitApiError extends Error {
 }
 
 export const signature = (secret: string, payload: string) => createHmac('sha256', secret).update(payload).digest('hex');
-
-export function queryString(query: Query): string {
-  const params = new URLSearchParams();
-  for (const [name, value] of Object.entries(query)) if (value !== undefined && value !== '') params.append(name, String(value));
-  return params.toString();
-}
 
 const messages: Record<number, string> = {
   10003: 'Bybit does not recognise this API key. Check it was created for the chosen environment (live, demo trading or testnet).',

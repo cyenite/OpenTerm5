@@ -1,5 +1,5 @@
 import { Component } from 'react';
-import type { AccountProfile, AccountSignIn } from '../../../shared/protocol';
+import { isExchangePlatform, type AccountProfile, type AccountSignIn } from '../../../shared/protocol';
 import { refreshSession, session, terminal } from '../../lib/session';
 import { closeDialog, openDialog } from '../../lib/workspace';
 import { Dialog } from './Dialog';
@@ -14,7 +14,7 @@ interface AccountsState {
 }
 
 const credentialState = (profile: AccountProfile) => {
-  const name = profile.platform === 'bybit' ? 'API secret' : 'Password';
+  const name = isExchangePlatform(profile.platform) ? 'API secret' : 'Password';
   return profile.isPasswordSaved ? `${name} saved securely` : profile.hasPassword ? `${name} in memory` : `${name} required`;
 };
 

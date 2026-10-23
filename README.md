@@ -34,7 +34,7 @@ usually pay for as Expert Advisors, VPS add-ons or monthly subscriptions come bu
   saved sessions and full statistics.
 - 🎯 **Risk-based orders.** Say "1% of balance, stop under that low", and OpenTerm5 works out the lots,
   commission included.
-- ₿ **Bybit accounts** beside your MT5 ones: trade USDT and USDC perpetuals with the same risk ticket,
+- ₿ **Bybit and Binance accounts** beside your MT5 ones: trade USDT perpetuals with the same risk ticket,
   leverage suggested from your stop and liquidation checked before every order.
 - 🔁 **A trade copier** between any of your accounts, across brokers, with six sizing modes.
 - 🛰️ **A webhook signal API** that turns TradingView alerts and bots into orders.
@@ -131,6 +131,10 @@ stop. The risk ticket shows the contract's leverage, lets you change it, and sug
 liquidation well behind your stop. An order that needs more than your free margin, or whose stop sits
 beyond the liquidation price, is refused before anything is sent. Keys that can withdraw funds are
 refused too. [How Bybit accounts work](docs/user-guide/accounts-and-brokers.md#bybit-accounts).
+
+Binance USDⓈ-M futures work the same way, with an HMAC key or a self-generated Ed25519 key that trades
+without an IP restriction. Crypto chart tabs and watchlists stay on crypto accounts and forex ones on
+MT5 accounts. [How Binance accounts work](docs/user-guide/accounts-and-brokers.md#binance-accounts).
 
 ### Trade straight from the chart
 

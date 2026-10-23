@@ -15,6 +15,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   copier, signal API and equity guards keep running. Progress and errors appear in the Journal,
   Help > Check for Updates checks now, and Tools > Options turns automatic checks off. On macOS,
   which only installs signed updates, the status bar links to the new release instead.
+- Binance accounts. Log in to Binance USDⓈ-M futures (demo trading or live) with an HMAC API key or a
+  self-generated Ed25519 key, and trade its USDT contracts with the same risk ticket, leverage
+  suggestion and margin and liquidation checks as Bybit. Stop losses and take profits follow each
+  fill as conditional orders; a fill whose stop Binance refuses is closed again. Keys that can
+  withdraw funds are refused.
+
+### Changed
+
+- Chart tabs belong to the kind of account they were opened on. Crypto tabs show only on Bybit and
+  Binance accounts and forex tabs only on MT5 accounts; each side keeps the tab you last had in
+  front, and the first crypto login starts with BTC, ETH, SOL and XRP charts. Tabs saved before this
+  are sorted by their symbols.
+- Bybit and Binance accounts share one set of crypto watchlists and risk ticket settings.
+- The crypto risk ticket says "No liquidation at this size" instead of showing a liquidation price of
+  0 when the free margin covers a fall to zero.
 
 ## [0.5.0] - 2026-10-23
 

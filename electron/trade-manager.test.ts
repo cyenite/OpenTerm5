@@ -284,6 +284,9 @@ test('exchange risk orders report margin and refuse a stop beyond liquidation', 
   assert.deepEqual([preview.margin, preview.leverage, preview.liquidationPrice], [120, 10, 1.05]);
   assert.equal(Number(preview.safeLeverage!.toFixed(2)), Number((1 / (1.5 * 0.005 / 1.1001 + 0.005)).toFixed(2)));
   assert.equal(preview.warnings.length, 0);
+  link.check = { ...check, liquidationPrice: 0 };
+  const none = await manager.placeRisk({ accountId: 'bybit:demo|1', type: 'buy', mode: 'money', value: 50, symbol: 'EURUSD', stopLoss: { unit: 'pips', value: 50 }, isDryRun: true });
+  assert.deepEqual([none.liquidationPrice, none.warnings], [0, []], 'no liquidation at this size passes as 0, without a warning');
   link.check = { ...check, liquidationPrice: 1.094 };
   const close = await manager.placeRisk({ accountId: 'bybit:demo|1', type: 'buy', mode: 'money', value: 50, symbol: 'EURUSD', stopLoss: { unit: 'pips', value: 50 }, isDryRun: true });
   assert.match(close.warnings.join(' '), /close behind the stop/);

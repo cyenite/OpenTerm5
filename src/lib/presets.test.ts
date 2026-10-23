@@ -125,3 +125,13 @@ test('templates leave the sync group with the chart', () => {
   const template = captureTemplate({ ...chart, linkGroup: 'red' }, 'Grouped');
   assert.equal('linkGroup' in template.settings, false);
 });
+
+test('tabs saved before they had a market are crypto only when every chart is an exchange contract', () => {
+  const charts = ['BTCUSDT', 'ETHUSDT-26DEC25', 'BTCUSD', 'EURUSD', 'SOLUSDT'].map((symbol, index) => ({ ...chart, id: `c${index}`, symbol, drawings: [], indicators: [] }));
+  const saved = {
+    charts,
+    tabs: [{ id: 'exchange', chartIds: ['c0', 'c1'], layout: '2h' }, { id: 'mixed', chartIds: ['c2', 'c3'], layout: '2h' }, { id: 'kept', chartIds: ['c4'], layout: 's', market: 'fx' }],
+  };
+  const { tabs } = restoreWorkspaceCharts(saved);
+  assert.deepEqual(tabs.map((tab) => [tab.id, tab.market]), [['exchange', 'crypto'], ['mixed', 'fx'], ['kept', 'fx']]);
+});

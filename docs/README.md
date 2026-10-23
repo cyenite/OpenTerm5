@@ -9,7 +9,7 @@
 - [Backtesting](user-guide/backtesting.md): replaying history while trading a simulated account,
   how orders fill, statistics and saved sessions.
 - [Accounts and brokers](user-guide/accounts-and-brokers.md): logging in, saved accounts, password
-  storage, how OpenTerm5 finds your broker, and Bybit accounts.
+  storage, how OpenTerm5 finds your broker, and Bybit and Binance accounts.
 - [Risk and automation](user-guide/risk-and-automation.md): risk-based orders, the chart risk
   planner, position management, equity guards and one-click actions.
 - [Trade Copier](user-guide/trade-copier.md): copying trades from a master account to followers.

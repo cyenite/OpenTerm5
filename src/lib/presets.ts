@@ -1,6 +1,7 @@
 import { restoreSettings } from '@meridian/charts/settings';
 import { isLayoutKey, layoutCount, layoutForCount, layoutOf, layoutSyncs, linkGroups, restoreLayoutKey, restoreSizes, type LayoutKey, type SplitSizes } from './chart-layouts';
-import { makeTab, tabActiveChartId, type ChartTab } from './chart-tabs';
+import { markets } from '../../shared/protocol';
+import { inferMarket, makeTab, tabActiveChartId, type ChartTab } from './chart-tabs';
 import { migrateDrawings, migrateIndicators, type Drawing } from './chart-model';
 import { isChartTimeframe } from './mt5-timeframes';
 import type { ChartConfig, WorkspaceState } from './workspace';
@@ -75,7 +76,9 @@ export function restoreChart(value: unknown): ChartConfig | null {
   return chart;
 }
 
-function restoreTab(value: unknown, claimed: Set<string>): ChartTab | null {
+const marketOfCharts = (charts: readonly ChartConfig[]) => inferMarket(charts.map((chart) => chart.symbol));
+
+function restoreTab(value: unknown, claimed: Set<string>, charts: readonly ChartConfig[]): ChartTab | null {
   if (!isRecord(value) || typeof value.id !== 'string' || !value.id || !Array.isArray(value.chartIds)) return null;
   const chartIds = value.chartIds.filter((id): id is string => typeof id === 'string' && claimed.has(id));
   chartIds.forEach((id) => claimed.delete(id));
@@ -85,7 +88,8 @@ function restoreTab(value: unknown, claimed: Set<string>): ChartTab | null {
   const syncs = layoutSyncs.map((sync) => sync.key).filter((key) => Array.isArray(value.syncs) && value.syncs.includes(key));
   const sizes = isRecord(value.sizes) ? Object.fromEntries(Object.entries(value.sizes).filter(([key]) => isLayoutKey(key)).map(([key, shares]) => [key, restoreSizes(shares, layoutOf(key as LayoutKey).tree)])) as Partial<Record<LayoutKey, SplitSizes>> : {};
   const drawings = isRecord(value.drawings) ? Object.fromEntries(Object.entries(value.drawings).flatMap(([key, list]) => { const restored = migrateDrawings(list); return key && restored?.length ? [[key, restored]] : []; })) as Record<string, Drawing[]> : {};
-  const tab = { ...makeTab(value.id, chartIds, layout, syncs), sizes, drawings, activeChartId: typeof value.activeChartId === 'string' ? value.activeChartId : '' };
+  const market = markets.find((candidate) => candidate.key === value.market)?.key ?? marketOfCharts(charts.filter((chart) => chartIds.includes(chart.id)));
+  const tab = { ...makeTab(value.id, chartIds, layout, syncs, market), sizes, drawings, activeChartId: typeof value.activeChartId === 'string' ? value.activeChartId : '' };
   return { ...tab, activeChartId: tabActiveChartId(tab) };
 }
 
@@ -94,7 +98,7 @@ function restoreTab(value: unknown, claimed: Set<string>): ChartTab | null {
 function legacyTabs(saved: Record<string, unknown>, charts: ChartConfig[], raw: unknown[]): { tabs: ChartTab[]; activeTabId: string } {
   const activeChartId = typeof saved.activeChartId === 'string' ? saved.activeChartId : '';
   if (saved.layout !== 'windows' && saved.layout !== 'tile') {
-    const tabs = charts.map((chart) => makeTab(`tab-${chart.id}`, [chart.id]));
+    const tabs = charts.map((chart) => makeTab(`tab-${chart.id}`, [chart.id], 's', ['crosshair'], marketOfCharts([chart])));
     return { tabs, activeTabId: tabs.find((tab) => tab.chartIds[0] === activeChartId)?.id ?? tabs[0]?.id ?? '' };
   }
   const windows = new Map(raw.filter(isRecord).map((entry) => [entry.id, entry]));
@@ -104,7 +108,7 @@ function legacyTabs(saved: Record<string, unknown>, charts: ChartConfig[], raw: 
   const open = charts.filter((chart) => !isIcon(chart)).sort(byPosition);
   const ordered = [...open, ...charts.filter(isIcon)];
   if (!ordered.length) return { tabs: [], activeTabId: '' };
-  const tab = makeTab(`tab-${ordered[0].id}`, ordered.map((chart) => chart.id), layoutForCount(Math.max(1, open.length)));
+  const tab = makeTab(`tab-${ordered[0].id}`, ordered.map((chart) => chart.id), layoutForCount(Math.max(1, open.length)), ['crosshair'], marketOfCharts(ordered));
   const active = { ...tab, activeChartId: activeChartId || tab.activeChartId };
   return { tabs: [{ ...active, activeChartId: tabActiveChartId(active) }], activeTabId: tab.id };
 }
@@ -116,8 +120,8 @@ export function restoreWorkspaceCharts(saved: Record<string, unknown>): Workspac
   const charts = raw.map(restoreChart).filter((chart): chart is ChartConfig => chart !== null);
   if (!Array.isArray(saved.tabs)) return { charts, ...legacyTabs(saved, charts, raw) };
   const claimed = new Set(charts.map((chart) => chart.id));
-  const tabs = saved.tabs.map((tab) => restoreTab(tab, claimed)).filter((tab): tab is ChartTab => tab !== null);
-  for (const chart of charts) if (claimed.has(chart.id)) tabs.push(makeTab(`tab-${chart.id}`, [chart.id]));
+  const tabs = saved.tabs.map((tab) => restoreTab(tab, claimed, charts)).filter((tab): tab is ChartTab => tab !== null);
+  for (const chart of charts) if (claimed.has(chart.id)) tabs.push(makeTab(`tab-${chart.id}`, [chart.id], 's', ['crosshair'], marketOfCharts([chart])));
   const activeTabId = tabs.find((tab) => tab.id === saved.activeTabId)?.id ?? tabs[0]?.id ?? '';
   return { charts, tabs, activeTabId };
 }
