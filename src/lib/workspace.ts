@@ -391,6 +391,17 @@ export function focusTab(tabId: string): void {
   workspace.set({ activeTabId: tabId, isChartMaximized: false });
 }
 
+// Puts a tab in front of another in the tab bar, or last for null.
+export function moveTab(tabId: string, beforeTabId: string | null): void {
+  workspace.set((state) => {
+    const tab = state.tabs.find((candidate) => candidate.id === tabId);
+    if (!tab || tabId === beforeTabId) return {};
+    const rest = state.tabs.filter((candidate) => candidate.id !== tabId);
+    const index = beforeTabId === null ? -1 : rest.findIndex((candidate) => candidate.id === beforeTabId);
+    return { tabs: index < 0 ? [...rest, tab] : [...rest.slice(0, index), tab, ...rest.slice(index)] };
+  });
+}
+
 export function focusChart(id: string): void {
   const state = workspace.get();
   const tab = tabOfChart(state, id);

@@ -226,21 +226,28 @@ Charts saved by earlier versions open as one tab each, or as one layout if they 
 
 ### Picture in picture
 
-Any chart can leave the layout for its own window that stays on top of other applications, so you can
-watch it while working elsewhere or with OpenTerm5 minimised. Hover over the chart and click the
-button in its bottom-right corner, or right-click it and choose **Picture in Picture**, then pick a
-mode:
+A chart tab can leave the main window for its own window that stays on top of other applications,
+with its whole layout. Use it to put tabs on other monitors, or to keep watching while you work
+elsewhere or with OpenTerm5 minimised.
 
-- **Lite** shows the chart alone, with its position and order lines, for monitoring. Drawings are
-  locked and there are no drawing tools or trading panels. Hover over the window for the mode switch
-  and the button that returns the chart to its layout.
-- **Full** adds the chart toolbar (symbol, timeframes, chart type, indicators, undo, object tree and
-  chart settings), the drawing toolbar and the trading panels. Menus and dialogs opened from it,
-  such as Indicators or a new order, appear in that window.
+- **Pop a tab out:** drag it out of the tab bar and release it anywhere else; it opens in Lite.
+  Or right-click the tab and choose **Picture in Picture: Lite** or **Full**.
+- **Lite** shows the tab's charts alone, with their position and order lines, for monitoring: no
+  title bar, toolbar, drawing tools or trading panels, and drawings are locked. Point at the top
+  edge for a slim strip with the tab handle and buttons for Full mode and returning the tab; drag
+  the strip to move the window. It stays until you move down onto the charts or leave the window.
+- **Full** adds a toolbar for the tab (symbol, layout setup, timeframes, chart type, indicators, undo,
+  object tree and chart settings), the drawing toolbar and the trading panels. The window has no
+  title bar either: drag it by an empty part of the toolbar. Menus and dialogs opened from it, such
+  as Indicators or a new order, appear in that window.
+- **Put it back:** drag the window's tab handle (the tab's name with the dots, at the top of the
+  window) onto the main window's tab bar, where it lands in front of the tab you drop it on. Or
+  right-click the tab in the tab bar and choose **Return to Main Window**, or close the window.
 
-The chart keeps its place in the layout, which shows **Show Window** and **Return Here** while it is
-out. Everything you change in the window is saved on the chart. Closing the window, or **Return to
-Layout**, puts the chart back; windows are not reopened the next time OpenTerm5 starts.
+While a tab is out, the tab bar still lists it, greyed with a window mark; clicking it brings its
+window forward. Everything you change in the window is saved on the tab. Windows are not reopened
+the next time OpenTerm5 starts. On Linux with Wayland, a dragged-out tab opens where the system
+places new windows rather than where you released it.
 
 ## Placing orders
 

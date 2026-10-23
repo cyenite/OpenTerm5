@@ -216,6 +216,8 @@ function createWindow(): void {
           minHeight: 180,
           title: 'OpenTerm5',
           ...windowIcon(),
+          // No title bar: Lite shows its strip only at the top edge, Full's toolbar moves the window.
+          frame: false,
           alwaysOnTop: true,
           fullscreenable: false,
           autoHideMenuBar: true,

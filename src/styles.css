@@ -719,64 +719,17 @@ button:active:not(:disabled) {
   background: var(--hover);
 }
 
-.chart-popout {
-  position: absolute;
-  right: 6px;
-  bottom: 5px;
-  z-index: 4;
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  min-height: 20px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-small);
-  background: transparent;
-  box-shadow: none;
+.chart-bar .chart-tab.is-popped-out {
   color: var(--muted);
-  opacity: 0;
-  transition: opacity 120ms ease;
 }
 
-.chart-popout.is-beside-link {
-  right: 28px;
+.chart-bar .chart-tab.is-popped-out .icon {
+  flex: none;
 }
 
-.chart-cell:hover > .chart-popout,
-.chart-popout:focus-visible {
-  opacity: 0.8;
-}
-
-.chart-popout:hover {
-  opacity: 1;
-  background: var(--hover);
-}
-
-.chart-window.is-popped-out {
-  display: grid;
-  place-items: center;
-  background: var(--surface);
-}
-
-.popped-out-notice {
-  display: grid;
-  justify-items: center;
-  gap: 6px;
-  padding: 16px;
-  color: var(--muted);
-  text-align: center;
-}
-
-.popped-out-notice strong {
-  color: var(--text);
-  font-size: 14px;
-}
-
-.popped-out-actions {
-  display: flex;
-  gap: 6px;
-  margin-top: 4px;
+.chart-bar .chart-tab.is-drop-before,
+.chart-bar .chart-bar-add.is-drop-before {
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .popout-root,
@@ -791,56 +744,106 @@ button:active:not(:disabled) {
   background: var(--chrome);
 }
 
-.popout .chart-window {
-  border: 0;
-}
-
 .popout-toolbar {
   flex-wrap: nowrap;
   overflow: hidden;
 }
 
-.popout-lite-controls {
+.popout-toolbar {
+  -webkit-app-region: drag;
+}
+
+.popout-toolbar :is(button, input, .popout-tab-handle, .chart-symbol, .toolbar-group, .tool-split) {
+  -webkit-app-region: no-drag;
+}
+
+.popout-lite-grab {
   position: absolute;
-  top: 6px;
-  right: 72px;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  -webkit-app-region: drag;
+}
+
+.popout-lite-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
   z-index: 6;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px;
-  border-radius: var(--radius);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow);
-  opacity: 0;
-  transition: opacity 140ms ease;
+  gap: 2px;
+  padding: 0 4px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--chrome);
+  color: var(--muted);
+  font-size: 11.5px;
+  animation: popout-lite-in 180ms ease;
+  -webkit-app-region: drag;
 }
 
-.popout.is-lite:hover > .popout-lite-controls,
-.popout-lite-controls:focus-within {
-  opacity: 1;
+@keyframes popout-lite-in {
+  from { opacity: 0; }
 }
 
-.popout-lite-controls .segmented button {
-  padding: 2px 8px;
-  min-height: 20px;
+.popout-lite-bar :is(button, .popout-tab-handle) {
+  -webkit-app-region: no-drag;
 }
 
-.popout-lite-dock {
+.popout-lite-move {
+  flex: 1;
+  align-self: stretch;
+}
+
+.popout-lite-bar .popout-tab-handle {
+  font-weight: 500;
+  padding: 1px 6px 1px 2px;
+}
+
+.popout-lite-button {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
-  min-height: 24px;
+  width: 22px;
+  height: 20px;
+  min-height: 20px;
   padding: 0;
   border: 0;
+  border-radius: var(--radius-small);
   background: transparent;
   box-shadow: none;
   color: var(--muted);
 }
 
-.popout-lite-dock:hover {
+.popout-lite-button:hover {
   color: var(--text);
+  background: var(--hover);
+}
+
+.popout-tab-handle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  padding: 2px 8px 2px 4px;
+  border-radius: var(--radius-small);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: grab;
+}
+
+.popout-tab-handle span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popout-tab-handle .icon {
+  flex: none;
+  color: var(--muted);
+}
+
+.popout-tab-handle:hover {
   background: var(--hover);
 }
 

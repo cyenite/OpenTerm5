@@ -5,13 +5,20 @@ import { useStore } from '../../lib/store';
 import { activeTab, setTabLayout, toggleLayoutSync, workspace } from '../../lib/workspace';
 import { Switch } from '../ui/Controls';
 import { hintProps } from '../ui/Hint';
+import { useSurface } from '../ui/Surface';
 import { LayoutIcon } from './LayoutIcon';
 
 // The chart bar's layout button: TradingView's layout setup, with every layout grouped by how many
 // charts it holds, then the active tab's sync switches. Switches leave the panel open; a layout
 // choice closes it.
-export function LayoutPicker() {
-  const tab = useStore(workspace, activeTab);
+interface LayoutPickerProps {
+  // A popped-out tab's window sets up its own tab; the chart bar's follows the active tab.
+  tabId?: string;
+}
+
+export function LayoutPicker({ tabId }: LayoutPickerProps) {
+  const tab = useStore(workspace, (state) => tabId ? state.tabs.find((candidate) => candidate.id === tabId) : activeTab(state));
+  const view = useSurface();
   const [isOpen, setIsOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
 
@@ -24,15 +31,15 @@ export function LayoutPicker() {
       close();
       anchor.current?.focus();
     };
-    window.addEventListener('mousedown', close);
-    window.addEventListener('blur', close);
-    window.addEventListener('keydown', onKey);
+    view.addEventListener('mousedown', close);
+    view.addEventListener('blur', close);
+    view.addEventListener('keydown', onKey);
     return () => {
-      window.removeEventListener('mousedown', close);
-      window.removeEventListener('blur', close);
-      window.removeEventListener('keydown', onKey);
+      view.removeEventListener('mousedown', close);
+      view.removeEventListener('blur', close);
+      view.removeEventListener('keydown', onKey);
     };
-  }, [isOpen]);
+  }, [isOpen, view]);
 
   const box = anchor.current?.getBoundingClientRect();
   return (
