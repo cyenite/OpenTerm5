@@ -224,6 +224,24 @@ every tab, and **Off** keeps them on the chart they were drawn on.
 Tabs, layouts, sizes and sync settings are saved with your profile and restored when OpenTerm5 starts.
 Charts saved by earlier versions open as one tab each, or as one layout if they were floating windows.
 
+### Picture in picture
+
+Any chart can leave the layout for its own window that stays on top of other applications, so you can
+watch it while working elsewhere or with OpenTerm5 minimised. Hover over the chart and click the
+button in its bottom-right corner, or right-click it and choose **Picture in Picture**, then pick a
+mode:
+
+- **Lite** shows the chart alone, with its position and order lines, for monitoring. Drawings are
+  locked and there are no drawing tools or trading panels. Hover over the window for the mode switch
+  and the button that returns the chart to its layout.
+- **Full** adds the chart toolbar (symbol, timeframes, chart type, indicators, undo, object tree and
+  chart settings), the drawing toolbar and the trading panels. Menus and dialogs opened from it,
+  such as Indicators or a new order, appear in that window.
+
+The chart keeps its place in the layout, which shows **Show Window** and **Return Here** while it is
+out. Everything you change in the window is saved on the chart. Closing the window, or **Return to
+Layout**, puts the chart back; windows are not reopened the next time OpenTerm5 starts.
+
 ## Placing orders
 
 Press **F9**, choose **New Order** on the toolbar, or right-click a chart and choose **Trading**.
