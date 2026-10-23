@@ -34,6 +34,8 @@ usually pay for as Expert Advisors, VPS add-ons or monthly subscriptions come bu
   saved sessions and full statistics.
 - 🎯 **Risk-based orders.** Say "1% of balance, stop under that low", and OpenTerm5 works out the lots,
   commission included.
+- ₿ **Bybit accounts** beside your MT5 ones: trade USDT and USDC perpetuals with the same risk ticket,
+  leverage suggested from your stop and liquidation checked before every order.
 - 🔁 **A trade copier** between any of your accounts, across brokers, with six sizing modes.
 - 🛰️ **A webhook signal API** that turns TradingView alerts and bots into orders.
 - 🛡️ **Prop firm guards**: daily loss, max drawdown, request caps and news blackouts, enforced on every
@@ -120,6 +122,16 @@ rules on the way in. Prefer drawing your trades? Drag the risk planner on the ch
 
 ![The order ticket in risk-based mode: 1% of balance with a 20 pip stop works out to 1.25 lots, split across 1R and 2R targets](docs/images/screenshots/risk-ticket.png)
 
+### Crypto perpetuals on Bybit, sized the same way
+
+Log in to a Bybit Unified Trading Account (demo trading, live or testnet) with an API key and trade its
+USDT and USDC perpetual and futures contracts from the same terminal. Risk orders size by coin quantity
+with Bybit's taker fee counted inside the risk, and split into partial targets that each carry their own
+stop. The risk ticket shows the contract's leverage, lets you change it, and suggests one that keeps
+liquidation well behind your stop. An order that needs more than your free margin, or whose stop sits
+beyond the liquidation price, is refused before anything is sent. Keys that can withdraw funds are
+refused too. [How Bybit accounts work](docs/user-guide/accounts-and-brokers.md#bybit-accounts).
+
 ### Trade straight from the chart
 
 Positions and pending orders live on the chart, with their profit or loss in money. Drag a stop or a
@@ -200,6 +212,8 @@ TradingView theme.
 - Toolbox with Trade, Exposure, History (with CSV export) and Journal tabs.
 - Market and pending orders, SL/TP modification, partial close, Close By and One-Click trading.
 - Orders show their progress as they go: a live timer in the status bar, then the broker's result.
+- Bybit accounts (USDT and USDC perpetuals and futures) next to MT5 ones, with their own watchlists
+  and risk ticket settings.
 - Several saved accounts with one-click switching. Passwords can be kept in your OS keychain.
 - Context menus throughout, and the MT5 keyboard shortcuts you already know.
 
@@ -237,6 +251,10 @@ TradingView theme.
 <summary><strong>Risk and automation</strong></summary>
 
 - Size orders by % of balance, % of equity or a fixed amount, with commission counted inside the risk.
+- Stops as a price or a distance in points, pips or % of the price, in the risk ticket and as a signal
+  source's default.
+- On Bybit, leverage shown and set from the risk ticket, a suggested leverage that keeps liquidation
+  behind the stop, and margin and liquidation checks before every order.
 - Split a position across up to five take-profit levels.
 - Manage open positions with break-even, trailing stops, partial targets, hidden stops and time exits.
 - One-click bulk actions: close all, close winners or losers, close by side or symbol, delete pending
@@ -297,7 +315,8 @@ The full list is in [Keyboard shortcuts](docs/user-guide/keyboard-shortcuts.md).
 |---|---|
 | [Getting started](docs/getting-started.md) | Install, build, log in and find your way around |
 | [Trading](docs/user-guide/trading.md) | Charts, layouts, orders and trading from the chart |
-| [Accounts and brokers](docs/user-guide/accounts-and-brokers.md) | Logging in, saved accounts and broker detection |
+| [Accounts and brokers](docs/user-guide/accounts-and-brokers.md) | Logging in, saved accounts, broker detection and Bybit accounts |
+| [Backtesting](docs/user-guide/backtesting.md) | Backtest sessions, placing orders, fills and statistics |
 | [Risk and automation](docs/user-guide/risk-and-automation.md) | Risk-based orders, position management and equity guards |
 | [Trade Copier](docs/user-guide/trade-copier.md) | Copying trades between accounts |
 | [Signal API](docs/user-guide/signal-api.md) | Webhook reference for TradingView and bots |
@@ -313,7 +332,8 @@ interface. Charts are drawn by Meridian (`packages/meridian-charts`), OpenTerm5'
 engine and theme system.
 
 The main process contains an independent client for the protocol that MT5 web trading uses, and keeps
-one broker session per account. The trade manager, trade copier and signal engines run alongside it, so
+one broker session per account. Bybit accounts connect through Bybit's REST and WebSocket APIs behind
+the same interface, so the rest of the app treats them like any other account. The trade manager, trade copier and signal engines run alongside it, so
 they keep working while you use the interface. They do need OpenTerm5 to be running and connected, so
 keep a broker-side stop on anything you can't watch. See [Architecture](docs/development/architecture.md)
 for the details.
