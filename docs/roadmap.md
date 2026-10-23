@@ -21,7 +21,11 @@ Issues tagged `roadmap` track each item; comment there before starting work on o
    notifications.
 8. **Execution modes and market data.** Request execution with requotes, exchange Time & Sales, tick
    history export, and custom symbols.
-9. **Signed releases.** Code-signed and notarised installers for Windows and macOS. Automatic
+9. **Phone apps.** Native iOS and Android apps for Phone Access (the same client, packaged so its
+   code does not come from the computer), a relay so phones can reach the computer from anywhere
+   without a VPN, and a headless OpenTerm5 that runs the broker sessions and automation on a server,
+   which phones and the desktop both connect to.
+10. **Signed releases.** Code-signed and notarised installers for Windows and macOS. Automatic
    updates already work on Windows and Linux; macOS only links to the new release until the app is
    signed and notarised, which Squirrel.Mac requires before it installs an update.
 
@@ -36,7 +40,8 @@ Issues tagged `roadmap` track each item; comment there before starting work on o
 
 ## Known limitations
 
-- Automation, copying and signals run inside OpenTerm5 and stop when it is closed.
+- Automation, copying and signals run inside OpenTerm5 and stop when it is closed. So does Phone
+  Access, which reaches the computer only over a local or private network.
 - Copies are observed through each master's own session, so they are slower than a copier running on
   the broker's server.
 - Brokers whose web trading address cannot be detected need the address entered once by hand.

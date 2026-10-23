@@ -282,7 +282,8 @@ type Drag =
   | { kind: 'anchor'; id: string; index: number }
   | { kind: 'place'; startX: number; startY: number; hasMoved: boolean }
   | { kind: 'freehand' }
-  | { kind: 'zoom'; start: Pt; current: Pt };
+  | { kind: 'zoom'; start: Pt; current: Pt }
+  | { kind: 'pinch'; distance: number; midX: number };
 
 // A view the host asked for, applied again as older history arrives until it is reached.
 type ViewRequest = { kind: 'range'; from: number; to: number } | { kind: 'time'; time: number };
@@ -410,6 +411,7 @@ export class MeridianChart {
   private favorites = drawingFavorites();
   private draft: Draft | null = null;
   private drag: Drag | null = null;
+  private readonly touches = new Map<number, Pt>();
   private hover: Pt | null = null;
   private isCtrlDown = false;
   private width = 0;
@@ -1684,6 +1686,17 @@ export class MeridianChart {
     this.main.focus({ preventScroll: true });
     if (event.button !== 0) return;
     const p = this.point(event);
+    if (event.pointerType === 'touch') {
+      this.touches.set(event.pointerId, p);
+      if (this.touches.size > 2) return;
+      // A second finger while scrolling, or before anything started, pinches the time scale.
+      if (this.touches.size === 2) {
+        if (this.drag && this.drag.kind !== 'pan') return;
+        this.canvas.setPointerCapture(event.pointerId);
+        this.drag = { kind: 'pinch', ...this.pinchOf() };
+        return;
+      }
+    }
     this.isCtrlDown = event.ctrlKey || event.metaKey;
     this.canvas.setPointerCapture(event.pointerId);
     this.removeTransient();
@@ -1744,6 +1757,11 @@ export class MeridianChart {
 
   private onPointerMove = (event: PointerEvent): void => {
     const p = this.point(event);
+    if (event.pointerType === 'touch' && this.touches.has(event.pointerId)) this.touches.set(event.pointerId, p);
+    if (this.drag?.kind === 'pinch') {
+      if (this.touches.size >= 2) this.continuePinch(this.drag);
+      return;
+    }
     this.isCtrlDown = event.ctrlKey || event.metaKey;
     this.hover = p;
     const drag = this.drag;
@@ -1755,6 +1773,7 @@ export class MeridianChart {
   };
 
   private onPointerUp = (event: PointerEvent): void => {
+    this.touches.delete(event.pointerId);
     const drag = this.drag;
     this.drag = null;
     if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
@@ -1778,6 +1797,21 @@ export class MeridianChart {
     }
     this.invalidate();
   };
+
+  private pinchOf(): { distance: number; midX: number } {
+    const [first, second] = [...this.touches.values()];
+    return { distance: Math.max(1, Math.hypot(second.x - first.x, second.y - first.y)), midX: (first.x + second.x) / 2 };
+  }
+
+  private continuePinch(drag: Extract<Drag, { kind: 'pinch' }>): void {
+    const next = this.pinchOf();
+    this.requestedView = null;
+    this.timeScale.pan(next.midX - drag.midX);
+    this.timeScale.zoom(next.distance / drag.distance, Math.min(next.midX, this.plotWidth));
+    drag.distance = next.distance;
+    drag.midX = next.midX;
+    this.invalidate();
+  }
 
   private onPointerLeave = (): void => {
     if (this.drag) return;

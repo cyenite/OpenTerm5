@@ -21,5 +21,11 @@ export default defineConfig({
   server: { port: 5199, strictPort: true },
   // The Pine runtime worker loads PineTS with a dynamic import, which classic workers cannot do.
   worker: { format: 'es' },
-  build: { outDir: 'dist', emptyOutDir: true, chunkSizeWarningLimit: 1200 },
+  // The phone client is a second page; the computer serves it to paired phones.
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: { input: { main: fileURLToPath(new URL('./index.html', import.meta.url)), mobile: fileURLToPath(new URL('./mobile.html', import.meta.url)) } },
+  },
 });

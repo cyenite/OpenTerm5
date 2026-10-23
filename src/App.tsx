@@ -10,6 +10,7 @@ import { DrawingObjectsDialog } from './components/dialogs/DrawingObjectsDialog'
 import { SymbolSpecificationDialog } from './components/dialogs/SymbolSpecificationDialog';
 import { PriceAlertsDialog } from './components/dialogs/PriceAlertsDialog';
 import { AccountsDialog } from './components/dialogs/AccountsDialog';
+import { PhoneAccessDialog } from './components/dialogs/PhoneAccessDialog';
 import { WorkspacePresetDialog } from './components/dialogs/WorkspacePresetDialog';
 import { TradingViewDialog } from './components/dialogs/TradingViewDialog';
 import { IndicatorsDialog } from './components/dialogs/IndicatorsDialog';
@@ -58,6 +59,7 @@ function ActiveDialog({ dialog }: ActiveDialogProps) {
     case 'specification': return <SymbolSpecificationDialog symbol={dialog.symbol} />;
     case 'objects': return <DrawingObjectsDialog chartId={dialog.chartId} />;
     case 'accounts': return <AccountsDialog />;
+    case 'phones': return <PhoneAccessDialog />;
     case 'profile': return <WorkspacePresetDialog />;
     case 'template': return <WorkspacePresetDialog chartId={dialog.chartId} />;
     case 'alerts': return <PriceAlertsDialog />;

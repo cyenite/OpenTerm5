@@ -84,6 +84,7 @@ export type Dialog =
   | { kind: 'connection' }
   | { kind: 'login'; profileId?: string }
   | { kind: 'accounts' }
+  | { kind: 'phones' }
   | { kind: 'alerts' }
   | { kind: 'profile' }
   | { kind: 'template'; chartId: string }

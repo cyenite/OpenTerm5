@@ -8,6 +8,7 @@ import { startWatchlists } from './lib/watchlists';
 import { startAutomation } from './lib/automation';
 import { startJournaling } from './lib/journaling';
 import { startUpdates } from './lib/updates';
+import { startHub } from './lib/hub';
 import { startTickBars } from './lib/mt5-provider';
 import { registerMt5Studies } from './lib/mt5-studies';
 import { startTheming } from './lib/theme';
@@ -36,6 +37,7 @@ startIndicatorFavorites();
 startAutomation();
 startJournaling();
 startUpdates();
+startHub();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

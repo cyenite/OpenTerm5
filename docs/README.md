@@ -14,6 +14,8 @@
   planner, position management, equity guards and one-click actions.
 - [Trade Copier](user-guide/trade-copier.md): copying trades from a master account to followers.
 - [Signal API](user-guide/signal-api.md): the webhook API for TradingView alerts and bots.
+- [Phone Access](user-guide/phone-access.md): pairing a phone, synced charts and drawings, and
+  trading from the phone through the computer.
 - [Keyboard shortcuts](user-guide/keyboard-shortcuts.md).
 - [Troubleshooting](troubleshooting.md).
 

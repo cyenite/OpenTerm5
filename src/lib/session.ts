@@ -23,7 +23,9 @@ declare global {
   }
 }
 
-export const terminal = window.terminal;
+// Read on each use rather than when this module loads: the phone client installs its stand-in for
+// the preload's API after the bundle chunk holding this module has run.
+export const terminal = new Proxy({} as TerminalApi, { get: (_target, key) => window.terminal[key as keyof TerminalApi] });
 
 const JOURNAL_LIMIT = 1000;
 const SUBSCRIPTION_LIMIT = 256;

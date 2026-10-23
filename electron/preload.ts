@@ -3,6 +3,7 @@ import type { TerminalEvent, TerminalMethod, ConnectionSettings, TerminalApi } f
 import type { AutomationApi, AutomationEvent, AutomationMethod } from '../shared/automation';
 import type { JournalingApi, JournalingEvent, JournalingMethod } from '../shared/journaling';
 import type { UpdateApi, UpdateEvent, UpdateMethod } from '../shared/updates';
+import type { HubApi, HubEvent, HubMethod } from '../shared/hub';
 import type { ZoomStep } from '../shared/zoom';
 
 class RequestError extends Error {
@@ -36,6 +37,7 @@ const onTerminal = channel('terminal:event');
 const onAutomation = channel('automation:event');
 const onJournaling = channel('journaling:event');
 const onUpdates = channel('updates:event');
+const onHub = channel('hub:event');
 
 const api: TerminalApi = {
   request: (method: TerminalMethod, params: unknown) => invoke('terminal:request', method, params),
@@ -62,7 +64,13 @@ const updates: UpdateApi = {
   on: (event: UpdateEvent, listener: (data: never) => void) => onUpdates(event, listener),
 } as UpdateApi;
 
+const hub: HubApi = {
+  request: (method: HubMethod, params: unknown) => invoke('hub:request', method, params),
+  on: (event: HubEvent, listener: (data: never) => void) => onHub(event, listener),
+} as HubApi;
+
 contextBridge.exposeInMainWorld('terminal', api);
 contextBridge.exposeInMainWorld('automation', automation);
 contextBridge.exposeInMainWorld('journaling', journaling);
 contextBridge.exposeInMainWorld('updates', updates);
+contextBridge.exposeInMainWorld('hub', hub);

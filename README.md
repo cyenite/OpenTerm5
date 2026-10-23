@@ -42,6 +42,8 @@ usually pay for as Expert Advisors, VPS add-ons or monthly subscriptions come bu
   order from every source.
 - 📓 **Automatic journaling** to [Tradescribe](https://tradescribe.io), with a quick review of every
   closed trade.
+- 📱 **Phone access**: pair your phone with a QR code and use the same charts, drawings and account
+  from it, trading included, through the computer's own session and guards.
 
 > [!WARNING]
 > **Risk warning.** Trading foreign exchange, CFDs and other leveraged products carries a high level of
@@ -327,6 +329,7 @@ The full list is in [Keyboard shortcuts](docs/user-guide/keyboard-shortcuts.md).
 | [Risk and automation](docs/user-guide/risk-and-automation.md) | Risk-based orders, position management and equity guards |
 | [Trade Copier](docs/user-guide/trade-copier.md) | Copying trades between accounts |
 | [Signal API](docs/user-guide/signal-api.md) | Webhook reference for TradingView and bots |
+| [Phone Access](docs/user-guide/phone-access.md) | Charts, drawings and trading from your phone |
 | [Keyboard shortcuts](docs/user-guide/keyboard-shortcuts.md) | Shortcut reference |
 | [Troubleshooting](docs/troubleshooting.md) | Common problems and their fixes |
 | [Architecture](docs/development/architecture.md) | How OpenTerm5 is built |

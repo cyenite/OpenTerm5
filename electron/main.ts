@@ -32,6 +32,8 @@ import { accountKey } from './journaling-store';
 import { autoUpdater, DebUpdater } from 'electron-updater';
 import { UpdateService } from './updater';
 import type { UpdateMethod, UpdateState } from '../shared/updates';
+import { HubHost } from './hub-host';
+import type { HubEvent, HubMethod } from '../shared/hub';
 
 migrateLegacyProfile();
 
@@ -48,6 +50,7 @@ const direct = new UiLink(mt5);
 let automation: AutomationHost | undefined;
 let journaling: JournalingService | undefined;
 let updates: UpdateService | undefined;
+let hub: HubHost | undefined;
 let isChanging = false;
 let isWindowLoaded = false;
 let uiAccount: Account | null = null;
@@ -60,10 +63,18 @@ let settings: ConnectionSettings;
 
 function send(event: TerminalEvent, data: unknown): void {
   window?.webContents.send('terminal:event', event, data);
+  hub?.forward('terminal', event, data);
 }
 
 function sendAutomation(event: AutomationEvent, data: unknown): void {
   window?.webContents.send('automation:event', event, data);
+  hub?.forward('automation', event, data);
+}
+
+function sendHub(event: HubEvent, data: unknown): boolean {
+  if (!window || !isWindowLoaded) return false;
+  window.webContents.send('hub:event', event, data);
+  return true;
 }
 
 async function saveFile(name: string, contents: string): Promise<string | null> {
@@ -395,59 +406,66 @@ function savedExchangeLogin(profile: AccountProfile, isPasswordSaved: boolean): 
   return { ...credentials, label: profile.label, isPasswordSaved };
 }
 
+// The guarded path for every terminal request, from the window and from paired phones alike, so
+// guards and connection changes treat them the same.
+async function terminalRequest(method: TerminalMethod, params: unknown): Promise<unknown> {
+  if (method === 'accounts.list') return accountProfiles();
+  if (method === 'accounts.signIn') return signIn;
+  if (method === 'accounts.storage') return { canSavePasswords: !!accounts?.canSavePasswords() };
+  if (method === 'device.identity') return { isUnique: !device.hasWeakSeed };
+  if (method === 'brokers.search') return brokers().search((params as TerminalMethods['brokers.search'][0]).query, accountProfiles().map((profile) => profile.server));
+  if (method === 'brokers.resolve') {
+    const { server, webUrl } = params as TerminalMethods['brokers.resolve'][0];
+    return clearingBotCheck(() => webUrl ? brokers().inspect(server, webUrl) : brokers().resolve(server));
+  }
+  if (method === 'account.login') {
+    const values = params as TerminalMethods['account.login'][0];
+    return changeConnection(() => signingIn(loginTarget(values), () => clearingBotCheck(() => loginAccount(values))));
+  }
+  if (method === 'exchange.login') {
+    const values = params as TerminalMethods['exchange.login'][0];
+    return changeConnection(() => signingIn(exchangeTarget(values), () => loginExchange(values)));
+  }
+  if (method === 'accounts.connect') return changeConnection(async () => {
+    if (!accounts) throw new Error('Account storage is unavailable.');
+    const values = params as TerminalMethods['accounts.connect'][0];
+    const profile = accounts.get(values.id);
+    if (isExchangePlatform(profile.platform)) return signingIn(profileTarget(profile), () => loginExchange(savedExchangeLogin(profile, values.isPasswordSaved ?? profile.isPasswordSaved)));
+    return signingIn(profileTarget(profile), () => {
+      const password = values.password ?? accounts!.password(values.id);
+      if (!password) throw new Error('Enter the password for this saved account.');
+      return clearingBotCheck(() => loginAccount({ login: profile.login, password, webEndpoint: profile.webEndpoint, label: profile.label, otp: values.otp, isPasswordSaved: values.isPasswordSaved ?? profile.isPasswordSaved }));
+    });
+  });
+  if (method === 'accounts.remove') return changeConnection(async () => {
+    if (!accounts) throw new Error('Account storage is unavailable.');
+    const { id } = params as TerminalMethods['accounts.remove'][0];
+    await accounts.remove(id);
+    if (signIn?.id === id && signIn.state === 'failed') setSignIn(null);
+    if (id === activeAccount) {
+      leaveAccount();
+      send('accountChanged', { id: null });
+      await applySettings();
+    }
+    send('accounts', accountProfiles());
+    return true;
+  });
+  if (method.startsWith('tradingview.')) return handleTradingView(method, params, window);
+  if (method === 'order.send' && isChanging) throw new Error('Account connection is changing. Send the order again after login completes.');
+  await settledConnection();
+  if (method === 'order.send') {
+    const request = params as TerminalMethods['order.send'][0];
+    const isOpening = request.action === 'pending' || request.action === 'deal' && !request.position && !!orderType(request.type ?? '');
+    const blocked = isOpening ? await automation?.canOpen(activeAccount, request.symbol, request.volume) : null;
+    if (blocked) throw new Error(blocked);
+  }
+  if (method === 'ticks.subscribe') return hub ? hub.ticks.set(null, (params as TerminalMethods['ticks.subscribe'][0]).symbols) : direct.request(method, params as never);
+  return direct.request(method, params as never);
+}
+
 ipcMain.handle('terminal:request', async (_event, method: TerminalMethod, params: unknown) => {
   try {
-    if (method === 'accounts.list') return { result: accountProfiles() };
-    if (method === 'accounts.signIn') return { result: signIn };
-    if (method === 'accounts.storage') return { result: { canSavePasswords: !!accounts?.canSavePasswords() } };
-    if (method === 'device.identity') return { result: { isUnique: !device.hasWeakSeed } };
-    if (method === 'brokers.search') return { result: await brokers().search((params as TerminalMethods['brokers.search'][0]).query, accountProfiles().map((profile) => profile.server)) };
-    if (method === 'brokers.resolve') {
-      const { server, webUrl } = params as TerminalMethods['brokers.resolve'][0];
-      return { result: await clearingBotCheck(() => webUrl ? brokers().inspect(server, webUrl) : brokers().resolve(server)) };
-    }
-    if (method === 'account.login') {
-      const values = params as TerminalMethods['account.login'][0];
-      return { result: await changeConnection(() => signingIn(loginTarget(values), () => clearingBotCheck(() => loginAccount(values)))) };
-    }
-    if (method === 'exchange.login') {
-      const values = params as TerminalMethods['exchange.login'][0];
-      return { result: await changeConnection(() => signingIn(exchangeTarget(values), () => loginExchange(values))) };
-    }
-    if (method === 'accounts.connect') return { result: await changeConnection(async () => {
-      if (!accounts) throw new Error('Account storage is unavailable.');
-      const values = params as TerminalMethods['accounts.connect'][0];
-      const profile = accounts.get(values.id);
-      if (isExchangePlatform(profile.platform)) return signingIn(profileTarget(profile), () => loginExchange(savedExchangeLogin(profile, values.isPasswordSaved ?? profile.isPasswordSaved)));
-      return signingIn(profileTarget(profile), () => {
-        const password = values.password ?? accounts!.password(values.id);
-        if (!password) throw new Error('Enter the password for this saved account.');
-        return clearingBotCheck(() => loginAccount({ login: profile.login, password, webEndpoint: profile.webEndpoint, label: profile.label, otp: values.otp, isPasswordSaved: values.isPasswordSaved ?? profile.isPasswordSaved }));
-      });
-    }) };
-    if (method === 'accounts.remove') return { result: await changeConnection(async () => {
-      if (!accounts) throw new Error('Account storage is unavailable.');
-      const { id } = params as TerminalMethods['accounts.remove'][0];
-      await accounts.remove(id);
-      if (signIn?.id === id && signIn.state === 'failed') setSignIn(null);
-      if (id === activeAccount) {
-        leaveAccount();
-        send('accountChanged', { id: null });
-        await applySettings();
-      }
-      send('accounts', accountProfiles());
-      return true;
-    }) };
-    if (method.startsWith('tradingview.')) return { result: await handleTradingView(method, params, window) };
-    if (method === 'order.send' && isChanging) throw new Error('Account connection is changing. Send the order again after login completes.');
-    await settledConnection();
-    if (method === 'order.send') {
-      const request = params as TerminalMethods['order.send'][0];
-      const isOpening = request.action === 'pending' || request.action === 'deal' && !request.position && !!orderType(request.type ?? '');
-      const blocked = isOpening ? await automation?.canOpen(activeAccount, request.symbol, request.volume) : null;
-      if (blocked) throw new Error(blocked);
-    }
-    return { result: await direct.request(method, params as never) };
+    return { result: await terminalRequest(method, params) };
   } catch (error) {
     return { error: { code: 0, message: (error as Error).message } };
   }
@@ -473,6 +491,14 @@ ipcMain.handle('updates:request', async (_event, method: UpdateMethod, params: u
   try {
     if (!updates) throw new Error('Updates are still starting');
     return { result: await updates.handle(method, params as never) };
+  } catch (error) {
+    return { error: { code: 0, message: (error as Error).message } };
+  }
+});
+ipcMain.handle('hub:request', async (_event, method: HubMethod, params: unknown) => {
+  try {
+    if (!hub) throw new Error('Phone access is still starting');
+    return { result: await hub.handle(method, params as never) };
   } catch (error) {
     return { error: { code: 0, message: (error as Error).message } };
   }
@@ -566,6 +592,23 @@ if (!app.requestSingleInstanceLock()) {
       clientId: () => device.clientId.toString('hex'),
     });
     await automation.init();
+    hub = new HubHost({
+      userData: app.getPath('userData'),
+      version: app.getVersion(),
+      webRoot: path.join(__dirname, '..', '..', 'dist'),
+      cipher: secretCipher,
+      subscribeTicks: async (symbols) => {
+        await settledConnection();
+        return direct.request('ticks.subscribe', { symbols });
+      },
+      linkState: () => direct.state,
+      terminal: terminalRequest,
+      automation: (method, params) => automation!.handle(method, params),
+      sendWindow: sendHub,
+      journal: (message) => journal(message, 'Phones'),
+    });
+    try { await hub.init(); }
+    catch (error) { journal(`Phone access is unavailable: ${(error as Error).message}`, 'Phones'); }
     // Squirrel.Mac only installs signed builds, so macOS checks and links to the release page.
     const isMac = process.platform === 'darwin';
     updates = new UpdateService({
@@ -591,6 +634,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   updates?.shutdown();
+  void hub?.shutdown();
   void automation?.shutdown();
   journaling?.shutdown();
   pool.shutdown();

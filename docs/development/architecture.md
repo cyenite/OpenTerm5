@@ -52,6 +52,7 @@ fit together, so you can find where a change belongs.
 | `webhook-server.ts`, `webhook-signal.ts`, `signal-executor.ts`, `signal-ownership.ts` | Signal API |
 | `notifier.ts` | Discord, Slack, Telegram and JSON notifications |
 | `json-store.ts` | Atomic JSON files and rotating JSON Lines logs |
+| `hub-host.ts`, `hub-server.ts`, `hub-devices.ts`, `hub-interest.ts`, `hub-crypto.ts` | Phone Access: paired devices, the encrypted WebSocket server, merged quote and bar subscriptions |
 
 `shared/` holds code that both processes use: the IPC contract (`protocol.ts`, `automation.ts`) and
 pure logic for risk sizing (`risk.ts`), currency valuation (`valuation.ts`) and order planning
@@ -75,6 +76,8 @@ pure logic for risk sizing (`risk.ts`), currency valuation (`valuation.ts`) and 
 | `src/components/chart/` | Chart windows, the layout picker and the trade overlay (order and position lines aligned to the Meridian price scale) |
 | `src/components/dialogs/` | Order, modify, login and other dialogs |
 | `src/components/pages/` | Trade Copier, Signals and Automation workspaces |
+| `src/lib/hub.ts`, `src/lib/hub-charts.ts` | The window's side of Phone Access: answering phones' chart requests from the workspace and announcing chart changes |
+| `src/mobile/` | The phone client (`mobile.html`): a bridge that stands in for the preload over the hub, and the phone screens |
 
 ## Data flow
 
@@ -137,6 +140,36 @@ login and reconnects to reuse the renderer. Broker discovery checks known hosts 
 addresses and cancels the remaining probes when an exact server match arrives. Discovered addresses
 still require approval before credentials are sent.
 
+### Phone Access
+
+```
+Phone (mobile.html)                         Main process                       Window
+ bridge: window.terminal ──┐  WebSocket /hub  ┌─ HubServer ── HubHost ─ terminalRequest ─ UiLink
+         window.automation ┼──── encrypted ───┤                        ─ AutomationHost
+ HubClient ────────────────┘                  └─ charts.* ── IPC ─────────────────── hub-charts.ts
+```
+
+- `shared/hub.ts` is the contract: scopes (`view`, `trade`), the allowlist of terminal, automation
+  and chart methods a phone may call, message shapes and the pairing link. `shared/hub-session.ts`
+  is the handshake and framing, with the crypto primitives supplied by each end (node:crypto in
+  `electron/hub-crypto.ts`, @noble in `src/mobile/hub-crypto.ts`, because a page loaded over plain
+  HTTP has no WebCrypto).
+- Keys: each phone and the computer hold X25519 static keys. A connection derives per-direction
+  AES-256-GCM keys with HKDF from three Diffie-Hellman results (ephemeral-ephemeral, phone
+  static-computer ephemeral, phone ephemeral-computer static) and, on first contact, the pairing
+  token. Nonces are frame counters, so replayed or reordered frames fail to open.
+- Phone requests go through `terminalRequest` in `main.ts`, the same function the window's IPC
+  uses, so guards and connection changes apply alike. `TickInterest` merges the window's quote
+  subscription with every phone's, because `ticks.subscribe` replaces the link's set;
+  `BarInterest` returns a phone's bar subscriptions when it disconnects.
+- Chart state lives in the window, so `charts.*` requests are relayed to it over IPC
+  (`hub:event` `chartRequest`, answered with `hub.chartReply`). Drawing edits are operations by
+  drawing id. The window reports changed charts with `hub.chartsChanged`, and phones reload those.
+- Events are filtered per phone (ticks and bars it subscribed to) and coalesced every 250 ms (the
+  latest tick per symbol, the latest trade snapshot).
+- The same HTTP server serves `dist/mobile.html` and `dist/assets/` to phones, with a strict Content
+  Security Policy.
+
 ## Persistence
 
 Main process files live in the application data directory (see
@@ -153,6 +186,7 @@ Main process files live in the application data directory (see
 | `signal-tickets.json` | Tickets opened by each signal source |
 | `risk-preferences.json` | The chart risk planner's mode and amount |
 | `broker-servers.json`, `broker-terminals.json` | Cached server list and resolved broker addresses |
+| `hub.json` | Phone Access settings, paired devices and the hub key (private key encrypted; neither saved without secure storage) |
 
 The renderer persists layout, chart profiles, templates, Market Watch sets and alerts in local
 storage under `openterm.*` keys.
@@ -166,5 +200,7 @@ storage under `openterm.*` keys.
 - The webhook server binds to `127.0.0.1` by default. It uses constant-time secret comparison,
   HMAC with a replay window, lockouts, rate limits and a body size limit.
 - The Content Security Policy allows only the app's own scripts.
+- Phone Access is off by default. Phones authenticate with their own keys, can call only the
+  methods in `shared/hub.ts` for their scope, and are rate limited on failed handshakes.
 
 See [SECURITY.md](../../SECURITY.md) for how to report a vulnerability.

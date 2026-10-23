@@ -9,6 +9,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Phone access. **File → Phone Access** pairs a phone with a QR code. The phone opens OpenTerm5 from
+  the computer and shows your chart layouts with their studies and drawings. Drawings, symbols and
+  timeframes changed on either side appear on the other. It also shows a quote list, the account,
+  positions and pending orders, and, for a phone allowed to trade, an order sheet sized by risk or
+  by lots. The phone uses the computer's broker session, so it never logs the computer out, and its
+  orders pass the same guards. Traffic is end-to-end encrypted with a key per phone. Each phone can
+  be limited to charts only, and unpairing disconnects it at once.
+- Two-finger pinch zoom on charts.
 - Automatic updates. OpenTerm5 checks GitHub Releases at start and every four hours, downloads a new
   version in the background on Windows and Linux (AppImage and `.deb`) and installs it when you
   choose Restart to update in the status bar or quit. It never restarts on its own, so the trade

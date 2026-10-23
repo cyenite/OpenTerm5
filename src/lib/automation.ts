@@ -10,7 +10,8 @@ declare global {
   }
 }
 
-export const automation = window.automation;
+// Read on each use, as `terminal` in session.ts is, for the phone client's stand-in.
+export const automation = new Proxy({} as AutomationApi, { get: (_target, key) => window.automation[key as keyof AutomationApi] });
 
 export interface AutomationState {
   news: NewsView;

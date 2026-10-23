@@ -5082,3 +5082,39 @@ button.is-link {
 }
 
 .status-update.is-ready { color: var(--good); }
+
+.hub-port {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  margin: 8px 0 4px;
+}
+
+.hub-port .form-field {
+  width: 220px;
+}
+
+.hub-port button {
+  flex: 0 0 auto;
+}
+
+.pairing-code {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+/* Scanners need dark modules on a light ground, whatever the theme. */
+.pairing-code img {
+  flex: 0 0 auto;
+  padding: 6px;
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.pairing-start {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}

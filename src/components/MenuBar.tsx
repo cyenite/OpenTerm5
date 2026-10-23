@@ -94,6 +94,7 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
         { label: 'Accounts...', action: () => openDialog({ kind: 'accounts' }) },
         { label: 'Login to Trade Account', action: () => openDialog({ kind: 'login' }) },
         { label: 'Connection...', action: () => openDialog({ kind: 'connection' }) },
+        { label: 'Phone Access...', action: () => openDialog({ kind: 'phones' }) },
         separator,
         { label: 'Exit', action: () => window.close() },
       ],
