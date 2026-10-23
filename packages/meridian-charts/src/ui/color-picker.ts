@@ -51,14 +51,15 @@ export function dismissible(popup: HTMLElement, anchor: HTMLElement | null, clos
     event.stopPropagation();
     close();
   };
+  const doc = popup.ownerDocument;
   const timer = setTimeout(() => {
-    document.addEventListener('pointerdown', onOutside, true);
-    document.addEventListener('keydown', onKey, true);
+    doc.addEventListener('pointerdown', onOutside, true);
+    doc.addEventListener('keydown', onKey, true);
   });
   return () => {
     clearTimeout(timer);
-    document.removeEventListener('pointerdown', onOutside, true);
-    document.removeEventListener('keydown', onKey, true);
+    doc.removeEventListener('pointerdown', onOutside, true);
+    doc.removeEventListener('keydown', onKey, true);
   };
 }
 

@@ -16,7 +16,7 @@ import { replayModes } from '../lib/replay-model';
 import { replayTradingHint, useIsReplayingChart } from '../lib/replay-session';
 import { enterBacktestMode, exitBacktestMode, useIsBacktestingChart } from '../lib/backtest/runtime';
 import { drawingSyncMenuItems } from '../lib/layout-menu';
-import { activeChart, activeTab, chartTypes, openChart, openDialog, openTab, toggleAnalysisPositions, workspace, type ChartType } from '../lib/workspace';
+import { activeChart, activeTab, chartTypes, openChart, openDialog, openTab, toggleAnalysisPositions, workspace, type ChartType, type WorkspaceState } from '../lib/workspace';
 import { LayoutPicker } from './chart/LayoutPicker';
 import type { MenuItem } from './MenuBar';
 import { SymbolSearch } from './SymbolSearch';
@@ -63,7 +63,7 @@ interface IndicatorsButtonProps {
 
 // TradingView's pair: the button toggles the Indicators dialog, and the arrow beside it, shown
 // once something is starred, lists the favourites.
-function IndicatorsButton({ chartId }: IndicatorsButtonProps) {
+export function IndicatorsButton({ chartId }: IndicatorsButtonProps) {
   const hasFavorites = useStore(indicatorFavorites, (state) => state.types.length > 0);
   const isOpen = useStore(workspace, (state) => state.dialog?.kind === 'indicators');
   return (
@@ -87,7 +87,7 @@ export const chartTypeIcons: Record<ChartType, IconName> = { bars: 'bars', candl
 
 const menuBelow = (event: React.MouseEvent<HTMLElement>, items: readonly MenuItem[]) => {
   const box = event.currentTarget.getBoundingClientRect();
-  openMenuAt(box.left, box.bottom + 4, items);
+  openMenuAt(box.left, box.bottom + 4, items, event.currentTarget.ownerDocument.defaultView ?? window);
 };
 
 // Labels stay while the toolbar fits on one row. When it would not, the least needed labels go
@@ -118,8 +118,15 @@ function useCompactToolbar() {
   return { toolbar, level };
 }
 
-function SymbolPicker() {
-  const symbol = useStore(workspace, (state) => activeChart(state)?.symbol);
+interface ChartPickerProps {
+  // A pop-out window's chart; the toolbar's pickers follow the active chart.
+  chartId?: string;
+}
+
+const pickedChart = (state: WorkspaceState, chartId: string | undefined) => chartId ? state.charts.find((chart) => chart.id === chartId) : activeChart(state);
+
+export function SymbolPicker({ chartId }: ChartPickerProps) {
+  const symbol = useStore(workspace, (state) => pickedChart(state, chartId)?.symbol);
   const signIn = useStore(session, signingIn);
   const symbols = useStore(session, (state) => state.symbols);
   const watchedSpecs = useWatchedSpecs();
@@ -134,8 +141,8 @@ function SymbolPicker() {
 
 // The toolbar's timeframes are the common ones; any other the chart is on joins them so the
 // current choice always shows, and the menu lists them all.
-function TimeframePicker() {
-  const timeframe = useStore(workspace, (state) => activeChart(state)?.timeframe);
+export function TimeframePicker({ chartId }: ChartPickerProps) {
+  const timeframe = useStore(workspace, (state) => pickedChart(state, chartId)?.timeframe);
   const shown = chartTimeframes.filter((candidate) => candidate.isOnToolbar || candidate.label === timeframe);
   const all: MenuItem[] = chartTimeframes.map((candidate) => ({ label: candidate.label, isChecked: candidate.label === timeframe, action: () => setTimeframe(candidate.label) }));
   return (
@@ -148,8 +155,8 @@ function TimeframePicker() {
   );
 }
 
-function ChartTypePicker() {
-  const type = useStore(workspace, (state) => activeChart(state)?.type);
+export function ChartTypePicker({ chartId }: ChartPickerProps) {
+  const type = useStore(workspace, (state) => pickedChart(state, chartId)?.type);
   const current = chartTypes.find((candidate) => candidate.key === type) ?? chartTypes[1];
   const items: MenuItem[] = chartTypes.map((candidate) => ({ label: candidate.label, shortcut: candidate.shortcut, isChecked: candidate.key === type, action: () => setChartType(candidate.key) }));
   return <ToolButton icon={chartTypeIcons[current.key]} hasMenu isDisabled={!type} hint={{ title: `Chart Type: ${current.label}`, description: 'Candles, bars, line, area, baseline or Heikin Ashi.' }} onClick={(event) => menuBelow(event, items)} />;

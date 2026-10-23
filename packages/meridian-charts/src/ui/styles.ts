@@ -206,8 +206,13 @@ export function ensureStyles(doc: Document): void {
   doc.head.appendChild(style);
 }
 
+// Tag checks instead of `instanceof`: a chart in another window has that window's element classes.
+export function isTag(target: EventTarget | null, ...tags: string[]): boolean {
+  return !!target && tags.includes((target as Element).tagName);
+}
+
 export function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, parent?: HTMLElement): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
+  const node = (parent?.ownerDocument ?? document).createElement(tag);
   if (className) node.className = className;
   parent?.appendChild(node);
   return node;

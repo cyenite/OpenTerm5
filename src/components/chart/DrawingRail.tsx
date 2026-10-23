@@ -28,7 +28,7 @@ export function DrawingRail({ overlay }: DrawingRailProps) {
 
   useEffect(() => {
     if (!host.current || !overlay.current) return;
-    ensureStyles(document);
+    ensureStyles(host.current.ownerDocument);
     const toolbar = new DrawingToolbar(host.current, overlay.current, {
       selectTool: (tool) => setDrawingTools({ tool }),
       selectCursor: (cursor) => setDrawingTools({ cursor, tool: null }),

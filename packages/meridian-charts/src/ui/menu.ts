@@ -82,12 +82,12 @@ export function openMenu(host: HTMLElement, x: number, y: number, entries: reado
   function close() {
     menu.remove();
     submenu?.remove();
-    document.removeEventListener('pointerdown', onOutside, true);
-    document.removeEventListener('keydown', onKey, true);
+    host.ownerDocument.removeEventListener('pointerdown', onOutside, true);
+    host.ownerDocument.removeEventListener('keydown', onKey, true);
   }
   setTimeout(() => {
-    document.addEventListener('pointerdown', onOutside, true);
-    document.addEventListener('keydown', onKey, true);
+    host.ownerDocument.addEventListener('pointerdown', onOutside, true);
+    host.ownerDocument.addEventListener('keydown', onKey, true);
   });
   return close;
 }

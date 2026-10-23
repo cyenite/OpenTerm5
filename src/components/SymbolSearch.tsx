@@ -60,9 +60,11 @@ export class SymbolSearch extends PureComponent<SymbolSearchProps, SymbolSearchS
   private placement(): SymbolSearchState['place'] {
     const box = this.input.current?.getBoundingClientRect();
     if (!box) return null;
+    // A chart's pop-out window measures its own viewport.
+    const view = this.input.current?.ownerDocument.defaultView ?? window;
     const width = Math.max(box.width, 340);
-    const isAbove = window.innerHeight - box.bottom < DROPDOWN_HEIGHT && box.top > window.innerHeight - box.bottom;
-    return { width, isAbove, left: Math.max(4, Math.min(box.left, window.innerWidth - width - 4)), top: isAbove ? box.top - 2 : box.bottom + 2 };
+    const isAbove = view.innerHeight - box.bottom < DROPDOWN_HEIGHT && box.top > view.innerHeight - box.bottom;
+    return { width, isAbove, left: Math.max(4, Math.min(box.left, view.innerWidth - width - 4)), top: isAbove ? box.top - 2 : box.bottom + 2 };
   }
 
   private change(query: string): void {

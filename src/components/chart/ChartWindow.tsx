@@ -30,6 +30,8 @@ import { netOf } from '../../lib/backtest/stats';
 interface ChartWindowProps {
   chart: ChartConfig;
   isActive: boolean;
+  // A Lite pop-out: the chart alone, with no drawing tools or trading panels.
+  isLite?: boolean;
 }
 
 const sameIndicators = (left: readonly IndicatorConfig[], right: readonly IndicatorConfig[]) => JSON.stringify(left) === JSON.stringify(right);
@@ -98,12 +100,12 @@ export function chartEngineItems(chartId: string, symbol: string, price: number 
   ];
 }
 
-export function ChartWindow({ chart, isActive }: ChartWindowProps) {
+export function ChartWindow({ chart, isActive, isLite = false }: ChartWindowProps) {
   const container = useRef<HTMLDivElement>(null);
   const [instance, setInstance] = useState<MeridianChart | null>(null);
   const tool = useStore(workspace, (state) => state.tool);
   const theme = useStore(themeStore, (state) => state.theme);
-  const isOneClickEnabled = useStore(workspace, (state) => state.isOneClickEnabled && !state.isAnalysisMode);
+  const isOneClickEnabled = useStore(workspace, (state) => state.isOneClickEnabled && !state.isAnalysisMode) && !isLite;
   const isTradeOverlayShown = useStore(workspace, (state) => !state.isAnalysisMode || state.isAnalysisPositionsShown);
   const isReplaying = useIsReplayingChart(chart.id);
   const isBacktesting = useIsBacktestingChart(chart.id);
@@ -208,7 +210,6 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
     });
     const stopLayoutSync = startLayoutSync(current.id, meridian);
     const detachReplay = attachReplay(current.id, meridian);
-    const detachDrawingTools = attachDrawingTools(meridian);
     // A right-click on the plot opens the terminal's chart menu with the engine's commands.
     meridian.onContextMenu((info, event) => {
       const current = chartRef.current;
@@ -241,11 +242,18 @@ export function ChartWindow({ chart, isActive }: ChartWindowProps) {
       setInstance(null);
       stopLayoutSync();
       detachReplay();
-      detachDrawingTools();
       unregister();
       meridian.destroy();
     };
   }, []);
+
+  // The layout's drawing tools drive the chart; a Lite pop-out keeps its drawings still instead.
+  useEffect(() => {
+    const engine = chartInstance(chart.id);
+    if (!engine) return;
+    if (!isLite) return attachDrawingTools(engine);
+    engine.setDrawingTools({ tool: null, cursor: 'cross', isLocked: true });
+  }, [instance, chart.id, isLite]);
 
   // Settings apply while the chart still waits for its bars too, such as an import made offline.
   useEffect(() => {

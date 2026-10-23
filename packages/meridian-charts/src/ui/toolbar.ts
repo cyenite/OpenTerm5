@@ -52,12 +52,12 @@ export class DrawingToolbar {
     this.favoritesBar = element('div', 'mc-favorites', overlayHost);
     this.favoritesBar.setAttribute('role', 'toolbar');
     this.favoritesBar.setAttribute('aria-label', 'Favorite drawing tools');
-    document.addEventListener('pointerdown', this.onOutside, true);
+    host.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
     this.render();
   }
 
   destroy(): void {
-    document.removeEventListener('pointerdown', this.onOutside, true);
+    this.element.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
     this.closeFlyout();
     this.element.remove();
     this.favoritesBar.remove();

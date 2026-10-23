@@ -18,6 +18,7 @@ import {
   workspace,
 } from './workspace';
 import { chartTimeframes } from './mt5-timeframes';
+import { popoutMenuItems } from './popouts';
 import { isReplayingChart, replay, replayTradingHint } from './replay-session';
 import { activeBacktest, backtest, closeBacktestPositions, isBacktestingChart, reportBacktest } from './backtest/runtime';
 
@@ -106,6 +107,7 @@ export function chartMenu(chartId: string, price?: number): MenuItem[] {
     { label: 'Save As Picture...', action: () => window.dispatchEvent(new Event('openterm:chart-image')) },
     separator,
     ...layout,
+    { label: 'Picture in Picture', items: popoutMenuItems(chartId) },
     separator,
     { label: 'Close', shortcut: 'Ctrl+F4', action: () => closeChart(chartId) },
     { label: 'Close Other Charts', isDisabled: !others.length, action: () => others.forEach((other) => closeChart(other)) },
