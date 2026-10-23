@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { test } from 'node:test';
-import { BybitApiError, BybitRest, queryString } from './bybit-rest';
+import { BybitApiError, BybitRest } from './bybit-rest';
+import { queryString } from './exchange-common';
 
 const key = { apiKey: 'fixture-key', apiSecret: 'fixture-secret' };
 

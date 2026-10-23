@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import type { Position, TradeSnapshot } from '../shared/protocol';
 import { BybitLink } from './bybit-link';
 import { FakeBybit, rawOrder, rawPosition } from './bybit-fixtures';
-import { positionTicket, ticketOf } from './bybit-models';
+import { positionTicket } from './bybit-models';
+import { ticketOf } from './exchange-common';
 
 const credentials = { platform: 'bybit' as const, environment: 'demo' as const, apiKey: 'fixture-key', apiSecret: 'fixture-secret' };
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5));

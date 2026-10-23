@@ -134,15 +134,59 @@ passwords. Otherwise it stays in memory until you quit.
   than the free margin, or when its stop lies beyond the estimated liquidation price, because the
   stop would then not limit the loss, and the message says which leverage would work. The preview
   also warns when liquidation is close behind the stop. The estimate ignores fees, so keep a margin of
-  safety.
+  safety. With cross margin and a small position the preview can say **No liquidation at this size**:
+  your free margin would cover a fall all the way to zero.
 - **Fees count inside the risk.** The risk includes your own Bybit taker fee on the entry and at the
   stop, read from Bybit.
 - **Stops as a percentage.** The risk ticket offers **% of price** as a stop unit, and on Bybit it
   starts at a 1% stop. Its settings, like your watchlists, are kept apart from your MT5 ones.
-- **Watchlists.** Bybit accounts have their own watchlists, starting with BTC, ETH, SOL, XRP, BNB
-  and DOGE contracts. Your MT5 lists come back when you switch to an MT5 account.
+- **Watchlists and charts.** Crypto accounts (Bybit and Binance) share their own watchlists, starting
+  with BTC, ETH, SOL, XRP, BNB and DOGE contracts, and their own chart tabs. Your MT5 lists and tabs
+  come back when you switch to an MT5 account.
 - **Limit prices stay near the market.** Bybit only accepts limit orders within a band around the
   market price (about 1% for BTC): a buy limit cannot be far above the price, nor a sell limit far
   below it. OpenTerm5 tells you the limit before sending. To enter beyond it, use a stop order.
   Orders Bybit refuses are listed in the Journal with what was sent.
 - **Not available yet:** market depth, order expiry, close by, and Journaling sync.
+
+## Binance accounts
+
+OpenTerm5 trades the USDT-margined perpetual and quarterly contracts of Binance USDⓈ-M futures. In
+Multi-Assets mode the USDC contracts are listed too. COIN-M, spot and margin are not supported yet.
+
+### Creating an API key
+
+1. On Binance (or demo.binance.com for **Demo trading**), open **API Management** and create a key.
+2. Turn on **Enable Futures** and leave **Enable Withdrawals** off. On live accounts OpenTerm5
+   refuses a key that can withdraw funds; demo keys cannot be checked, so make sure yourself.
+3. An HMAC (system-generated) key needs an IP restriction before Binance lets it trade. A
+   **self-generated Ed25519** key trades without one: generate the key pair (Binance's key
+   generator, or `openssl genpkey -algorithm ed25519`), register the public key on Binance, and
+   keep the private key.
+
+### Logging in
+
+Choose **File → Login to Trade Account**, set **Platform** to **Binance**, pick **Demo trading** or
+**Live**, paste the API key, and paste either the HMAC secret or the whole Ed25519 private key PEM
+block (including its BEGIN and END lines).
+
+### How Binance trading differs
+
+Most of [How Bybit trading differs](#how-bybit-trading-differs) applies: coin quantities, one
+position per contract (unless the account uses Hedge Mode), whole-number leverage set per contract,
+the suggested leverage, margin and liquidation checks, and the taker fee inside the risk. Beyond
+that:
+
+- **Stops and targets are separate orders.** Binance attaches no SL or TP to an order, so OpenTerm5
+  places a reduce-only stop and take profit for each fill. A stop or target on the wrong side of the
+  price is refused before anything is sent. If Binance still refuses the stop, the fill is closed
+  again at once and the order reports why.
+- **Pending orders keep their SL and TP until they fill**, then get them for each fill. A limit or
+  stop order that fills while OpenTerm5 is closed gets no stop: check the position when you return.
+- **Changing a pending order's SL, TP or a stop order's price replaces the order**, so it gets a new
+  ticket. A limit order's price changes in place.
+- **When a position closes**, OpenTerm5 cancels the stops and targets it placed for it.
+- **Limit prices stay within Binance's band around the mark price** (5% on BTCUSDT); OpenTerm5 tells
+  you the limit before sending.
+- **History covers the last three months**, which is what Binance keeps.
+- **Not available yet:** market depth, order expiry, close by, COIN-M contracts and Journaling sync.

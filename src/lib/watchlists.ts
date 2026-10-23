@@ -1,4 +1,4 @@
-import type { Platform, SymbolSpec } from '../../shared/protocol';
+import { marketOf, type Market, type Platform, type SymbolSpec } from '../../shared/protocol';
 import { matchSymbol } from '../../shared/symbol-match';
 import { log, session, setWatchedSymbols } from './session';
 import { Store, useStore } from './store';
@@ -9,31 +9,32 @@ import {
   type Resolve, type Watchlist, type WatchlistsState, type WatchRow,
 } from './watchlist-model';
 
-// MT5 and exchange accounts keep separate lists: forex names do not exist on a crypto exchange.
-const storageKeys: Record<Platform, string> = { mt5: 'openterm.watchlists.v2', bybit: 'openterm.watchlists.bybit.v1' };
+// Forex and crypto accounts keep separate lists: forex names do not exist on a crypto exchange.
+// Exchanges share theirs, which name contracts alike; the crypto key predates Binance.
+const storageKeys: Record<Market, string> = { fx: 'openterm.watchlists.v2', crypto: 'openterm.watchlists.bybit.v1' };
 const LEGACY_KEY = 'openterm.watchlists.v1';
 
-function load(platform: Platform): WatchlistsState {
+function load(market: Market): WatchlistsState {
   try {
-    const saved = localStorage.getItem(storageKeys[platform]);
+    const saved = localStorage.getItem(storageKeys[market]);
     const restored = saved ? restoreWatchlists(JSON.parse(saved)) : null;
     if (restored) return restored;
     if (saved) log('Saved watchlists were unreadable; starting from the default list.', 'Market Watch');
-    if (platform !== 'mt5') return defaultWatchlists(newId(), platform);
+    if (market !== 'fx') return defaultWatchlists(newId(), market);
     const legacy = localStorage.getItem(LEGACY_KEY);
     return importLegacySets(defaultWatchlists(newId()), legacy ? JSON.parse(legacy) : null, newId);
   } catch (error) {
     log(`Saved watchlists could not be read: ${(error as Error).message}`, 'Market Watch');
-    return defaultWatchlists(newId(), platform);
+    return defaultWatchlists(newId(), market);
   }
 }
 
-let platform: Platform = 'mt5';
+let market: Market = 'fx';
 
-export const watchlists = new Store<WatchlistsState>(load(platform));
+export const watchlists = new Store<WatchlistsState>(load(market));
 
-// Logged out, the last platform's lists stay on screen.
-function activePlatform(): Platform | null {
+// The platform of the account in use; null while logged out or while the account changes.
+export function activePlatform(): Platform | null {
   const { accounts, profileId } = session.get();
   return accounts.find((profile) => profile.id === profileId)?.platform ?? null;
 }
@@ -175,7 +176,7 @@ export function startWatchlists(): void {
   let isSaveFailing = false;
   const save = () => {
     try {
-      localStorage.setItem(storageKeys[platform], JSON.stringify(watchlists.get()));
+      localStorage.setItem(storageKeys[market], JSON.stringify(watchlists.get()));
       isSaveFailing = false;
     } catch (error) {
       if (!isSaveFailing) log(`Watchlists could not be saved: ${(error as Error).message}`, 'Market Watch');
@@ -183,10 +184,12 @@ export function startWatchlists(): void {
     }
   };
   const follow = () => {
-    const next = activePlatform();
-    if (!next || next === platform) return;
+    // Logged out, the last market's lists stay on screen.
+    const platform = activePlatform();
+    const next = platform && marketOf(platform);
+    if (!next || next === market) return;
     save();
-    platform = next;
+    market = next;
     watchlists.set(load(next));
   };
   save();

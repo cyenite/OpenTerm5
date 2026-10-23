@@ -1,3 +1,4 @@
+import type { Market } from '../../shared/protocol';
 import { defaultSizes, layoutCells, layoutCount, layoutForCount, layoutOf, visualOrder, type LayoutKey, type LayoutSync, type SplitSizes } from './chart-layouts';
 import type { Drawing } from './chart-model';
 import type { ChartConfig } from './workspace';
@@ -8,6 +9,8 @@ import type { ChartConfig } from './workspace';
 export interface ChartTab {
   id: string;
   layout: LayoutKey;
+  // Only accounts of this market show the tab; the other market's names would not load there.
+  market: Market;
   activeChartId: string;
   syncs: LayoutSync[];
   chartIds: string[];
@@ -17,8 +20,17 @@ export interface ChartTab {
   drawings: Record<string, Drawing[]>;
 }
 
-export function makeTab(id: string, chartIds: string[], layout: LayoutKey = 's', syncs: LayoutSync[] = ['crosshair']): ChartTab {
-  return { id, layout, activeChartId: chartIds[0] ?? '', syncs, chartIds, sizes: {}, drawings: {} };
+export function makeTab(id: string, chartIds: string[], layout: LayoutKey = 's', syncs: LayoutSync[] = ['crosshair'], market: Market = 'fx'): ChartTab {
+  return { id, layout, market, activeChartId: chartIds[0] ?? '', syncs, chartIds, sizes: {}, drawings: {} };
+}
+
+// Exchange contracts quote in a stablecoin (BTCUSDT, ETHUSDC), are perpetuals (BTCPERP) or
+// dated futures (BTCUSDT-26DEC25, BTCUSDT_251226, BTC-26DEC25).
+const contractPattern = /^[A-Z0-9]{2,}(USDT|USDC|PERP)([-_][A-Z0-9]+)?$|^[A-Z0-9]{2,}-\d{2}[A-Z]{3}\d{2}$/;
+
+// Tabs saved before they carried a market: crypto when every chart is an exchange contract.
+export function inferMarket(symbols: readonly string[]): Market {
+  return symbols.length > 0 && symbols.every((symbol) => contractPattern.test(symbol)) ? 'crypto' : 'fx';
 }
 
 export function visibleChartIds(tab: ChartTab): string[] {

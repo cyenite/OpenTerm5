@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { Account, BybitEnvironment, JournalEntry, LinkState, Platform, TerminalEvent, TerminalMethod, TerminalMethods, Tick, TradeRequest, TradeSnapshot } from '../shared/protocol';
+import type { Account, ExchangeCredentials, JournalEntry, LinkState, Platform, TerminalEvent, TerminalMethod, TerminalMethods, Tick, TradeRequest, TradeSnapshot } from '../shared/protocol';
 import type { CopierLinkState } from '../shared/automation';
 
 // Returns why a trade request must not be sent, or null to send it.
@@ -17,7 +17,7 @@ export interface TradingLink extends EventEmitter {
 
 export type SessionCredentials =
   | { platform: 'mt5'; login: number; password: string; endpoint: string }
-  | { platform: 'bybit'; environment: BybitEnvironment; apiKey: string; apiSecret: string };
+  | ExchangeCredentials;
 
 const DEFAULT_POLL = 2_000;
 

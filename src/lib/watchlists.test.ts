@@ -21,19 +21,21 @@ const profile = (id: string, platform: AccountProfile['platform']): AccountProfi
 
 const names = (list: { entries: readonly { kind: string; name?: string }[] }) => list.entries.filter((entry) => entry.kind === 'symbol').map((entry) => entry.name);
 
-test('each platform keeps its own watchlists, and an exchange starts from crypto contracts', async () => {
+test('forex and crypto accounts keep their own watchlists, and exchanges share the crypto lists', async () => {
   const [{ session }, { watchlists, startWatchlists, addToWatchlist }, { activeWatchlist, defaultSymbols }] = await loaded;
-  const accounts = [profile('mt5|1', 'mt5'), profile('bybit:demo|1', 'bybit')];
+  const accounts = [profile('mt5|1', 'mt5'), profile('bybit:demo|1', 'bybit'), profile('binance:demo|1', 'binance')];
   startWatchlists();
-  assert.deepEqual(names(activeWatchlist(watchlists.get())), defaultSymbols.mt5);
+  assert.deepEqual(names(activeWatchlist(watchlists.get())), defaultSymbols.fx);
   session.set({ accounts, profileId: 'bybit:demo|1' });
-  assert.deepEqual(names(activeWatchlist(watchlists.get())), defaultSymbols.bybit);
+  assert.deepEqual(names(activeWatchlist(watchlists.get())), defaultSymbols.crypto);
   addToWatchlist(['LINKUSDT']);
   session.set({ profileId: 'mt5|1' });
-  assert.deepEqual(names(activeWatchlist(watchlists.get())), defaultSymbols.mt5);
+  assert.deepEqual(names(activeWatchlist(watchlists.get())), defaultSymbols.fx);
   session.set({ profileId: null });
-  assert.deepEqual(names(activeWatchlist(watchlists.get())), defaultSymbols.mt5, 'logged out keeps the last lists');
+  assert.deepEqual(names(activeWatchlist(watchlists.get())), defaultSymbols.fx, 'logged out keeps the last lists');
   session.set({ profileId: 'bybit:demo|1' });
-  assert.deepEqual(names(activeWatchlist(watchlists.get())), [...defaultSymbols.bybit, 'LINKUSDT']);
+  assert.deepEqual(names(activeWatchlist(watchlists.get())), [...defaultSymbols.crypto, 'LINKUSDT']);
+  session.set({ profileId: 'binance:demo|1' });
+  assert.deepEqual(names(activeWatchlist(watchlists.get())), [...defaultSymbols.crypto, 'LINKUSDT'], 'Binance shows the Bybit lists');
   assert.ok(stored.has('openterm.watchlists.v2') && stored.has('openterm.watchlists.bybit.v1'));
 });

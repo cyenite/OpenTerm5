@@ -15,6 +15,8 @@ test('isolated liquidation sits one margin minus maintenance away from the entry
 test('cross liquidation spends the free margin', () => {
   assert.equal(crossLiquidation('buy', 100, 10, 1, 500, 0.005), 100 - (500 - 5) / 10);
   assert.equal(crossLiquidation('buy', 100, 1, 1, 1000, 0), 0);
+  assert.equal(isolatedLiquidation('buy', 100, 1, 0), 0, 'a 1x long cannot be liquidated');
+  assert.equal(isLiquidationClose(100, 1, 0), false, 'no liquidation is never close behind the stop');
 });
 
 test('the stop must come before liquidation', () => {

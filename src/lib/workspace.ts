@@ -1,4 +1,4 @@
-import type { OrderTypeKey } from '../../shared/protocol';
+import { markets, type Market, type OrderTypeKey } from '../../shared/protocol';
 import type { ChartTimeframe } from './mt5-timeframes';
 import { defaultThemeId } from '@meridian/charts/themes';
 import type { ChartSettings, InputValue } from '@meridian/charts';
@@ -98,6 +98,8 @@ export type Dialog =
 export interface WorkspaceState {
   page: Page;
   tool: Tool;
+  // The market of the account in use, or of the last one when logged out; only its tabs show.
+  market: Market;
   activeTabId: string;
   toolboxTab: ToolboxTab;
   // A Meridian theme id, or 'system' to follow the operating system.
@@ -111,6 +113,8 @@ export interface WorkspaceState {
   replaySpeed: ReplaySpeed;
   tabs: ChartTab[];
   charts: ChartConfig[];
+  // The tab each market had in front when the account changed to another market.
+  marketTabIds: Partial<Record<Market, string>>;
   profiles: ChartProfile[];
   templates: ChartTemplate[];
   activeProfile: string;
@@ -159,12 +163,23 @@ export function makeChart(symbol: string, timeframe: ChartTimeframe = 'H1'): Cha
   };
 }
 
+// The layout a market starts with when it has no tabs yet.
+const defaultCharts: Record<Market, readonly (readonly [string, ChartTimeframe])[]> = {
+  fx: [['EURUSD', 'H1'], ['GBPUSD', 'H1'], ['USDJPY', 'H1'], ['XAUUSD', 'H4']],
+  crypto: [['BTCUSDT', 'H1'], ['ETHUSDT', 'H1'], ['SOLUSDT', 'H1'], ['XRPUSDT', 'H4']],
+};
+
+function defaultTab(market: Market): { tab: ChartTab; charts: ChartConfig[] } {
+  const charts = defaultCharts[market].map(([symbol, timeframe]) => makeChart(symbol, timeframe));
+  return { tab: makeTab(newId(), charts.map((chart) => chart.id), '4', ['crosshair'], market), charts };
+}
+
 function initialState(): WorkspaceState {
-  const charts = [makeChart('EURUSD'), makeChart('GBPUSD'), makeChart('USDJPY'), makeChart('XAUUSD', 'H4')];
-  const tab = makeTab(newId(), charts.map((chart) => chart.id), '4');
+  const { tab, charts } = defaultTab('fx');
   const defaults: WorkspaceState = {
     page: 'trading',
     tool: 'cursor',
+    market: 'fx',
     activeTabId: tab.id,
     toolboxTab: 'trade',
     theme: defaultThemeId,
@@ -176,6 +191,7 @@ function initialState(): WorkspaceState {
     replaySpeed: '1x',
     tabs: [tab],
     charts,
+    marketTabIds: {},
     profiles: [],
     templates: [],
     activeProfile: 'Default',
@@ -207,7 +223,9 @@ function initialState(): WorkspaceState {
       const drawingSync = drawingSyncs.find((candidate) => candidate.key === saved.drawingSync)?.key ?? defaults.drawingSync;
       const replayMode = replayModes.find((candidate) => candidate.key === saved.replayMode)?.key ?? defaults.replayMode;
       const replaySpeed = replaySpeeds.find((candidate) => candidate.key === saved.replaySpeed)?.key ?? defaults.replaySpeed;
-      const restored = { ...defaults, ...saved, ...charts, drawingSync, dock: restoreDockLayout(saved.dock), replayMode, replaySpeed, profiles: restoreProfiles(saved.profiles), templates: restoreTemplates(saved.templates), dialog: null, depthSymbol: null, tool: 'cursor' as const, isChartMaximized: false, isBacktestMode: false };
+      const market = markets.find((candidate) => candidate.key === saved.market)?.key ?? defaults.market;
+      const marketTabIds = Object.fromEntries(markets.flatMap(({ key }) => typeof saved.marketTabIds?.[key] === 'string' ? [[key, saved.marketTabIds[key]]] : []));
+      const restored = { ...defaults, ...saved, ...charts, market, marketTabIds, drawingSync, dock: restoreDockLayout(saved.dock), replayMode, replaySpeed, profiles: restoreProfiles(saved.profiles), templates: restoreTemplates(saved.templates), dialog: null, depthSymbol: null, tool: 'cursor' as const, isChartMaximized: false, isBacktestMode: false };
       if (!restored.profiles.some((profile) => profile.name === restored.activeProfile)) restored.activeProfile = 'Default';
       if (!restored.profiles.some((profile) => profile.name === 'Default')) restored.profiles = [captureProfile(restored, 'Default'), ...restored.profiles];
       if (saved.defaultChartSettings === undefined) delete restored.defaultChartSettings;
@@ -233,8 +251,14 @@ workspace.subscribe(() => {
   }
 });
 
+// The tabs the account in use can show.
+export function marketTabs(state: WorkspaceState): ChartTab[] {
+  return state.tabs.filter((tab) => tab.market === state.market);
+}
+
 export function activeTab(state: WorkspaceState): ChartTab | undefined {
-  return state.tabs.find((tab) => tab.id === state.activeTabId) ?? state.tabs[0];
+  const tabs = marketTabs(state);
+  return tabs.find((tab) => tab.id === state.activeTabId) ?? tabs[0];
 }
 
 export function tabOfChart(state: WorkspaceState, chartId: string): ChartTab | undefined {
@@ -298,7 +322,7 @@ function newChart(state: WorkspaceState, symbol: string, timeframe?: ChartTimefr
 export function openChart(symbol: string, timeframe?: ChartTimeframe): void {
   const state = workspace.get();
   const chart = newChart(state, symbol, timeframe);
-  const tab = makeTab(newId(), [chart.id], 's', state.isCrosshairSyncedByDefault ? ['crosshair'] : []);
+  const tab = makeTab(newId(), [chart.id], 's', state.isCrosshairSyncedByDefault ? ['crosshair'] : [], state.market);
   workspace.set((current) => ({ charts: [...current.charts, chart], tabs: [...current.tabs, tab], activeTabId: tab.id, isChartMaximized: false }));
 }
 
@@ -318,13 +342,15 @@ export function applyChartSettingsToAll(settings: ChartSettings, type?: ChartTyp
   }));
 }
 
+// Closing the tab in front brings its neighbour of the same market forward.
 function withoutTab(state: WorkspaceState, tabId: string): Partial<WorkspaceState> {
-  const index = state.tabs.findIndex((tab) => tab.id === tabId);
-  const tab = state.tabs[index];
+  const shown = marketTabs(state);
+  const index = shown.findIndex((tab) => tab.id === tabId);
+  const tab = state.tabs.find((candidate) => candidate.id === tabId);
   if (!tab) return {};
-  const tabs = state.tabs.filter((candidate) => candidate.id !== tabId);
-  const activeTabId = state.activeTabId === tabId ? tabs[Math.min(index, tabs.length - 1)]?.id ?? '' : state.activeTabId;
-  return { tabs, activeTabId, charts: state.charts.filter((chart) => !tab.chartIds.includes(chart.id)), isChartMaximized: false };
+  const rest = shown.filter((candidate) => candidate.id !== tabId);
+  const activeTabId = activeTab(state)?.id === tabId ? rest[Math.min(Math.max(index, 0), rest.length - 1)]?.id ?? '' : state.activeTabId;
+  return { tabs: state.tabs.filter((candidate) => candidate.id !== tabId), activeTabId, charts: state.charts.filter((chart) => !tab.chartIds.includes(chart.id)), isChartMaximized: false };
 }
 
 export function closeTab(tabId: string): void {
@@ -341,6 +367,23 @@ export function closeChart(id: string): void {
       charts: state.charts.filter((chart) => chart.id !== id),
       isChartMaximized: state.isChartMaximized && visibleChartIds(withoutChart(tab, id)).length > 1,
     };
+  });
+}
+
+// Follows the account to its market: that market's tabs come back with the one last in front. A
+// market shown for the first time starts with its default layout.
+export function setMarket(market: Market): void {
+  workspace.set((state) => {
+    if (state.market === market) return {};
+    const marketTabIds = { ...state.marketTabIds, [state.market]: activeTab(state)?.id ?? '' };
+    const tabs = state.tabs.filter((tab) => tab.market === market);
+    if (tabs.length || market in state.marketTabIds) {
+      const activeTabId = tabs.find((tab) => tab.id === state.marketTabIds[market])?.id ?? tabs[0]?.id ?? '';
+      return { market, marketTabIds, activeTabId, isChartMaximized: false };
+    }
+    const { tab, charts } = defaultTab(market);
+    if (state.defaultChartSettings) for (const chart of charts) chart.settings = structuredClone(state.defaultChartSettings);
+    return { market, marketTabIds, tabs: [...state.tabs, tab], charts: [...state.charts, ...charts], activeTabId: tab.id, isChartMaximized: false };
   });
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RiskOrderRequest } from '../../../shared/automation';
-import { orderType, type OrderTypeKey, type Platform, type TradeResult } from '../../../shared/protocol';
+import { marketOfMode, orderType, type Market, type OrderTypeKey, type TradeResult } from '../../../shared/protocol';
 import { distanceUnits, riskModes, type DistanceUnit, type RiskMode } from '../../../shared/risk';
 import { placeRiskOrder } from '../../lib/automation';
 import { formatMoney, formatPrice } from '../../lib/format';
@@ -24,9 +24,9 @@ const entryKinds = [
 
 type EntryKind = (typeof entryKinds)[number]['key'];
 
-// MT5 and exchange accounts keep separate settings: a pip stop or a per-lot commission means
-// nothing on a crypto contract.
-const storageKeys = { mt5: 'openterm.riskTicket.v1', bybit: 'openterm.riskTicket.bybit.v1' } as const;
+// Forex and crypto accounts keep separate settings: a pip stop or a per-lot commission means
+// nothing on a crypto contract. Exchanges share theirs; the crypto key predates Binance.
+const storageKeys: Record<Market, string> = { fx: 'openterm.riskTicket.v1', crypto: 'openterm.riskTicket.bybit.v1' };
 
 interface Preferences {
   mode: RiskMode;
@@ -41,42 +41,42 @@ interface Preferences {
   isBreakEvenAfterFirst: boolean;
 }
 
-function loadPreferences(platform: Platform): Preferences {
-  const fallback: Preferences = platform === 'mt5'
+function loadPreferences(market: Market): Preferences {
+  const fallback: Preferences = market === 'fx'
     ? { mode: 'percentBalance', value: 1, unit: 'pips', stop: 20, targets: '1, 2', commission: 0, breakEvenR: 0, trailing: 0, isStealth: false, isBreakEvenAfterFirst: true }
     : { mode: 'percentBalance', value: 1, unit: 'percent', stop: 1, targets: '1, 2', commission: 0, breakEvenR: 0, trailing: 0, isStealth: false, isBreakEvenAfterFirst: true };
-  try { return { ...fallback, ...JSON.parse(localStorage.getItem(storageKeys[platform]) ?? '{}') }; }
+  try { return { ...fallback, ...JSON.parse(localStorage.getItem(storageKeys[market]) ?? '{}') }; }
   catch { return fallback; }
 }
 
 export function RiskTicket(props: RiskTicketProps) {
-  const platform = useStore(session, (state): Platform => state.status?.mode === 'bybit' ? 'bybit' : 'mt5');
-  return <RiskTicketForm key={platform} platform={platform} {...props} />;
+  const market = useStore(session, (state) => marketOfMode(state.status?.mode));
+  return <RiskTicketForm key={market} market={market} {...props} />;
 }
 
 interface RiskTicketFormProps extends RiskTicketProps {
-  platform: Platform;
+  market: Market;
 }
 
-function RiskTicketForm({ symbol, canTrade, platform, onResult }: RiskTicketFormProps) {
+function RiskTicketForm({ symbol, canTrade, market, onResult }: RiskTicketFormProps) {
   const tick = useStore(session, (state) => state.ticks[symbol]);
   const digits = useStore(session, (state) => state.symbols[symbol]?.digits ?? 5);
   const currency = useStore(session, (state) => state.account?.currency ?? '');
   const baseCurrency = useStore(session, (state) => state.symbols[symbol]?.currencyBase ?? '');
-  const isExchange = platform !== 'mt5';
+  const isExchange = market === 'crypto';
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [entry, setEntry] = useState<EntryKind>('market');
   const [price, setPrice] = useState(0);
-  const [preferences, setPreferences] = useState(() => loadPreferences(platform));
+  const [preferences, setPreferences] = useState(() => loadPreferences(market));
   const [isBusy, setIsBusy] = useState(false);
   const [leverageVersion, setLeverageVersion] = useState(0);
   const unit = isExchange ? baseCurrency : 'lots';
   const set = (patch: Partial<Preferences>) => setPreferences({ ...preferences, ...patch });
 
   useEffect(() => {
-    try { localStorage.setItem(storageKeys[platform], JSON.stringify(preferences)); }
+    try { localStorage.setItem(storageKeys[market], JSON.stringify(preferences)); }
     catch { /* preferences are a convenience */ }
-  }, [preferences, platform]);
+  }, [preferences, market]);
 
   // The entry price belongs to the symbol it was set for; another symbol starts from its own quote.
   const pricedSymbol = useRef(symbol);
@@ -157,10 +157,11 @@ function RiskTicketForm({ symbol, canTrade, platform, onResult }: RiskTicketForm
             <span>Stop <b>{preview.stopLoss ? formatPrice(preview.stopLoss, digits) : 'none'}</b></span>
             <span>Risk <b>{Number.isFinite(preview.riskMoney) ? `${formatMoney(preview.riskMoney)} ${currency}` : 'unlimited'}</b></span>
             {preview.leverage !== undefined && <span>Margin <b>{formatMoney(preview.margin ?? Number.NaN)} {currency}</b> at {preview.leverage}x</span>}
-            {preview.liquidationPrice !== undefined && <span>Liquidation about <b>{formatPrice(preview.liquidationPrice, digits)}</b></span>}
+            {preview.liquidationPrice === 0 && <span>No liquidation at this size</span>}
+            {!!preview.liquidationPrice && <span>Liquidation about <b>{formatPrice(preview.liquidationPrice, digits)}</b></span>}
             {preview.takeProfits.some(Boolean) && <span>Targets <b>{preview.takeProfits.map((value) => formatPrice(value, digits)).join(' / ')}</b></span>}
             {preview.warnings.map((warning) => <small key={warning}>{warning}</small>)}
-            {isExchange && <small className="is-muted">Risk includes your Bybit taker fee on the entry and at the stop.</small>}
+            {isExchange && <small className="is-muted">Risk includes the exchange's taker fee on the entry and at the stop.</small>}
           </>
         ) : <span className="is-muted">Calculating…</span>}
       </div>

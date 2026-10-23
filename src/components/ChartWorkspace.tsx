@@ -6,7 +6,7 @@ import { isLinkGroupShown, linkGroupMenuItems, tabTitle } from '../lib/layout-me
 import { setLayoutResizing } from '../lib/layout-sync';
 import { replay } from '../lib/replay';
 import { useStore } from '../lib/store';
-import { activeTab, closeTab, focusChart, focusTab, openChart, openTab, resetTabSizes, setChartSymbol, setTabSizes, workspace, type ChartConfig } from '../lib/workspace';
+import { activeTab, closeTab, marketTabs, focusChart, focusTab, openChart, openTab, resetTabSizes, setChartSymbol, setTabSizes, workspace, type ChartConfig } from '../lib/workspace';
 import { ChartWindow } from './chart/ChartWindow';
 import { DrawingRail } from './chart/DrawingRail';
 import { LayoutIcon } from './chart/LayoutIcon';
@@ -168,7 +168,7 @@ function TabLabel({ tab, charts, isActive }: TabLabelProps) {
 }
 
 export function ChartWorkspace() {
-  const tabs = useStore(workspace, (state) => state.tabs);
+  const tabs = useStore(workspace, marketTabs);
   const charts = useStore(workspace, (state) => state.charts);
   const tabId = useStore(workspace, (state) => activeTab(state)?.id);
   const isMaximized = useStore(workspace, (state) => state.isChartMaximized);

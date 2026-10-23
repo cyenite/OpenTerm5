@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Account } from '../shared/protocol';
-import { AccountRegistry } from './account-registry';
+import { AccountRegistry, platformOf } from './account-registry';
 
 const account: Account = { name: 'Fixture', server: 'Demo', company: 'Broker', currency: 'USD', tradeMode: 'demo', login: 1234, credit: 0, margin: 0, equity: 1000, profit: 0, balance: 1000, leverage: 100, marginFree: 1000, marginLevel: 0, isHedging: true, isTradeAllowed: true };
 const endpoint = 'wss://broker.example/terminal';
@@ -65,19 +65,27 @@ test('loading strips unexpected secrets and rejects corrupt endpoints or duplica
   assert.throws(() => registry.load([stored[0], stored[0]]));
 });
 
-test('Bybit profiles keep the key pair as their secret and rebuild exchange credentials', async () => {
+test('exchange profiles keep the key pair as their secret and rebuild exchange credentials', async () => {
   let stored: unknown;
   const registry = new AccountRegistry(cipher, async (profiles) => { stored = profiles; });
   const bybit = { ...account, login: 4242, server: 'Bybit Demo trading', company: 'Bybit' };
-  const profile = await registry.rememberExchange(bybit, 'demo', { apiKey: 'fixture-key', apiSecret: 'fixture-secret' }, 'Crypto', true);
+  const profile = await registry.rememberExchange(bybit, { platform: 'bybit', environment: 'demo', apiKey: 'fixture-key', apiSecret: 'fixture-secret' }, 'Crypto', true);
   assert.equal(profile.id, 'bybit:demo|4242');
   assert.equal(profile.platform, 'bybit');
   assert.equal(profile.webEndpoint, 'https://api-demo.bybit.com');
   assert.ok(!JSON.stringify(stored).includes('fixture-secret'));
-  const restarted = new AccountRegistry(cipher, async () => {});
+  const restarted = new AccountRegistry(cipher, async (profiles) => { stored = profiles; });
   restarted.load(stored);
   assert.deepEqual(restarted.credentials(profile.id), { platform: 'bybit', environment: 'demo', apiKey: 'fixture-key', apiSecret: 'fixture-secret' });
   assert.throws(() => restarted.unlock(profile.id, 'x'), /API key/);
+  const binance = { ...account, login: 777, server: 'Binance Demo trading', company: 'Binance' };
+  const futures = await restarted.rememberExchange(binance, { platform: 'binance', environment: 'mainnet', apiKey: 'binance-key', apiSecret: 'binance-secret' }, undefined, true);
+  assert.equal(futures.id, 'binance:mainnet|777');
+  assert.equal(platformOf(futures.id), 'binance');
+  assert.equal(platformOf(profile.id), 'bybit');
+  const again = new AccountRegistry(cipher, async () => {});
+  again.load(stored);
+  assert.deepEqual(again.credentials(futures.id), { platform: 'binance', environment: 'mainnet', apiKey: 'binance-key', apiSecret: 'binance-secret' });
 });
 
 test('profiles saved before platforms existed load as MetaTrader 5 accounts', async () => {
