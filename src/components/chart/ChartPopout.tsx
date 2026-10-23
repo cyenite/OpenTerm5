@@ -187,43 +187,38 @@ const barHeight = 26;
 // Below the strip too: on Windows the strip's drag area gets no pointer moves at all.
 const revealHeight = 40;
 const revealDelay = 150;
-const leaveDelay = 600;
 
 // Lite mode's only chrome. The window has no title bar, so its top band always moves the window;
-// the strip shows over it while the pointer is on the band. It only goes away when the pointer moves
-// down onto the charts or leaves the window with no button held: while the window is being moved
-// the system holds the pointer and the page hears nothing, so the strip stays until it is put down.
+// the strip shows over it while the pointer is at the top. It goes away only on clear signs the
+// pointer is elsewhere: a move down onto the charts, a leave from below the strip, or the window
+// losing focus. A drag area takes the pointer from the page (on Linux the page is told it left;
+// while the window moves it hears nothing), so a leave from the top keeps the strip.
 function LiteBar({ tab, title }: LiteBarProps) {
   const view = useSurface();
   const [isShown, setIsShown] = useState(false);
 
   useEffect(() => {
     let revealTimer = 0;
-    let hideTimer = 0;
-    const onMove = (event: PointerEvent) => {
-      view.clearTimeout(hideTimer);
-      hideTimer = 0;
-      if (event.clientY > revealHeight) {
-        view.clearTimeout(revealTimer);
-        revealTimer = 0;
-        setIsShown(false);
-      } else if (!revealTimer) {
-        revealTimer = view.setTimeout(() => setIsShown(true), revealDelay);
-      }
-    };
-    const onLeave = (event: PointerEvent) => {
-      if (event.buttons) return;
+    let lastY = Infinity;
+    const hide = () => {
       view.clearTimeout(revealTimer);
       revealTimer = 0;
-      hideTimer = view.setTimeout(() => setIsShown(false), leaveDelay);
+      setIsShown(false);
     };
+    const onMove = (event: PointerEvent) => {
+      lastY = event.clientY;
+      if (lastY > revealHeight) hide();
+      else if (!revealTimer) revealTimer = view.setTimeout(() => setIsShown(true), revealDelay);
+    };
+    const onLeave = () => { if (lastY > revealHeight) hide(); };
     view.document.addEventListener('pointermove', onMove);
     view.document.documentElement.addEventListener('pointerleave', onLeave);
+    view.addEventListener('blur', hide);
     return () => {
       view.clearTimeout(revealTimer);
-      view.clearTimeout(hideTimer);
       view.document.removeEventListener('pointermove', onMove);
       view.document.documentElement.removeEventListener('pointerleave', onLeave);
+      view.removeEventListener('blur', hide);
     };
   }, [view]);
 

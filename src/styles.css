@@ -781,20 +781,18 @@ button:active:not(:disabled) {
   color: var(--muted);
   font-size: 11.5px;
   animation: popout-lite-in 180ms ease;
-  -webkit-app-region: drag;
+  /* Only the empty middle moves the window: the page keeps hearing the pointer over the handle and buttons. */
+  -webkit-app-region: no-drag;
 }
 
 @keyframes popout-lite-in {
   from { opacity: 0; }
 }
 
-.popout-lite-bar :is(button, .popout-tab-handle) {
-  -webkit-app-region: no-drag;
-}
-
 .popout-lite-move {
   flex: 1;
   align-self: stretch;
+  -webkit-app-region: drag;
 }
 
 .popout-lite-bar .popout-tab-handle {
