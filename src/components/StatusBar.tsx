@@ -6,6 +6,7 @@ import { useStore } from '../lib/store';
 import { openDialog } from '../lib/workspace';
 import { JournalingStatus } from './journaling/JournalingStatus';
 import { SigningIn } from './ui/SigningIn';
+import { UpdateStatus } from './updates/UpdateStatus';
 
 const RESULT_MS = 6000;
 
@@ -74,6 +75,7 @@ export function StatusBar() {
       {isSigningIn ? <SigningIn signIn={signIn} className="status-cell" /> : <span className="status-cell">{account ? `${account.login} ${account.server}` : 'Default'}</span>}
       <TradeActivity />
       <JournalingStatus />
+      <UpdateStatus />
       {bar && (
         <span className="status-cell status-ohlc">
           {formatTime(bar.time * 1000, hover.hasSeconds)} O: {formatPrice(bar.open, digits)} H: {formatPrice(bar.high, digits)} L: {formatPrice(bar.low, digits)} C:{' '}

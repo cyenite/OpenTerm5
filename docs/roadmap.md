@@ -21,8 +21,9 @@ Issues tagged `roadmap` track each item; comment there before starting work on o
    notifications.
 8. **Execution modes and market data.** Request execution with requotes, exchange Time & Sales, tick
    history export, and custom symbols.
-9. **Signed releases.** Code-signed and notarised installers for Windows and macOS, and automatic
-   updates.
+9. **Signed releases.** Code-signed and notarised installers for Windows and macOS. Automatic
+   updates already work on Windows and Linux; macOS only links to the new release until the app is
+   signed and notarised, which Squirrel.Mac requires before it installs an update.
 
 ## Not planned
 

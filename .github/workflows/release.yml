@@ -42,6 +42,9 @@ jobs:
             release/*.deb
             release/*.dmg
             release/*.exe
+            release/*.zip
+            release/*.blockmap
+            release/latest*.yml
           if-no-files-found: error
 
   publish:
@@ -53,6 +56,8 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+      # electron-updater reads latest*.yml from the newest published release and ignores drafts,
+      # so publishing the draft is what offers the update to installed copies.
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}

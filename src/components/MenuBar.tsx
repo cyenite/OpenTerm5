@@ -4,6 +4,7 @@ import {
   newOrder,
   setChartType,
   setTimeframe,
+  showToolbox,
   toggleDepth,
   toggleFullScreen,
   toggleOneClick,
@@ -43,6 +44,7 @@ import {
 import { chartTimeframes } from '../lib/mt5-timeframes';
 import { useIsReplayingChart } from '../lib/replay-session';
 import { chooseMode, modeOf, useIsBacktestingChart } from '../lib/backtest/runtime';
+import { requestUpdate } from '../lib/updates';
 
 export interface MenuItem {
   label: string;
@@ -198,7 +200,14 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
         })),
       ],
     },
-    { label: 'Help', items: [{ label: 'About OpenTerm5', action: () => openDialog({ kind: 'about' }) }] },
+    {
+      label: 'Help',
+      items: [
+        { label: 'Check for Updates', action: () => { showToolbox('journal'); requestUpdate('updates.check', {}); } },
+        separator,
+        { label: 'About OpenTerm5', action: () => openDialog({ kind: 'about' }) },
+      ],
+    },
   ];
 }
 

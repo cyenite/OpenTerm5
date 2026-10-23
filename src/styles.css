@@ -4945,3 +4945,14 @@ button.is-link {
   stroke: var(--muted);
   stroke-width: 1;
 }
+
+.status-update {
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  min-height: 0;
+  padding: 0 10px;
+  color: var(--muted);
+}
+
+.status-update.is-ready { color: var(--good); }

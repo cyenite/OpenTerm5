@@ -283,7 +283,10 @@ TradingView theme.
 Grab an installer for Windows, macOS (Apple Silicon) or Linux (AppImage or `.deb`) from the
 [releases page](https://github.com/cyenite/OpenTerm5/releases). The
 [Getting started guide](docs/getting-started.md) lists the files and what to do about first-launch
-warnings while builds aren't code-signed yet.
+warnings while builds aren't code-signed yet. Once installed, OpenTerm5 keeps itself up to date on
+Windows and Linux: new versions download in the background and install when you choose **Restart to
+update** or quit, never while your copier or signals are running. On macOS it tells you when a new
+version is out.
 
 Prefer to build it yourself? You'll need [Node.js 22.12 or later](https://nodejs.org/):
 
