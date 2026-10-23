@@ -20,10 +20,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   suggestion and margin and liquidation checks as Bybit. Stop losses and take profits follow each
   fill as conditional orders; a fill whose stop Binance refuses is closed again. Keys that can
   withdraw funds are refused.
-- Picture-in-picture charts. Any chart can pop out of its layout into its own always-on-top window,
-  from the button in the chart's corner or **Picture in Picture** in its context menu. **Lite** shows
-  the chart alone for monitoring; **Full** adds the chart toolbar, drawing tools and trading panels,
-  and its menus and dialogs open in that window. Closing the window returns the chart to its layout.
+- Picture-in-picture tabs. A chart tab can leave the main window for its own always-on-top window
+  with its whole layout, so it can sit on another monitor: drag it out of the tab bar (it opens in
+  Lite), or right-click it and choose **Picture in Picture**. **Lite** shows the charts alone for
+  monitoring; **Full** adds the chart toolbar, layout setup, drawing tools and trading panels, and its
+  menus and dialogs open in that window. Drag the window's tab handle back onto the tab bar, choose
+  **Return to Main Window**, or close the window to put the tab back.
 
 ### Changed
 

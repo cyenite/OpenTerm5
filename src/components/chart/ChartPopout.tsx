@@ -1,17 +1,22 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { handleShortcut } from '../../lib/commands';
 import { createPortal } from 'react-dom';
 import { chartInstance, chartUi } from '../../lib/chart-instances';
+import { tabActiveChartId, visibleChartIds, type ChartTab } from '../../lib/chart-tabs';
+import { handleShortcut } from '../../lib/commands';
+import { tabTitle } from '../../lib/layout-menu';
+import { dockTab, forgetPopout, popoutModeOf, popouts, registerPopoutWindow, setPopoutMode, tabDragType, type Popout, type PopoutMode } from '../../lib/popouts';
+import { replay } from '../../lib/replay';
 import { log } from '../../lib/session';
-import { dockChart, popoutModeOf, popoutModes, popouts, registerPopoutWindow, setPopoutMode, type Popout, type PopoutMode } from '../../lib/popouts';
 import { useStore } from '../../lib/store';
-import { activeChart, focusChart, workspace, type ChartConfig } from '../../lib/workspace';
+import { focusChart, marketTabs, workspace } from '../../lib/workspace';
+import { BacktestTransport } from '../backtest/BacktestTransport';
+import { ChartLayout } from '../ChartWorkspace';
 import { ChartTypePicker, IndicatorsButton, SymbolPicker, TimeframePicker, ToolButton, ToolGroup } from '../Toolbar';
-import { Segmented } from '../ui/Controls';
 import { Icon } from '../ui/Icon';
-import { SurfaceProvider } from '../ui/Surface';
-import { ChartWindow } from './ChartWindow';
+import { SurfaceProvider, useSurface } from '../ui/Surface';
 import { DrawingRail } from './DrawingRail';
+import { LayoutPicker } from './LayoutPicker';
+import { ReplayToolbar } from './ReplayToolbar';
 
 const copyMark = 'data-openterm-copy';
 // A fresh frame name per window: reusing one can hand back a window that is still closing.
@@ -55,26 +60,27 @@ interface PopoutWindowProps {
   children: ReactNode;
 }
 
-// Opens the chart's always-on-top window (the main process recognises the frame name) and renders
-// into it. Closing the window returns the chart to its layout.
+// Opens the tab's always-on-top window (the main process recognises the frame name) and renders
+// into it. Closing the window returns the tab to the main window.
 function PopoutWindow({ popout, title, children }: PopoutWindowProps) {
   const [target, setTarget] = useState<{ view: Window; root: HTMLElement } | null>(null);
-  const { chartId } = popout;
+  const { tabId } = popout;
 
   useEffect(() => {
     const { width, height } = popoutModeOf(popout.mode);
-    const view = window.open('', `openterm-pip-${chartId}-${++windowCount}`, `popup,width=${width},height=${height}`);
+    const place = popout.at ? `,left=${Math.round(popout.at.x - 80)},top=${Math.round(popout.at.y - 20)}` : '';
+    const view = window.open('', `openterm-pip-${tabId}-${++windowCount}`, `popup,width=${width},height=${height}${place}`);
     if (!view) {
-      log('The chart could not open in its own window.', 'Charts');
-      dockChart(chartId);
+      log('The chart tab could not open in its own window.', 'Charts');
+      forgetPopout(tabId);
       return;
     }
     const stopMirror = mirrorDocument(view.document);
     const root = view.document.createElement('div');
     root.className = 'popout-root';
     view.document.body.replaceChildren(root);
-    const unregister = registerPopoutWindow(chartId, view);
-    const onClose = () => dockChart(chartId);
+    const unregister = registerPopoutWindow(tabId, view);
+    const onClose = () => forgetPopout(tabId);
     view.addEventListener('pagehide', onClose);
     setTarget({ view, root });
     return () => {
@@ -84,7 +90,7 @@ function PopoutWindow({ popout, title, children }: PopoutWindowProps) {
       setTarget(null);
       view.close();
     };
-  }, [chartId]);
+  }, [tabId]);
 
   useEffect(() => {
     if (target) target.view.document.title = title;
@@ -103,33 +109,60 @@ function PopoutWindow({ popout, title, children }: PopoutWindowProps) {
   return createPortal(<SurfaceProvider view={target.view}>{children}</SurfaceProvider>, target.root);
 }
 
-interface ModeSwitchProps {
-  chartId: string;
-  mode: PopoutMode;
+interface TabHandleProps {
+  tab: ChartTab;
+  title: string;
 }
 
-function ModeSwitch({ chartId, mode }: ModeSwitchProps) {
-  return <Segmented label="Window mode" value={mode} options={popoutModes} onChange={(next) => setPopoutMode(chartId, next)} />;
+// The pop-out's own tab: dragged onto the main window's tab bar, it puts the tab back there.
+function TabHandle({ tab, title }: TabHandleProps) {
+  return (
+    <div
+      className="popout-tab-handle"
+      draggable
+      title="Drag onto the main window's tab bar to put this tab back"
+      onDragStart={(event) => {
+        event.dataTransfer.setData(tabDragType, tab.id);
+        event.dataTransfer.effectAllowed = 'move';
+      }}
+    >
+      <Icon name="grip" size={12} />
+      <span>{title}</span>
+    </div>
+  );
 }
 
-interface ChartPopoutBarProps {
-  chart: ChartConfig;
+interface ReturnButtonProps {
+  tabId: string;
 }
 
-// Full mode's toolbar: the main toolbar's chart controls, which act on the active chart. Any press
-// in the window makes this chart the active one first.
-function ChartPopoutBar({ chart }: ChartPopoutBarProps) {
-  const ui = useStore(chartUi, (state) => state.byId[chart.id]);
-  const engine = () => chartInstance(chart.id);
+function ReturnButton({ tabId }: ReturnButtonProps) {
+  return <ToolButton icon="dock" hint={{ title: 'Return to Main Window', description: 'Close this window and put the tab back in the main window.' }} onClick={() => dockTab(tabId)} />;
+}
+
+interface TabPopoutBarProps {
+  tab: ChartTab;
+  title: string;
+}
+
+// Full mode's toolbar: the main toolbar's chart controls for the tab's active chart. Any press in the
+// window makes one of its charts the active chart first, so the controls act on it.
+function TabPopoutBar({ tab, title }: TabPopoutBarProps) {
+  const chartId = tabActiveChartId(tab);
+  const ui = useStore(chartUi, (state) => state.byId[chartId]);
+  const engine = () => chartInstance(chartId);
   return (
     <div className="toolbar chart-toolbar popout-toolbar" role="toolbar" aria-label="Chart">
-      <SymbolPicker chartId={chart.id} />
+      <TabHandle tab={tab} title={title} />
       <span className="toolbar-divider" />
-      <TimeframePicker chartId={chart.id} />
+      <SymbolPicker chartId={chartId} />
+      <LayoutPicker tabId={tab.id} />
+      <span className="toolbar-divider" />
+      <TimeframePicker chartId={chartId} />
       <span className="toolbar-divider" />
       <ToolGroup label="Chart">
-        <ChartTypePicker chartId={chart.id} />
-        <IndicatorsButton chartId={chart.id} />
+        <ChartTypePicker chartId={chartId} />
+        <IndicatorsButton chartId={chartId} />
       </ToolGroup>
       <span className="toolbar-divider" />
       <ToolGroup label="Edit">
@@ -139,36 +172,87 @@ function ChartPopoutBar({ chart }: ChartPopoutBarProps) {
         <ToolButton icon="chartSettings" isDisabled={!ui} hint={{ title: 'Chart Settings' }} onClick={() => engine()?.openChartSettings()} />
       </ToolGroup>
       <div className="toolbar-spacer" />
-      <ModeSwitch chartId={chart.id} mode="full" />
-      <ToolButton icon="dock" hint={{ title: 'Return to Layout', description: 'Close this window and show the chart in its layout again.' }} onClick={() => dockChart(chart.id)} />
+      <ToolButton icon="compress" hint={{ title: 'Lite Mode', description: 'Only the charts, for watching the price.' }} onClick={() => setPopoutMode(tab.id, 'lite')} />
+      <ReturnButton tabId={tab.id} />
     </div>
   );
 }
 
-interface LiteControlsProps {
-  chartId: string;
+interface LiteBarProps {
+  tab: ChartTab;
+  title: string;
 }
 
-// Lite mode has no toolbar: these show over the chart's top right corner while the pointer is in the window.
-function LiteControls({ chartId }: LiteControlsProps) {
+const barHeight = 26;
+// Below the strip too: on Windows the strip's drag area gets no pointer moves at all.
+const revealHeight = 40;
+const revealDelay = 150;
+
+// Lite mode's only chrome. The window has no title bar, so its top band always moves the window;
+// the strip shows over it while the pointer is at the top. It goes away only on clear signs the
+// pointer is elsewhere: a move down onto the charts, a leave from below the strip, or the window
+// losing focus. A drag area takes the pointer from the page (on Linux the page is told it left;
+// while the window moves it hears nothing), so a leave from the top keeps the strip.
+function LiteBar({ tab, title }: LiteBarProps) {
+  const view = useSurface();
+  const [isShown, setIsShown] = useState(false);
+
+  useEffect(() => {
+    let revealTimer = 0;
+    let lastY = Infinity;
+    const hide = () => {
+      view.clearTimeout(revealTimer);
+      revealTimer = 0;
+      setIsShown(false);
+    };
+    const onMove = (event: PointerEvent) => {
+      lastY = event.clientY;
+      if (lastY > revealHeight) hide();
+      else if (!revealTimer) revealTimer = view.setTimeout(() => setIsShown(true), revealDelay);
+    };
+    const onLeave = () => { if (lastY > revealHeight) hide(); };
+    view.document.addEventListener('pointermove', onMove);
+    view.document.documentElement.addEventListener('pointerleave', onLeave);
+    view.addEventListener('blur', hide);
+    return () => {
+      view.clearTimeout(revealTimer);
+      view.document.removeEventListener('pointermove', onMove);
+      view.document.documentElement.removeEventListener('pointerleave', onLeave);
+      view.removeEventListener('blur', hide);
+    };
+  }, [view]);
+
+  // The controls are left out while hidden rather than faded: drag areas ignore opacity, and their
+  // non-drag holes would make parts of the band refuse to move the window.
   return (
-    <div className="popout-lite-controls">
-      <ModeSwitch chartId={chartId} mode="lite" />
-      <button type="button" className="popout-lite-dock" title="Return to layout" aria-label="Return to layout" onClick={() => dockChart(chartId)}>
-        <Icon name="dock" size={14} />
-      </button>
-    </div>
+    <>
+      <div className="popout-lite-grab" style={{ height: barHeight }} title="Drag to move the window" />
+      {isShown && (
+        <div className="popout-lite-bar" style={{ height: barHeight }}>
+          <TabHandle tab={tab} title={title} />
+          <div className="popout-lite-move" />
+          <button type="button" className="popout-lite-button" title="Full mode: toolbar, drawing tools and trading panels" aria-label="Full mode" onClick={() => setPopoutMode(tab.id, 'full')}>
+            <Icon name="expand" size={13} />
+          </button>
+          <button type="button" className="popout-lite-button" title="Return to main window" aria-label="Return to main window" onClick={() => dockTab(tab.id)}>
+            <Icon name="dock" size={13} />
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 
-interface PopoutChartProps {
-  chart: ChartConfig;
+interface PopoutTabProps {
+  tab: ChartTab;
+  title: string;
   mode: PopoutMode;
 }
 
-function PopoutChart({ chart, mode }: PopoutChartProps) {
+function PopoutTab({ tab, title, mode }: PopoutTabProps) {
   const body = useRef<HTMLDivElement>(null);
-  const isActive = useStore(workspace, (state) => activeChart(state)?.id === chart.id);
+  const replayTabId = useStore(replay, (state) => state.session?.tabId);
+  const replayPurpose = useStore(replay, (state) => state.session?.purpose);
   const isFull = mode === 'full';
 
   // Full mode answers the terminal's shortcuts, as the main window does.
@@ -181,34 +265,38 @@ function PopoutChart({ chart, mode }: PopoutChartProps) {
   }, [isFull]);
 
   return (
-    <div className={`popout is-${mode}`} onMouseDownCapture={() => focusChart(chart.id)}>
-      {isFull && <ChartPopoutBar chart={chart} />}
+    <div className={`popout is-${mode}`} onMouseDownCapture={() => focusChart(tabActiveChartId(tab))}>
+      {isFull && <TabPopoutBar tab={tab} title={title} />}
       <div ref={body} className="chart-body">
         {isFull && <DrawingRail overlay={body} />}
-        <div className="chart-area">
-          <ChartWindow chart={chart} isActive={isActive} isLite={!isFull} />
-        </div>
+        <ChartLayout tabs={[tab]} tab={tab} isLite={!isFull} />
+        {isFull && replayPurpose === 'backtest' && replayTabId === tab.id && <BacktestTransport />}
       </div>
-      {!isFull && <LiteControls chartId={chart.id} />}
+      {isFull && replayPurpose === 'replay' && replayTabId === tab.id && <ReplayToolbar />}
+      {!isFull && <LiteBar tab={tab} title={title} />}
     </div>
   );
 }
 
 export function ChartPopouts() {
   const list = useStore(popouts, (state) => state.list);
+  const tabs = useStore(workspace, marketTabs);
   const charts = useStore(workspace, (state) => state.charts);
 
-  // A chart closed while popped out (its tab closed, a workspace loaded) takes its window with it.
+  // A tab closed while popped out, or one of the other market after an account change, takes its
+  // window with it.
   useEffect(() => {
-    for (const popout of list) if (!charts.some((chart) => chart.id === popout.chartId)) dockChart(popout.chartId);
-  }, [list, charts]);
+    for (const popout of list) if (!tabs.some((tab) => tab.id === popout.tabId)) forgetPopout(popout.tabId);
+  }, [list, tabs]);
 
   return list.map((popout) => {
-    const chart = charts.find((candidate) => candidate.id === popout.chartId);
-    if (!chart) return null;
+    const tab = tabs.find((candidate) => candidate.id === popout.tabId);
+    if (!tab) return null;
+    const title = tabTitle(tab, charts);
+    const count = visibleChartIds(tab).length;
     return (
-      <PopoutWindow key={popout.chartId} popout={popout} title={`${chart.symbol} ${chart.timeframe} · OpenTerm5`}>
-        <PopoutChart chart={chart} mode={popout.mode} />
+      <PopoutWindow key={popout.tabId} popout={popout} title={`${title}${count > 1 ? ` +${count - 1}` : ''} · OpenTerm5`}>
+        <PopoutTab tab={tab} title={title} mode={popout.mode} />
       </PopoutWindow>
     );
   });

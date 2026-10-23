@@ -1,9 +1,9 @@
-import { useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { isEquivalentDivider, layoutCells, layoutDividers, layoutOf, linkGroups, resizeLayout, type CellRect, type LayoutDivider, type SplitSizes } from '../lib/chart-layouts';
 import { tabActiveChartId, tabSizes, visibleChartIds, type ChartTab } from '../lib/chart-tabs';
 import { openContextMenu, openMenuAt } from '../lib/context-menu';
 import { isLinkGroupShown, linkGroupMenuItems, tabTitle } from '../lib/layout-menu';
-import { dockChart, popOutChart, popoutMenuItems, popoutModeOf, popoutOf, popouts, type Popout } from '../lib/popouts';
+import { dockedTabId, dockTab, isPoppedOut, popOutTab, popoutMenuItems, popoutModeOf, popouts, tabDragType, type Popout } from '../lib/popouts';
 import { setLayoutResizing } from '../lib/layout-sync';
 import { replay } from '../lib/replay';
 import { useStore } from '../lib/store';
@@ -14,6 +14,7 @@ import { LayoutIcon } from './chart/LayoutIcon';
 import { ReplayToolbar } from './chart/ReplayToolbar';
 import { BacktestTransport } from './backtest/BacktestTransport';
 import { Icon } from './ui/Icon';
+import { useSurface } from './ui/Surface';
 
 const symbolType = 'text/x-openterm-symbol';
 // Space between neighbouring charts; the divider's grab strip is wider than the gap it sits in.
@@ -37,31 +38,10 @@ function cellStyle(rect: CellRect): CSSProperties {
   };
 }
 
-interface PoppedOutChartProps {
-  chart: ChartConfig;
-  popout: Popout;
-}
-
-// What the layout shows in the slot of a chart that is in its own window.
-function PoppedOutChart({ chart, popout }: PoppedOutChartProps) {
-  return (
-    <div className="chart-window is-popped-out" onMouseDown={() => focusChart(chart.id)}>
-      <div className="popped-out-notice" role="status">
-        <Icon name="popout" size={20} />
-        <strong>{chart.symbol} {chart.timeframe}</strong>
-        <span>Shown in its own window ({popoutModeOf(popout.mode).label})</span>
-        <div className="popped-out-actions">
-          <button type="button" onClick={() => popOutChart(chart.id, popout.mode)}>Show Window</button>
-          <button type="button" onClick={() => dockChart(chart.id)}>Return Here</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 interface ChartCellProps {
   chart: ChartConfig;
   rect: CellRect | null;
+  isLite: boolean;
   isActive: boolean;
   isOutlined: boolean;
   isLinkShown: boolean;
@@ -70,9 +50,8 @@ interface ChartCellProps {
 // Every chart stays a keyed child of the chart area, whatever tab or slot shows it, so switching
 // tabs or layouts never remounts a chart or reloads its history. Charts not on screen keep the
 // full size, hidden, as background charts always have.
-function ChartCell({ chart, rect, isActive, isOutlined, isLinkShown }: ChartCellProps) {
+function ChartCell({ chart, rect, isLite, isActive, isOutlined, isLinkShown }: ChartCellProps) {
   const group = linkGroups.find((candidate) => candidate.key === chart.linkGroup);
-  const popout = useStore(popouts, (state) => popoutOf(state, chart.id));
   const classes = ['chart-cell', !rect && 'is-background', isOutlined && 'is-active'].filter(Boolean).join(' ');
   return (
     <div
@@ -87,22 +66,7 @@ function ChartCell({ chart, rect, isActive, isOutlined, isLinkShown }: ChartCell
         setChartSymbol(chart.id, symbol);
       }}
     >
-      {popout ? <PoppedOutChart chart={chart} popout={popout} /> : <ChartWindow chart={chart} isActive={isActive} />}
-      {rect && !popout && (
-        <button
-          type="button"
-          className={`chart-popout${isLinkShown ? ' is-beside-link' : ''}`}
-          title="Picture in picture: open the chart in its own window, on top of other windows"
-          aria-label="Picture in picture"
-          onMouseDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            const box = event.currentTarget.getBoundingClientRect();
-            openMenuAt(box.left, box.top - 4, popoutMenuItems(chart.id));
-          }}
-        >
-          <Icon name="popout" size={13} />
-        </button>
-      )}
+      <ChartWindow chart={chart} isActive={isActive} isLite={isLite} />
       {rect && isLinkShown && (
         <button
           type="button"
@@ -176,49 +140,20 @@ interface ResizeDraft {
   readonly isLinked: boolean;
 }
 
-interface TabLabelProps {
-  tab: ChartTab;
-  charts: readonly ChartConfig[];
-  isActive: boolean;
+interface ChartLayoutProps {
+  // Every tab whose charts this area keeps mounted; only `tab` is on screen.
+  tabs: readonly ChartTab[];
+  tab: ChartTab | undefined;
+  isLite?: boolean;
+  children?: ReactNode;
 }
 
-function TabLabel({ tab, charts, isActive }: TabLabelProps) {
-  const title = tabTitle(tab, charts);
-  const count = visibleChartIds(tab).length;
-  const menu = () => [
-    { label: 'New Tab', action: openTab },
-    { label: 'Close Tab', action: () => closeTab(tab.id) },
-  ];
-  return (
-    <div
-      role="tab"
-      aria-selected={isActive}
-      className={['chart-tab', isActive && 'is-active'].filter(Boolean).join(' ')}
-      title={count > 1 ? `${title} and ${count - 1} more chart${count > 2 ? 's' : ''}` : title}
-      onMouseDown={(event) => event.button === 0 && focusTab(tab.id)}
-      onAuxClick={(event) => event.button === 1 && closeTab(tab.id)}
-      onContextMenu={(event) => { focusTab(tab.id); openContextMenu(event, menu()); }}
-    >
-      {count > 1 && <LayoutIcon layout={tab.layout} />}
-      <span>{title}</span>
-      <button className="chart-tab-close" title="Close tab" aria-label={`Close ${title}`} onMouseDown={(event) => event.stopPropagation()} onClick={() => closeTab(tab.id)}>×</button>
-    </div>
-  );
-}
-
-export function ChartWorkspace() {
-  const tabs = useStore(workspace, marketTabs);
+// A tab's charts in its layout, with the dividers between them: the main window's chart area, or a
+// popped-out tab's window.
+export function ChartLayout({ tabs, tab, isLite = false, children }: ChartLayoutProps) {
   const charts = useStore(workspace, (state) => state.charts);
-  const tabId = useStore(workspace, (state) => activeTab(state)?.id);
   const isMaximized = useStore(workspace, (state) => state.isChartMaximized);
-  const isChartBarShown = useStore(workspace, (state) => state.isChartBarShown);
-  const replayTabId = useStore(replay, (state) => state.session?.tabId);
-  const replayPurpose = useStore(replay, (state) => state.session?.purpose);
-  const isBacktestMode = useStore(workspace, (state) => state.isBacktestMode);
-  const isRailShown = useStore(workspace, (state) => state.isAnalysisMode || state.isTradeDrawingToolbarShown);
-  const body = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<ResizeDraft | null>(null);
-  const tab = tabs.find((candidate) => candidate.id === tabId);
   const tree = tab ? layoutOf(tab.layout).tree : 0;
   const sizes = tab && draft?.tabId === tab.id ? draft.sizes : tab ? tabSizes(tab) : [];
   const cells = layoutCells(tree, sizes);
@@ -249,6 +184,182 @@ export function ChartWorkspace() {
   };
 
   return (
+    <div className={['chart-area', isMultiChart && 'is-multi', draft && 'is-resizing'].filter(Boolean).join(' ')}>
+      {children}
+      {charts.filter((chart) => mounted.has(chart.id)).map((chart) => (
+        <ChartCell
+          key={chart.id}
+          chart={chart}
+          rect={rectOf(chart.id)}
+          isLite={isLite}
+          isActive={chart.id === activeId}
+          isOutlined={chart.id === activeId && isMultiChart && !isMaximizedShown}
+          isLinkShown={isLinkShown}
+        />
+      ))}
+      {dividers.map((divider) => (
+        <DividerHandle
+          key={`${divider.path.join('.')}:${divider.index}`}
+          divider={divider}
+          isHighlighted={!!draft?.isLinked && isEquivalentDivider(divider, draft.divider)}
+          onBegin={begin}
+          onDrag={drag}
+          onEnd={end}
+          onReset={() => tab && resetTabSizes(tab.id)}
+        />
+      ))}
+    </div>
+  );
+}
+
+const hasTab = (event: DragEvent) => event.dataTransfer.types.includes(tabDragType);
+
+// Whether the tab being dragged was last over the tab bar. A tab released anywhere else, inside the
+// main window or outside it, leaves for its own window.
+let isDragOverTabBar = false;
+
+interface TabLabelProps {
+  tab: ChartTab;
+  charts: readonly ChartConfig[];
+  popout: Popout | undefined;
+  isActive: boolean;
+  isDropBefore: boolean;
+  onDragDone: () => void;
+}
+
+function TabLabel({ tab, charts, popout, isActive, isDropBefore, onDragDone }: TabLabelProps) {
+  const title = tabTitle(tab, charts);
+  const count = visibleChartIds(tab).length;
+  const menu = () => [
+    { label: 'New Tab', action: openTab },
+    { label: 'Close Tab', action: () => closeTab(tab.id) },
+    { label: '', isSeparator: true },
+    ...popoutMenuItems(tab.id),
+  ];
+  const classes = ['chart-tab', isActive && 'is-active', popout && 'is-popped-out', isDropBefore && 'is-drop-before'].filter(Boolean).join(' ');
+  const hint = popout ? `${title}: in its own window (${popoutModeOf(popout.mode).label}). Click to show it, or drag it back onto the tab bar.` : `${title}. Drag it out of the tab bar to open it in its own window.`;
+  return (
+    <div
+      role="tab"
+      aria-selected={isActive}
+      className={classes}
+      data-tab-id={tab.id}
+      title={count > 1 ? `${hint} ${count} charts.` : hint}
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.setData(tabDragType, tab.id);
+        event.dataTransfer.effectAllowed = 'move';
+        isDragOverTabBar = true;
+      }}
+      onDragEnd={(event) => {
+        onDragDone();
+        if (event.dataTransfer.dropEffect !== 'none' || isDragOverTabBar || isPoppedOut(tab.id)) return;
+        // Wayland reports no screen position; the window then opens where the system puts it.
+        const at = event.screenX || event.screenY ? { x: event.screenX, y: event.screenY } : undefined;
+        popOutTab(tab.id, 'lite', at);
+      }}
+      onMouseDown={(event) => {
+        if (event.button !== 0) return;
+        if (popout) popOutTab(tab.id, popout.mode);
+        else focusTab(tab.id);
+      }}
+      onAuxClick={(event) => event.button === 1 && closeTab(tab.id)}
+      onContextMenu={(event) => { if (!popout) focusTab(tab.id); openContextMenu(event, menu()); }}
+    >
+      {popout && <Icon name="popout" size={12} />}
+      {count > 1 && <LayoutIcon layout={tab.layout} />}
+      <span>{title}</span>
+      <button className="chart-tab-close" title="Close tab" aria-label={`Close ${title}`} draggable={false} onMouseDown={(event) => event.stopPropagation()} onClick={() => closeTab(tab.id)}>×</button>
+    </div>
+  );
+}
+
+interface TabBarProps {
+  tabs: readonly ChartTab[];
+  shownTabId: string | undefined;
+}
+
+// The tab bar takes tabs dropped on it, from itself (reordering) or from a pop-out window's handle
+// (docking), in front of the tab under the pointer.
+function TabBar({ tabs, shownTabId }: TabBarProps) {
+  const charts = useStore(workspace, (state) => state.charts);
+  const list = useStore(popouts, (state) => state.list);
+  const view = useSurface();
+  const [dropBefore, setDropBefore] = useState<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    const onOver = (event: Event) => { isDragOverTabBar = !!(event.target as Element | null)?.closest?.('.chart-bar'); };
+    const onLeave = (event: Event) => { if (!(event as MouseEvent).relatedTarget) isDragOverTabBar = false; };
+    view.addEventListener('dragover', onOver);
+    view.document.addEventListener('dragleave', onLeave);
+    return () => {
+      view.removeEventListener('dragover', onOver);
+      view.document.removeEventListener('dragleave', onLeave);
+    };
+  }, [view]);
+
+  const targetOf = (event: DragEvent): string | null => {
+    const label = (event.target as Element).closest?.('.chart-tab') as HTMLElement | null;
+    const id = label?.dataset.tabId;
+    if (!label || !id) return null;
+    const box = label.getBoundingClientRect();
+    if (event.clientX < box.left + box.width / 2) return id;
+    return tabs[tabs.findIndex((tab) => tab.id === id) + 1]?.id ?? null;
+  };
+
+  return (
+    <nav
+      className={`chart-bar${dropBefore !== undefined ? ' is-drop-target' : ''}`}
+      role="tablist"
+      aria-label="Chart tabs"
+      onDragOver={(event) => {
+        if (!hasTab(event)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        setDropBefore(targetOf(event));
+      }}
+      onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropBefore(undefined); }}
+      onDrop={(event) => {
+        const id = event.dataTransfer.getData(tabDragType);
+        setDropBefore(undefined);
+        if (!id) return;
+        event.preventDefault();
+        dockTab(id, targetOf(event));
+      }}
+    >
+      {tabs.map((candidate) => (
+        <TabLabel
+          key={candidate.id}
+          tab={candidate}
+          charts={charts}
+          popout={list.find((popout) => popout.tabId === candidate.id)}
+          isActive={candidate.id === shownTabId}
+          isDropBefore={dropBefore === candidate.id}
+          onDragDone={() => setDropBefore(undefined)}
+        />
+      ))}
+      {tabs.length > 0 && <button className={`chart-bar-add${dropBefore === null ? ' is-drop-before' : ''}`} title="New tab with a copy of the active chart" aria-label="New tab" onClick={openTab}>+</button>}
+    </nav>
+  );
+}
+
+export function ChartWorkspace() {
+  const tabs = useStore(workspace, marketTabs);
+  const activeId = useStore(workspace, (state) => activeTab(state)?.id);
+  const isChartBarShown = useStore(workspace, (state) => state.isChartBarShown);
+  const replayTabId = useStore(replay, (state) => state.session?.tabId);
+  const replayPurpose = useStore(replay, (state) => state.session?.purpose);
+  const isBacktestMode = useStore(workspace, (state) => state.isBacktestMode);
+  const isRailShown = useStore(workspace, (state) => state.isAnalysisMode || state.isTradeDrawingToolbarShown);
+  const poppedIds = useStore(popouts, (state) => state.list.map((popout) => popout.tabId));
+  const body = useRef<HTMLDivElement>(null);
+  const shownBefore = useRef<string | undefined>(undefined);
+  const docked = tabs.filter((candidate) => !poppedIds.includes(candidate.id));
+  const tabId = dockedTabId(docked.map((candidate) => candidate.id), activeId, shownBefore.current);
+  const tab = docked.find((candidate) => candidate.id === tabId);
+  useEffect(() => { shownBefore.current = tabId; });
+
+  return (
     <div
       className="chart-workspace"
       onDragOver={(event) => hasSymbol(event) && event.preventDefault()}
@@ -258,40 +369,15 @@ export function ChartWorkspace() {
       }}
     >
       <div ref={body} className="chart-body">
-        {isRailShown && tabs.length > 0 && <DrawingRail overlay={body} />}
-        <div className={['chart-area', isMultiChart && 'is-multi', draft && 'is-resizing'].filter(Boolean).join(' ')}>
+        {isRailShown && docked.length > 0 && <DrawingRail overlay={body} />}
+        <ChartLayout tabs={docked} tab={tab}>
           {!tabs.length && <p className="empty">Drag a symbol from Market Watch here, or use File &gt; New Chart</p>}
-          {charts.filter((chart) => mounted.has(chart.id)).map((chart) => (
-            <ChartCell
-              key={chart.id}
-              chart={chart}
-              rect={rectOf(chart.id)}
-              isActive={chart.id === activeId}
-              isOutlined={chart.id === activeId && isMultiChart && !isMaximizedShown}
-              isLinkShown={isLinkShown}
-            />
-          ))}
-          {dividers.map((divider) => (
-            <DividerHandle
-              key={`${divider.path.join('.')}:${divider.index}`}
-              divider={divider}
-              isHighlighted={!!draft?.isLinked && isEquivalentDivider(divider, draft.divider)}
-              onBegin={begin}
-              onDrag={drag}
-              onEnd={end}
-              onReset={() => tab && resetTabSizes(tab.id)}
-            />
-          ))}
-        </div>
+          {tabs.length > 0 && !docked.length && <p className="empty">Every tab is in its own window. Drag one back onto the tab bar, or right-click it and choose Return to Main Window.</p>}
+        </ChartLayout>
         {isBacktestMode && (replayPurpose === undefined || replayPurpose === 'backtest' && replayTabId === tab?.id) && <BacktestTransport />}
       </div>
       {replayPurpose === 'replay' && replayTabId === tab?.id && <ReplayToolbar />}
-      {isChartBarShown && (
-        <nav className="chart-bar" role="tablist" aria-label="Chart tabs">
-          {tabs.map((candidate) => <TabLabel key={candidate.id} tab={candidate} charts={charts} isActive={candidate.id === tab?.id} />)}
-          {tabs.length > 0 && <button className="chart-bar-add" title="New tab with a copy of the active chart" aria-label="New tab" onClick={openTab}>+</button>}
-        </nav>
-      )}
+      {isChartBarShown && <TabBar tabs={tabs} shownTabId={tab?.id} />}
     </div>
   );
 }
