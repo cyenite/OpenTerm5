@@ -7,6 +7,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Two-way drawing sync with TradingView. In **File > Import from TradingView > Sync**, link a
+  TradingView symbol to an account symbol: its drawings then stay in step both ways. Changes made
+  in TradingView show here within seconds, and edits, deletions and undos here are saved to the
+  TradingView account. Only the settings you changed are written back, so TradingView-only settings
+  survive. When both sides edit the same setting, the newer edit wins and the Journal notes it.
+  Deleting more than 20 synced drawings at once waits for you to confirm or restore them. Drawings
+  you create here stay here for now.
+
 ## [0.7.0] - 2026-10-26
 
 ### Added
@@ -19,13 +29,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Favourite timeframes. Star timeframes in any timeframe menu to put them on the chart bar, or take
   them off; M1, M5, M15, M30, H1, H4 and D1 are the starting set, and the chart's current timeframe
   always shows.
-- Two-way drawing sync with TradingView. In **File > Import from TradingView > Sync**, link a
-  TradingView symbol to an account symbol: its drawings then stay in step both ways. Changes made
-  in TradingView show here within seconds, and edits, deletions and undos here are saved to the
-  TradingView account. Only the settings you changed are written back, so TradingView-only settings
-  survive. When both sides edit the same setting, the newer edit wins and the Journal notes it.
-  Deleting more than 20 synced drawings at once waits for you to confirm or restore them. Drawings
-  you create here stay here for now.
 - A chart can have a theme of its own: right-click it and choose one under **Theme**. Charts opened
   afterwards start with the theme chosen last, including after a restart, and **Match Application**
   puts a chart back on the window's theme. Choosing a theme this way resets the chart's own colours
