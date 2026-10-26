@@ -9,6 +9,8 @@ import { setThemePreference } from '../../lib/theme';
 import { applyTradingViewChartSettings, importTradingViewDrawings, importTradingViewTemplates, importTradingViewTheme, signInToTradingView, signOutOfTradingView, tradingViewAccount, tradingViewChartSettings, tradingViewSymbols, tradingViewThemes, type ChartSettingsChoice, type ChartSettingsSummary, type ClockSource, type DrawingImportSummary, type TemplateImportSummary } from '../../lib/tradingview';
 import { suggestedSymbol, themeIdentity } from '../../lib/tradingview-model';
 import { symbolDrawingIds, symbolDrawings } from '../../lib/symbol-drawings';
+import { confirmDeletions, restoreDeletions, startSyncing, stopSyncing, syncedCount, syncNow, tradingViewSync, type LinkStatus, type SyncStartSummary } from '../../lib/tradingview-sync';
+import type { SyncLink } from '../../lib/tradingview-sync-model';
 import { drawingTemplates } from '../../lib/drawing-templates';
 import { chartTypes, closeDialog, workspace } from '../../lib/workspace';
 import { Segmented } from '../ui/Controls';
@@ -17,6 +19,7 @@ import { Dialog } from './Dialog';
 
 const tabs = [
   { key: 'drawings', label: 'Drawings' },
+  { key: 'sync', label: 'Sync' },
   { key: 'templates', label: 'Drawing templates' },
   { key: 'themes', label: 'Chart themes' },
   { key: 'settings', label: 'Chart settings' },
@@ -186,7 +189,7 @@ function DrawingImport() {
 
   return (
     <div className="stack">
-      <p className="is-muted">Each TradingView symbol's drawings are copied to the symbol you choose and show on every chart of it. Drawings copied before are left alone, with any changes you made to them; later changes in TradingView are not followed.</p>
+      <p className="is-muted">Each TradingView symbol's drawings are copied to the symbol you choose and show on every chart of it. Drawings copied before are left alone, with any changes you made to them; later changes in TradingView are not followed. To keep a symbol's drawings in step both ways, use the Sync tab.</p>
       {!hasAccount && <p className="is-loss">Log in to a trading account first: drawings are placed on its bars using the broker's server clock, which OpenTerm5 reads from the account.</p>}
       {!symbols && <div className="dialog-actions"><button className="is-primary" disabled={isBusy} onClick={load}>{isBusy ? 'Reading your layouts…' : 'Find my drawings'}</button></div>}
       {symbols && !symbols.length && <p>{skippedLayouts.length ? 'The layouts TradingView opened have no drawings.' : 'Your TradingView layouts have no drawings.'}</p>}
@@ -234,6 +237,194 @@ function DrawingImport() {
         </>
       )}
       {summary && <ImportSummary summary={summary} />}
+      {error && <p role="alert" className="is-loss">{error}</p>}
+    </div>
+  );
+}
+
+const statusLabels: Readonly<Record<LinkStatus['state'], string>> = {
+  starting: 'Reading TradingView',
+  live: 'In sync',
+  saving: 'Saving to TradingView',
+  waiting: 'Waiting',
+  paused: 'Paused',
+  error: 'Not syncing',
+};
+
+interface LinkRowProps {
+  link: SyncLink;
+  status: LinkStatus | undefined;
+  count: number;
+}
+
+function LinkRow({ link, status, count }: LinkRowProps) {
+  const state = status?.state ?? 'starting';
+  const isTrouble = state === 'error' || state === 'paused' || state === 'waiting';
+  return (
+    <>
+      <tr>
+        <td>{link.tradingView.symbol}</td>
+        <td>{link.symbol}</td>
+        <td>{count}</td>
+        <td className={isTrouble ? 'is-loss' : state === 'live' ? undefined : 'is-muted'}>{statusLabels[state]}</td>
+        <td><button onClick={() => syncNow(link.symbol)}>Sync now</button></td>
+        <td><button onClick={() => void stopSyncing(link.symbol)}>Stop</button></td>
+      </tr>
+      {isTrouble && status?.message && (
+        <tr>
+          <td colSpan={6} className="sync-detail">
+            {state === 'paused' && status.heldDeletions ? (
+              <div className="dialog-actions">
+                <span className="is-muted">{status.heldDeletions} drawings were deleted here at once. Delete them in TradingView too?</span>
+                <button onClick={() => restoreDeletions(link.symbol)}>Restore them here</button>
+                <button className="is-danger" onClick={() => confirmDeletions(link.symbol)}>Delete in TradingView</button>
+              </div>
+            ) : <span className="is-muted">{status.message}</span>}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+interface SyncChoiceRowProps {
+  symbol: TradingViewSymbol;
+  choice: SymbolChoice;
+  isListed: boolean;
+  isDisabled: boolean;
+  onChange: (choice: SymbolChoice) => void;
+}
+
+function SyncChoiceRow({ symbol, choice, isListed, isDisabled, onChange }: SyncChoiceRowProps) {
+  return (
+    <tr>
+      <td><input type="checkbox" aria-label={`Sync ${symbol.symbol}`} checked={choice.isChosen} disabled={isDisabled} onChange={(event) => onChange({ ...choice, isChosen: event.target.checked })} /></td>
+      <td>{symbol.symbol}</td>
+      <td>{symbol.count}</td>
+      <td><input list="tradingview-sync-targets" aria-label={`Symbol to sync ${symbol.symbol} with`} value={choice.target} disabled={isDisabled || !choice.isChosen} onChange={(event) => onChange({ ...choice, target: event.target.value.trim() })} /></td>
+      <td className={isListed ? 'is-muted' : 'is-loss'}>{!choice.target ? 'Enter a symbol' : isListed ? '' : 'Not offered by this account'}</td>
+    </tr>
+  );
+}
+
+interface SyncSummaryProps {
+  summary: SyncStartSummary;
+}
+
+function SyncSummary({ summary }: SyncSummaryProps) {
+  return (
+    <div className="stack" role="status">
+      <p>Syncing {summary.synced} drawing{summary.synced === 1 ? '' : 's'}.{summary.copiedOnly ? ` ${summary.copiedOnly} saved inside an older TradingView layout were copied but can't sync.` : ''}</p>
+      <SkippedLayouts layouts={summary.skippedLayouts} />
+      {summary.skipped.length > 0 && (
+        <>
+          <p className="is-muted">Not synced:</p>
+          <ul>{summary.skipped.map((entry) => <li key={entry.reason}>{entry.count} × {entry.reason}</li>)}</ul>
+        </>
+      )}
+    </div>
+  );
+}
+
+function DrawingSync() {
+  const specs = useStore(session, (state) => state.symbols);
+  const hasAccount = useStore(session, (state) => !!state.account);
+  const links = useStore(tradingViewSync, (state) => state.links);
+  const statuses = useStore(tradingViewSync, (state) => state.statuses);
+  const names = useMemo(() => Object.keys(specs).sort(), [specs]);
+  const listed = useMemo(() => new Set(names), [names]);
+  const [symbols, setSymbols] = useState<readonly TradingViewSymbol[] | null>(null);
+  const [skippedLayouts, setSkippedLayouts] = useState<readonly TradingViewSkippedLayout[]>([]);
+  const [choices, setChoices] = useState<Record<string, SymbolChoice>>({});
+  const [summary, setSummary] = useState<SyncStartSummary | null>(null);
+  const [error, setError] = useState('');
+  const [isBusy, setIsBusy] = useState(false);
+
+  const linkedSymbols = new Set(links.map((link) => link.tradingView.symbol));
+  const unlinked = (symbols ?? []).filter((symbol) => !linkedSymbols.has(symbol.symbol));
+  const chosen = unlinked.filter((symbol) => choices[symbol.symbol]?.isChosen);
+  const canStart = !isBusy && hasAccount && chosen.length > 0 && chosen.every((symbol) => choices[symbol.symbol].target);
+
+  const load = () => {
+    setIsBusy(true);
+    setError('');
+    setSummary(null);
+    tradingViewSymbols().then(({ symbols: found, skippedLayouts: skipped }) => {
+      setSymbols(found);
+      setSkippedLayouts(skipped);
+      setChoices(Object.fromEntries(found.map((symbol) => [symbol.symbol, { isChosen: false, target: suggestedSymbol(symbol.symbol, names) }])));
+    }, (failure) => setError(messageOf(failure))).finally(() => setIsBusy(false));
+  };
+
+  const start = () => {
+    setIsBusy(true);
+    setError('');
+    startSyncing(chosen.map((symbol) => ({ symbol, target: choices[symbol.symbol].target })))
+      .then(setSummary, (failure) => setError(messageOf(failure)))
+      .finally(() => setIsBusy(false));
+  };
+
+  return (
+    <div className="stack">
+      <p className="is-muted">A synced symbol's drawings stay in step both ways: changes made in TradingView show here within seconds, and edits and deletions here are saved to your TradingView account. Starting replaces this symbol's earlier copies with TradingView's current drawings. Drawings you add here stay here for now.</p>
+      {!hasAccount && <p className="is-loss">Log in to a trading account first: synced drawings are placed on its bars using the broker's server clock.</p>}
+      {links.length > 0 && (
+        <div className="scroll" style={{ maxHeight: 220 }}>
+          <table className="grid">
+            <thead>
+              <tr>
+                <th>TradingView symbol</th>
+                <th>Synced with</th>
+                <th>Drawings</th>
+                <th>Status</th>
+                <th />
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {links.map((link) => <LinkRow key={link.symbol} link={link} status={statuses[link.symbol]} count={syncedCount(link.symbol)} />)}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {!symbols && <div className="dialog-actions"><button className={links.length ? undefined : 'is-primary'} disabled={isBusy} onClick={load}>{isBusy ? 'Reading your layouts…' : 'Add symbols to sync'}</button></div>}
+      {symbols && !unlinked.length && <p>{symbols.length ? 'Every TradingView symbol with drawings is synced.' : 'Your TradingView layouts have no drawings.'}</p>}
+      {!summary && <SkippedLayouts layouts={skippedLayouts} />}
+      {unlinked.length > 0 && (
+        <>
+          <datalist id="tradingview-sync-targets">{names.map((name) => <option key={name} value={name} />)}</datalist>
+          <div className="scroll" style={{ maxHeight: 240 }}>
+            <table className="grid">
+              <thead>
+                <tr>
+                  <th />
+                  <th>TradingView symbol</th>
+                  <th>Drawings</th>
+                  <th>Sync with</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {unlinked.map((symbol) => (
+                  <SyncChoiceRow
+                    key={symbol.symbol}
+                    symbol={symbol}
+                    choice={choices[symbol.symbol]}
+                    isListed={!names.length || listed.has(choices[symbol.symbol].target)}
+                    isDisabled={isBusy}
+                    onChange={(choice) => setChoices((current) => ({ ...current, [symbol.symbol]: choice }))}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="dialog-actions">
+            <button disabled={isBusy} onClick={load}>Reload</button>
+            <button className="is-primary" disabled={!canStart} onClick={start}>{isBusy ? 'Starting…' : chosen.length ? `Start syncing ${chosen.length} symbol${chosen.length === 1 ? '' : 's'}` : 'Choose symbols to sync'}</button>
+          </div>
+        </>
+      )}
+      {summary && <SyncSummary summary={summary} />}
       {error && <p role="alert" className="is-loss">{error}</p>}
     </div>
   );
@@ -479,6 +670,7 @@ export function TradingViewDialog() {
         {error && <p role="alert" className="is-loss">{error}</p>}
         {account && <Segmented label="Import" value={tab} options={tabs} onChange={setTab} />}
         {account && tab === 'drawings' && <DrawingImport />}
+        {account && tab === 'sync' && <DrawingSync />}
         {account && tab === 'templates' && <TemplateImport />}
         {account && tab === 'themes' && <ThemeImport />}
         {account && tab === 'settings' && <ChartSettingsImport />}

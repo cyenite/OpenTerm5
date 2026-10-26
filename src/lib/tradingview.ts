@@ -44,7 +44,7 @@ export const tradingViewScriptList = (page: number): Promise<TradingViewScriptPa
 
 export const tradingViewScriptSource = (scriptId: string, version: number): Promise<string> => terminal.request('tradingview.scriptSource', { scriptId, version });
 
-function tickSize(target: string): number | undefined {
+export function tickSize(target: string): number | undefined {
   const spec = session.get().symbols[target];
   if (!spec) return undefined;
   return spec.tickSize || spec.point || 10 ** -spec.digits;

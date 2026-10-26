@@ -1,4 +1,4 @@
-import type { TradingViewAccount, TradingViewChartSettingsScan, TradingViewDrawings, TradingViewDrawingTemplate, TradingViewScan, TradingViewScript, TradingViewScriptPage, TradingViewSymbol } from './tradingview';
+import type { TradingViewAccount, TradingViewChanges, TradingViewChartSettingsScan, TradingViewDrawings, TradingViewDrawingTemplate, TradingViewPush, TradingViewScan, TradingViewScript, TradingViewScriptPage, TradingViewStreamStatus, TradingViewSymbol, TradingViewWatchedLayout } from './tradingview';
 import type { Valuation } from './valuation';
 import type { ZoomStep } from './zoom';
 
@@ -382,6 +382,9 @@ export interface TerminalMethods {
   'tradingview.themes': [Record<string, never>, string[]];
   'tradingview.theme': [{ name: string }, unknown];
   'tradingview.chartSettings': [Record<string, never>, TradingViewChartSettingsScan];
+  // Follows exactly these layouts' change streams; an empty list stops following.
+  'tradingview.watch': [{ layouts: TradingViewWatchedLayout[] }, boolean];
+  'tradingview.push': [TradingViewPush, { serverUpdateTime: number }];
   // Needs no sign-in: open-source scripts are public.
   'tradingview.script': [{ url: string }, TradingViewScript];
   'tradingview.scriptList': [{ page: number }, TradingViewScriptPage];
@@ -426,6 +429,8 @@ export interface TerminalEvents {
   fullScreen: boolean;
   // The interface zoom factor, sent on every page load and change.
   zoom: number;
+  tradingViewChanges: TradingViewChanges;
+  tradingViewStream: TradingViewStreamStatus;
 }
 
 export type TerminalEvent = keyof TerminalEvents;

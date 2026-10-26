@@ -438,7 +438,7 @@ ipcMain.handle('terminal:request', async (_event, method: TerminalMethod, params
       send('accounts', accountProfiles());
       return true;
     }) };
-    if (method.startsWith('tradingview.')) return { result: await handleTradingView(method, params, window) };
+    if (method.startsWith('tradingview.')) return { result: await handleTradingView(method, params, send, window) };
     if (method === 'order.send' && isChanging) throw new Error('Account connection is changing. Send the order again after login completes.');
     await settledConnection();
     if (method === 'order.send') {

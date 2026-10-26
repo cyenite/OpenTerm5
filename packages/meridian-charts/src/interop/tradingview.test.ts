@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { defaultSettings } from '../settings';
-import { fromTradingViewChartSettings, fromTradingViewLineTool, fromTradingViewTheme, parseColor, type TradingViewConversion, type TradingViewLineTool } from './tradingview';
+import { fromTradingViewChartSettings, fromTradingViewLineTool, fromTradingViewTheme, parseColor, patchTradingViewLineTool, type TradingViewConversion, type TradingViewLineTool, type TradingViewPatch } from './tradingview';
 
 const HOUR = 3_600_000;
 const T = 1_760_000_400;
@@ -240,4 +240,109 @@ test('chart settings follow the style in use, its price line and its scale mode'
   const solid = fromTradingViewChartSettings({ chartProperties: { paneProperties: { background: '#131722', crossHairProperties: { color: '#FFFFFF', transparency: 50, width: 9 } } } });
   assert.deepEqual([solid?.settings.background, solid?.settings.backgroundGradient, solid?.settings.crosshairColor, solid?.settings.crosshairWidth, solid?.priceStyle], ['#131722', null, '#898b91', 4, undefined]);
   assert.equal(fromTradingViewChartSettings({ chartProperties: {} }), null);
+});
+
+// A tool as TradingView's storage keeps it, with a setting Meridian does not model.
+const stored = (type: string, points: TradingViewLineTool['points'], state: Record<string, unknown>) => ({ type, id: 'abc', state: { ...state, alertsUnknownSetting: { nested: [1, 2] } }, points, zorder: 4, ownerSource: 'ibCWf0', linkKey: 'k1', sharingMode: 1 });
+
+function patchedOf(patch: TradingViewPatch) {
+  assert.equal(patch.kind, 'patched', patch.kind === 'unwritable' ? patch.reason : '');
+  return patch;
+}
+
+const imported = (base: ReturnType<typeof stored>, options = { serverOffsetAt: () => 2 * HOUR, tickSize: 0.00001 }) => drawingOf(fromTradingViewLineTool({ ...base, state: base.state }, options));
+
+test('an unedited drawing goes back exactly as TradingView sent it', () => {
+  const base = stored('LineToolTrendLine', [{ time_t: T, offset: 0, price: 1.1, interval: '60' }, { time_t: T, offset: 5, price: 1.2, interval: '60' }], { linecolor: 'rgba(255, 0, 255, 0.8)', linewidth: 2, linestyle: 4, showLabel: false, text: 'kept' });
+  const drawing = imported(base);
+  const { tool, unwritten } = patchedOf(patchTradingViewLineTool(base, drawing, structuredClone(drawing), { serverOffsetAt: () => 2 * HOUR }));
+  assert.deepEqual(tool, base);
+  assert.deepEqual(unwritten, []);
+});
+
+test('moved anchors go back as UTC bar times, keeping each point\'s interval', () => {
+  const base = stored('LineToolTrendLine', [{ time_t: T, offset: 0, price: 1.1, interval: '60' }, { time_t: T + 3600, offset: 0, price: 1.2, interval: '60' }], { linecolor: '#ff00ff' });
+  const drawing = imported(base);
+  const moved = { ...drawing, anchors: [drawing.anchors[0], { time: drawing.anchors[1].time + 2 * HOUR, price: 1.25 }] };
+  const { tool } = patchedOf(patchTradingViewLineTool(base, drawing, moved, { serverOffsetAt: () => 2 * HOUR }));
+  assert.deepEqual(tool.points, [{ time_t: T, offset: 0, price: 1.1, interval: '60' }, { time_t: T + 3 * 3600, offset: 0, price: 1.25, interval: '60' }]);
+  assert.deepEqual(tool.state, base.state);
+});
+
+test('style, text, lock and order edits land where TradingView keeps them, nothing else changes', () => {
+  const base = stored('LineToolTrendLine', [{ time_t: T, price: 1.1, interval: '60' }, { time_t: T + 3600, price: 1.2, interval: '60' }], { lineColor: 'rgba(255, 0, 255, 0.5)', lineWidth: 1, lineStyle: 0, textcolor: '#ffffff', showLabel: false });
+  const drawing = imported(base);
+  const edited = { ...drawing, style: { ...drawing.style, lineColor: '#00ff00', lineOpacity: 1, lineWidth: 4, lineStyle: 'dotted' as const }, text: 'Entry', locked: true, zIndex: 9 };
+  const { tool } = patchedOf(patchTradingViewLineTool(base, drawing, edited, { serverOffsetAt: () => 2 * HOUR }));
+  const state = tool.state as Record<string, unknown>;
+  assert.deepEqual([state.lineColor, state.lineWidth, state.lineStyle, state.text, state.showLabel, state.frozen, tool.zorder], ['rgba(0, 255, 0, 1)', 4, 1, 'Entry', true, true, 9]);
+  assert.equal(state.linecolor, undefined);
+  assert.deepEqual(state.alertsUnknownSetting, base.state.alertsUnknownSetting);
+  assert.deepEqual(tool.points, base.points);
+});
+
+test('a rectangle\'s fill and a fib\'s levels go back in their own shapes', () => {
+  const rectangle = stored('LineToolRectangle', [{ time_t: T, price: 1 }, { time_t: T + 60, price: 2 }], { color: '#2962FF', backgroundColor: 'rgba(41, 98, 255, 0.25)', fillBackground: true });
+  const box = imported(rectangle);
+  const filled = patchedOf(patchTradingViewLineTool(rectangle, box, { ...box, style: { ...box.style, fillColor: '#ff0000', fillOpacity: 0.5 } }, { serverOffsetAt: () => 0 })).tool.state as Record<string, unknown>;
+  assert.deepEqual([filled.backgroundColor, filled.fillBackground], ['rgba(255, 0, 0, 0.5)', true]);
+  const fib = stored('LineToolFibRetracement', [{ time_t: T, price: 1 }, { time_t: T + 60, price: 2 }], { level1: [0, '#787B86', true, ''], level2: { coeff: 0.618, color: 'rgb(8, 153, 129)', visible: true } });
+  const levels = imported(fib);
+  const changed = (levels.props?.levels as { value: number; color: string; isVisible: boolean }[]).map((level, index) => (index === 1 ? { ...level, value: 0.5, isVisible: false } : level));
+  const state = patchedOf(patchTradingViewLineTool(fib, levels, { ...levels, props: { ...levels.props, levels: changed } }, { serverOffsetAt: () => 0 })).tool.state as Record<string, unknown>;
+  assert.deepEqual(state.level1, [0, '#787b86', true, '']);
+  assert.deepEqual(state.level2, { coeff: 0.5, color: '#089981', visible: false });
+});
+
+test('a long position goes back as an entry and tick distances, and needs the price step', () => {
+  const base = stored('LineToolRiskRewardLong', [{ time_t: T, price: 1.1 }, { time_t: T + 7200, price: 1.1 }], { profitLevel: 200, stopLevel: 100 });
+  const drawing = imported(base, { serverOffsetAt: () => 0, tickSize: 0.00001 });
+  const [entry, target, stop] = drawing.anchors;
+  const moved = { ...drawing, anchors: [entry, { ...target, price: 1.103 }, { ...stop, price: 1.0995 }] };
+  const { tool } = patchedOf(patchTradingViewLineTool(base, drawing, moved, { serverOffsetAt: () => 0, tickSize: 0.00001 }));
+  const state = tool.state as Record<string, unknown>;
+  assert.deepEqual([state.profitLevel, state.stopLevel], [300, 50]);
+  assert.deepEqual(patchTradingViewLineTool(base, drawing, moved, { serverOffsetAt: () => 0 }).kind, 'unwritable');
+});
+
+test('edits TradingView has no place for are named', () => {
+  const base = stored('LineToolTrendLine', [{ time_t: T, price: 1 }, { time_t: T + 60, price: 2 }], {});
+  const drawing = imported(base, { serverOffsetAt: () => 0, tickSize: 0.00001 });
+  const { unwritten } = patchedOf(patchTradingViewLineTool(base, drawing, { ...drawing, props: { ...drawing.props, meridianOnly: 3 } }, { serverOffsetAt: () => 0 }));
+  assert.deepEqual(unwritten, ['meridianOnly']);
+  assert.equal(patchTradingViewLineTool(base, drawing, { ...drawing, type: 'ray' }, { serverOffsetAt: () => 0 }).kind, 'unwritable');
+});
+
+test('a position\'s third point, kept on the entry, moves with the entry', () => {
+  const base = stored('LineToolRiskRewardLong', [{ time_t: T, offset: 0, price: 2.02574, interval: '240' }, { time_t: T, offset: 65, price: 2.02574, interval: '240' }, { time_t: T, offset: 0, price: 2.02574, interval: '240' }], { profitLevel: 200, stopLevel: 100 });
+  const drawing = imported(base, { serverOffsetAt: () => 0, tickSize: 0.00001 });
+  assert.equal(drawing.anchors[1].time, (T + 65 * 4 * 3600) * 1000);
+  const [entry, target, stop] = drawing.anchors;
+  const raised = { ...drawing, anchors: [{ ...entry, price: 2.03 }, { ...target, price: 2.032 }, { ...stop, price: 2.029 }] };
+  const { tool } = patchedOf(patchTradingViewLineTool(base, drawing, raised, { serverOffsetAt: () => 0, tickSize: 0.00001 }));
+  assert.deepEqual(tool.points, [
+    { time_t: T, offset: 0, price: 2.03, interval: '240' },
+    { time_t: T + 65 * 4 * 3600, offset: 0, price: 2.03, interval: '240' },
+    { time_t: T, offset: 0, price: 2.03, interval: '240' },
+  ]);
+  const state = tool.state as Record<string, unknown>;
+  assert.deepEqual([state.profitLevel, state.stopLevel], [200, 100]);
+});
+
+test('a newer four-point position moves its stop point with the stop, and every extra point with the entry', () => {
+  const stopPrice = 2.02574 - 275 * 0.00001;
+  const base = stored('LineToolRiskRewardLong', [
+    { time_t: T, offset: 0, price: 2.02574, interval: '240' },
+    { time_t: T + 7 * 86400, offset: 0, price: 2.02574, interval: '240' },
+    { time_t: T, offset: 0, price: 2.02574, interval: '240' },
+    { time_t: T + 8 * 3600, offset: 0, price: stopPrice, interval: '240' },
+  ], { profitLevel: 2440, stopLevel: 275 });
+  const drawing = imported(base, { serverOffsetAt: () => 0, tickSize: 0.00001 });
+  const [entry, target, stop] = drawing.anchors;
+  const edited = { ...drawing, anchors: [{ time: entry.time + 4 * 3600_000, price: entry.price }, target, { ...stop, price: 2.0220 }] };
+  const { tool } = patchedOf(patchTradingViewLineTool(base, drawing, edited, { serverOffsetAt: () => 0, tickSize: 0.00001 }));
+  const points = tool.points as { time_t: number; price: number }[];
+  assert.deepEqual(points.map((point) => [point.time_t - T, Number(point.price.toFixed(5))]), [[4 * 3600, 2.02574], [7 * 86400, 2.02574], [4 * 3600, 2.02574], [12 * 3600, 2.022]]);
+  const state = tool.state as Record<string, unknown>;
+  assert.deepEqual([state.profitLevel, state.stopLevel], [2440, 374]);
 });

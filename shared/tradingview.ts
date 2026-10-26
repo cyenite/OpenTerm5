@@ -16,6 +16,17 @@ export const tradingViewScopes = [
 
 export type TradingViewScope = (typeof tradingViewScopes)[number]['key'];
 
+// Storage can key a symbol with its settings: ={"symbol":"FX:EURUSD","adjustment":"splits"}.
+export function displaySymbol(storageSymbol: string): string {
+  if (!storageSymbol.startsWith('=')) return storageSymbol;
+  try {
+    const parsed = JSON.parse(storageSymbol.slice(1)) as Record<string, unknown>;
+    return typeof parsed.symbol === 'string' && parsed.symbol ? parsed.symbol : storageSymbol;
+  } catch {
+    return storageSymbol;
+  }
+}
+
 export interface TradingViewSource {
   readonly scope: TradingViewScope;
   readonly layoutId: string;
@@ -53,6 +64,52 @@ export interface TradingViewLineToolData {
   readonly zorder?: number;
   // Drawn on the price chart rather than on an indicator.
   readonly isOnPrice: boolean;
+  // Where TradingView keeps the tool and the record as it sent it, for writing it back. Absent for
+  // tools saved inside an older layout, which only re-saving the whole layout could change.
+  readonly origin?: TradingViewOrigin;
+}
+
+export interface TradingViewOrigin {
+  readonly source: TradingViewSource;
+  // When TradingView last saved the tool, in ms; it applies only newer changes.
+  readonly serverUpdateTime?: number;
+  // `{ id, symbol, ownerSource, serverUpdateTime, state }`, `state` being the whole tool.
+  readonly record: Readonly<Record<string, unknown>>;
+}
+
+// What TradingView's change stream announced for one target of a layout: tools saved there,
+// tools deleted (by id), or every tool of a symbol deleted.
+export interface TradingViewChange {
+  readonly source: TradingViewSource;
+  readonly tools: readonly TradingViewLineToolData[];
+  readonly removedIds: readonly string[];
+  readonly isSymbolCleared: boolean;
+}
+
+export interface TradingViewChanges {
+  readonly layoutId: string;
+  readonly changes: readonly TradingViewChange[];
+}
+
+export type TradingViewStreamState = 'connecting' | 'live' | 'down';
+
+export interface TradingViewStreamStatus {
+  readonly layoutId: string;
+  readonly state: TradingViewStreamState;
+  readonly reason?: string;
+}
+
+// A layout whose drawings are followed, as a link's sources name it.
+export interface TradingViewWatchedLayout {
+  readonly layoutId: string;
+  readonly layoutUrl: string;
+  readonly layoutName: string;
+}
+
+// Tools to save (whole records) or delete (null) at one target, keyed by TradingView id.
+export interface TradingViewPush {
+  readonly source: TradingViewSource;
+  readonly records: Readonly<Record<string, Readonly<Record<string, unknown>> | null>>;
 }
 
 export interface TradingViewDrawingSet {
