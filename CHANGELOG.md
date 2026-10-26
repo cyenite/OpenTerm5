@@ -7,6 +7,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Two-way drawing sync with TradingView. In **File > Import from TradingView > Sync**, link a
+  TradingView symbol to an account symbol: its drawings then stay in step both ways. Changes made
+  in TradingView show here within seconds, and edits, deletions and undos here are saved to the
+  TradingView account. Only the settings you changed are written back, so TradingView-only settings
+  survive. When both sides edit the same setting, the newer edit wins and the Journal notes it.
+  Deleting more than 20 synced drawings at once waits for you to confirm or restore them. Drawings
+  you create here stay here for now.
+
 ## [0.7.0] - 2026-10-26
 
 ### Added

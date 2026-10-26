@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { displaySymbol, parseChartPage, parseLayoutList, parseScriptList, parseScriptPage, parseScriptSource, scriptListPages, scriptPageUrl, TradingViewClient, unescapeHtml } from './tradingview-client';
+import { displaySymbol } from '../shared/tradingview';
+import { EventStreamParser, savedRecord, parseChartPage, parseLayoutList, parseScriptList, parseScriptPage, parseScriptSource, scriptListPages, scriptPageUrl, TradingViewClient, unescapeHtml } from './tradingview-client';
 
 const signedInPage = `<html><head><link rel="chart-storage" href="https://charts-storage.tradingview.com/charts-storage" crossorigin="use-credentials">
-<link rel="chart-storage-notifications" href="https://example.invalid/notify"></head><body><script>
+<link rel="preconnect chart-storage-notifications" href="https://notifications.example.invalid/charts-storage/layout/DK4Z/subscribe"></head><body><script>
+	window.BUILD_TIME = "2026-10-23T09:00:11";
 	var is_authenticated = true;
 		var user = {"id":4242,"username":"trader","following":"0"};
 </script></body></html>`;
@@ -40,7 +42,7 @@ function fakeTradingView(): { fetcher: (url: string, init?: RequestInit) => Prom
     if (pathname === '/chart-token/') return json({ token: `jwt-${searchParams.get('image_url')}-${searchParams.get('user_id')}` });
     if (pathname === '/charts-storage/layout/AbCd1234/sizes') return json({ success: true, payload: { charts: { 1: { symbols: { 'OANDA:XAUUSD': { countSources: 2, ids: ['legacy', 'stored'] } } }, _shared: { symbols: { 'BINANCE:BTCUSDT': { countSources: 1, ids: ['shared'] } } } } } });
     if (pathname === '/charts-storage/user/sizes') return json({ success: true, payload: { charts: { UserSync: { symbols: { '={"symbol":"FX:EURUSD"}': { countSources: 1, ids: ['synced'] } } } } } });
-    if (pathname === '/charts-storage/get/layout/AbCd1234/sources' && searchParams.get('chart_id') === '_shared') return json({ success: true, payload: searchParams.has('includeOwnerSource') ? {} : { sources: { shared: { id: 'shared', state: trend('shared') } } } });
+    if (pathname === '/charts-storage/get/layout/AbCd1234/sources' && searchParams.get('chart_id') === '_shared') return json({ success: true, payload: searchParams.has('includeOwnerSource') ? {} : { sources: { shared: { id: 'shared', symbol: 'BINANCE:BTCUSDT', serverUpdateTime: 1_760_000_000_000, state: trend('shared') } } } });
     if (pathname === '/charts-storage/get/layout/AbCd1234/sources') return json({ success: true, payload: searchParams.get('includeOwnerSource') === 'ibCWf0' ? { sources: { stored: { id: 'stored', state: trend('stored') } } } : {} });
     if (pathname === '/charts-storage/get/user/sources') return json({ success: true, payload: { sources: { synced: { id: 'synced', state: trend('synced') } } } });
     if (pathname === '/themes/') return json([{ name: 'Night' }, 'Paper']);
@@ -51,7 +53,12 @@ function fakeTradingView(): { fetcher: (url: string, init?: RequestInit) => Prom
 }
 
 test('the chart page says who is signed in and where drawings are stored', () => {
-  assert.deepEqual(parseChartPage(signedInPage), { storageUrl: 'https://charts-storage.tradingview.com/charts-storage/', account: { id: 4242, username: 'trader' } });
+  assert.deepEqual(parseChartPage(signedInPage), {
+    storageUrl: 'https://charts-storage.tradingview.com/charts-storage/',
+    notificationsUrl: 'https://notifications.example.invalid/charts-storage/layout/DK4Z/subscribe',
+    buildTime: '2026-10-23T09:00:11',
+    account: { id: 4242, username: 'trader' },
+  });
   assert.equal(parseChartPage(guestPage).account, null);
 });
 
@@ -263,4 +270,82 @@ test('list pages keep the indicator filter, and sources come from the Pine servi
   ]);
   await assert.rejects(client.scriptList(scriptListPages + 1), /pages 1 to 42/);
   await assert.rejects(client.scriptSource('USER;abc', 1), /not a published/);
+});
+
+test('each tool keeps where it was read from and when TradingView last saved it', async () => {
+  const { fetcher } = fakeTradingView();
+  const client = new TradingViewClient(fetcher);
+  const { sets } = await client.drawings((await client.symbols()).symbols);
+  const origins = Object.fromEntries(sets.flatMap((set) => set.tools).map((tool) => [tool.id, tool.origin && [tool.origin.source.scope, tool.origin.source.chartId, tool.origin.source.storageSymbol, tool.origin.serverUpdateTime]]));
+  assert.deepEqual(origins, {
+    shared: ['chart', '_shared', 'BINANCE:BTCUSDT', 1_760_000_000_000],
+    synced: ['synced', undefined, '={"symbol":"FX:EURUSD"}', undefined],
+    legacy: undefined,
+    'on-rsi': undefined,
+    stored: ['chart', '1', 'OANDA:XAUUSD', undefined],
+  });
+});
+
+test('a save sends only the named tools to their target, with the build time, and answers in ms', async () => {
+  const saves: { url: URL; init?: RequestInit }[] = [];
+  const { fetcher } = fakeTradingView();
+  const client = new TradingViewClient(async (url, init) => {
+    if (init?.method === 'PUT') {
+      saves.push({ url: new URL(url), init });
+      return new Response(JSON.stringify({ success: true, payload: { serverUpdateTime: 1_761_000_000.5 } }));
+    }
+    return fetcher(url, init);
+  });
+  const source = { scope: 'chart' as const, layoutId: 'AbCd1234', layoutUrl: 'AbCd1234', layoutName: 'Gold plan', chartId: '_shared', storageSymbol: 'OANDA:XAUUSD' };
+  assert.deepEqual(await client.push({ source, records: { a: { id: 'a', state: {} }, b: null } }, 'openterm1'), { serverUpdateTime: 1_761_000_000_500 });
+  await client.push({ source: { ...source, scope: 'synced', chartId: undefined }, records: { c: null } }, 'openterm1');
+  assert.deepEqual(saves.map(({ url }) => [url.pathname, Object.fromEntries(url.searchParams)]), [
+    ['/charts-storage/layout/AbCd1234/sources', { chart_id: '_shared', layout_id: 'AbCd1234', jwt: 'jwt-AbCd1234-4242' }],
+    ['/charts-storage/user/sources', { layout_id: 'AbCd1234', jwt: 'jwt-AbCd1234-4242' }],
+  ]);
+  assert.deepEqual(JSON.parse(String(saves[0].init?.body)), { sources: { a: { id: 'a', state: {}, symbol: null, currencyId: null, unitId: null }, b: null }, drawing_groups: {}, clientId: 'AbCd1234/_shared/openterm1' });
+  assert.equal(saves[0].init?.credentials, 'include');
+  assert.deepEqual(saves[0].init?.headers, { Accept: 'application/json', 'Content-Type': 'application/json', Origin: 'https://www.tradingview.com', 'X-BUILD-TIME': '2026-10-23T09:00:11' });
+  await assert.rejects(client.push({ source: { ...source, scope: 'layout' }, records: {} }, 'openterm1'), /cannot be written back/);
+});
+
+test('a token TradingView stopped accepting is fetched again, once', async () => {
+  let tokens = 0;
+  const { fetcher } = fakeTradingView();
+  const client = new TradingViewClient(async (url, init) => {
+    if (new URL(url).pathname === '/chart-token/') return new Response(JSON.stringify({ token: tokens++ === 0 ? 'stale' : 'jwt-fresh' }));
+    return fetcher(url, init);
+  });
+  const { symbols } = await client.symbols();
+  assert.equal(tokens, 2);
+  assert.equal(symbols.length, 3);
+});
+
+test('change-stream messages become changes per target, without this client\'s own saves', async () => {
+  const client = new TradingViewClient(fakeTradingView().fetcher);
+  await client.watchLayouts([{ layoutId: 'AbCd1234', layoutUrl: 'AbCd1234', layoutName: 'Gold plan' }]);
+  const message = {
+    _shared: { clientId: 'AbCd1234/1/browser9', sources: { moved: { id: 'moved', symbol: 'OANDA:XAUUSD', serverUpdateTime: 5, state: trend('moved') }, gone: null } },
+    1: { clientId: 'AbCd1234/1/openterm1', sources: { echo: { id: 'echo', state: trend('echo') } } },
+    UserSync: { clientId: 'AbCd1234/1/browser9', symbol: 'FX:EURUSD', sources: null },
+  };
+  const changes = client.changesOf('AbCd1234', message, 'openterm1');
+  assert.deepEqual(changes.map((change) => [change.source.scope, change.source.chartId, change.tools.map((tool) => [tool.id, tool.isOnPrice, tool.origin?.serverUpdateTime, tool.origin?.source.storageSymbol]), change.removedIds, change.isSymbolCleared]), [
+    ['chart', '_shared', [['moved', true, 5, 'OANDA:XAUUSD']], ['gone'], false],
+    ['synced', undefined, [], [], true],
+  ]);
+  assert.deepEqual(client.changesOf('Unwatched', message, 'openterm1'), []);
+  assert.equal(await client.streamUrl('AbCd1234'), 'https://notifications.example.invalid/auth/charts-storage/layout/AbCd1234/subscribe?id=private');
+});
+
+test('server-sent events are joined across chunks, and comments are dropped', () => {
+  const parser = new EventStreamParser();
+  assert.deepEqual(parser.feed(':\n\ndata: {"a"'), []);
+  assert.deepEqual(parser.feed(':1}\r\n\r\nid: 4\ndata:x\ndata: y\n'), ['{"a":1}']);
+  assert.deepEqual(parser.feed('\n'), ['x\ny']);
+});
+
+test('a saved tool carries the symbol, currency and unit its state holds, as TradingView\'s saves do', () => {
+  const record = { id: 'x', symbol: 'OANDA:EURNZD', ownerSource: 'ibCWf0', serverUpdateTime: 5, state: { type: 'LineToolTrendLine', state: { symbol: 'OANDA:EURNZD', currencyId: null, unitId: 'pips' } } };
+  assert.deepEqual(savedRecord(record), { ...record, currencyId: null, unitId: 'pips' });
 });

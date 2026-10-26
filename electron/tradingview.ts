@@ -1,8 +1,9 @@
 import { app, BrowserWindow, session, type Session } from 'electron';
-import type { TerminalMethods } from '../shared/protocol';
+import type { TerminalEvents, TerminalMethods } from '../shared/protocol';
 import type { TradingViewAccount } from '../shared/tradingview';
 import { chromeUserAgent } from './browser-socket';
 import { TradingViewClient, tradingViewSite, type Fetcher } from './tradingview-client';
+import { TradingViewSync } from './tradingview-sync';
 
 // The TradingView sign-in lives in its own partition: its cookies never reach the trading
 // terminal's pages or the broker session, and the renderer only ever sees what the client parses.
@@ -19,6 +20,17 @@ function tradingViewSession(): Session {
 }
 
 const client = () => new TradingViewClient((url, init) => tradingViewSession().fetch(url, init));
+
+type SyncEvent = 'tradingViewChanges' | 'tradingViewStream';
+
+let sync: TradingViewSync | undefined;
+
+function syncOf(send: <E extends SyncEvent>(event: E, data: TerminalEvents[E]) => void): TradingViewSync {
+  return sync ??= new TradingViewSync((url, init) => tradingViewSession().fetch(url, init), {
+    changes: (changes) => send('tradingViewChanges', changes),
+    status: (status) => send('tradingViewStream', status),
+  });
+}
 
 // Script reads go one at a time, at least this far apart: importing the popular list is about a
 // thousand of them, and TradingView answers bursts with 429.
@@ -77,13 +89,16 @@ function signIn(parent?: BrowserWindow): Promise<TradingViewAccount | null> {
 }
 
 async function signOut(): Promise<boolean> {
+  sync?.reset();
   await tradingViewSession().clearStorageData();
   await tradingViewSession().clearCache();
   return true;
 }
 
-export async function handleTradingView(method: string, params: unknown, parent?: BrowserWindow): Promise<unknown> {
+export async function handleTradingView(method: string, params: unknown, send: <E extends SyncEvent>(event: E, data: TerminalEvents[E]) => void, parent?: BrowserWindow): Promise<unknown> {
   switch (method) {
+    case 'tradingview.watch': return syncOf(send).watch((params as TerminalMethods['tradingview.watch'][0]).layouts);
+    case 'tradingview.push': return syncOf(send).push(params as TerminalMethods['tradingview.push'][0]);
     case 'tradingview.account': return client().account();
     case 'tradingview.signIn': return signIn(parent);
     case 'tradingview.signOut': return signOut();

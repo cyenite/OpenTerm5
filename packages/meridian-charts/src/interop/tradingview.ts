@@ -588,3 +588,224 @@ export function fromTradingViewChartSettings(chart: unknown): ConvertedChartSett
   };
   return { settings: restoreSettings(mapped), ...(priceStyle ? { priceStyle } : {}) };
 }
+
+export interface TradingViewExportOptions {
+  // As for importing: the data's clock minus UTC at a UTC instant.
+  serverOffsetAt: (utcMs: number) => number;
+  tickSize?: number;
+}
+
+export type TradingViewPatch =
+  | { kind: 'patched'; tool: Record<string, unknown>; unwritten: string[] }
+  | { kind: 'unwritable'; reason: string };
+
+type Slot = readonly [Record<string, unknown> | undefined, string];
+
+const stableJson = (value: unknown): string => JSON.stringify(value, (_key, inner: unknown) => (isRecord(inner) ? Object.fromEntries(Object.entries(inner).sort(([left], [right]) => left.localeCompare(right))) : inner));
+
+const same = (left: unknown, right: unknown) => stableJson(left) === stableJson(right);
+
+const recordAt = (state: Record<string, unknown>, key: string) => (isRecord(state[key]) ? state[key] : undefined);
+
+// The first slot TradingView already uses, else the fallback, so a value goes back where the
+// import read it from.
+function slotOf(candidates: readonly Slot[], fallback: Slot): [Record<string, unknown>, string] {
+  const found = candidates.find(([owner, key]) => owner !== undefined && owner[key] !== undefined) ?? fallback;
+  return [found[0] ?? {}, found[1]];
+}
+
+function write(slot: [Record<string, unknown>, string], value: unknown): void {
+  slot[0][slot[1]] = value;
+}
+
+// #rrggbb at an opacity, written as TradingView wrote the colour before when it can carry it.
+function colorText(hex: string, opacity: number, before: unknown): string {
+  const color = parseColor(hex);
+  if (!color) return hex;
+  const isRgba = typeof before === 'string' && before.trim().toLowerCase().startsWith('rgba');
+  return opacity >= 1 && !isRgba ? hexOf(color) : `rgba(${color.r}, ${color.g}, ${color.b}, ${Math.round(Math.max(0, Math.min(1, opacity)) * 100) / 100})`;
+}
+
+// Undoes `serverOffsetAt`, which is asked at UTC instants: one step from the data's time lands
+// within the offset of the right instant, and a second step settles it.
+function utcOf(time: number, serverOffsetAt: (utcMs: number) => number): number {
+  return time - serverOffsetAt(time - serverOffsetAt(time));
+}
+
+function pointAt(point: DrawingPoint, base: TradingViewPoint | undefined, options: TradingViewExportOptions): TradingViewPoint {
+  const barMs = timeframeOf(base?.interval);
+  const utc = barMs !== null && barMs >= DAY ? point.time : utcOf(point.time, options.serverOffsetAt);
+  return { ...(base ?? {}), time_t: Math.round(utc / 1000), offset: 0, price: point.price };
+}
+
+function pointsFor(type: string, anchors: readonly DrawingPoint[], state: Record<string, unknown>, base: readonly TradingViewPoint[], options: TradingViewExportOptions): TradingViewPoint[] | string {
+  if (type === 'long-position' || type === 'short-position') {
+    const [entry, target, stop] = anchors;
+    if (!entry || !target || !stop) return 'the position has no entry, target or stop';
+    const tick = options.tickSize;
+    if (!tick) return 'the symbol\'s price step is unknown, so the target and stop cannot be sized in ticks';
+    const direction = type === 'long-position' ? 1 : -1;
+    const was = { entry: finite(base[0]?.price), profit: finite(state.profitLevel), stop: finite(state.stopLevel) };
+    state.profitLevel = Math.round(Math.abs(target.price - entry.price) / tick);
+    state.stopLevel = Math.round(Math.abs(entry.price - stop.price) / tick);
+    const moved = [pointAt(entry, base[0], options), pointAt({ time: target.time, price: entry.price }, base[1] ?? base[0], options)];
+    // Newer saves carry more points: one on the entry, one on the stop. They keep their place
+    // relative to the entry, and follow the entry, target or stop price they sat on.
+    const barSeconds = (timeframeOf(base[0]?.interval) ?? 0) / 1000;
+    const entryWas = (finite(base[0]?.time_t) ?? 0) + (finite(base[0]?.offset) ?? 0) * barSeconds;
+    const shift = (moved[0].time_t ?? entryWas) - entryWas;
+    const isAt = (price: number | undefined, level: number | undefined, sign: number) => was.entry !== undefined && level !== undefined && price !== undefined && Math.abs(price - (was.entry + sign * level * tick)) < tick / 2;
+    const extra = base.slice(2).map((point): TradingViewPoint => {
+      const price = isAt(point.price, 0, 1) ? entry.price : isAt(point.price, was.stop, -direction) ? stop.price : isAt(point.price, was.profit, direction) ? target.price : point.price;
+      return { ...point, ...(point.time_t !== undefined ? { time_t: point.time_t + shift } : {}), ...(price !== undefined ? { price } : {}) };
+    });
+    return [...moved, ...extra];
+  }
+  // A three-point ellipse is its axis and a point on its edge; the import made it a bounding box.
+  if (type === 'ellipse' && base.length >= 3 && anchors.length >= 2) {
+    const [top, bottom] = anchors;
+    const middle = (top.price + bottom.price) / 2;
+    return [
+      pointAt({ time: top.time, price: middle }, base[0], options),
+      pointAt({ time: bottom.time, price: middle }, base[1], options),
+      pointAt({ time: (top.time + bottom.time) / 2, price: Math.max(top.price, bottom.price) }, base[2], options),
+    ];
+  }
+  return anchors.map((anchor, index) => pointAt(anchor, base[index] ?? base.at(-1), options));
+}
+
+function patchStyle(type: string, state: Record<string, unknown>, previous: DrawingStyle, next: DrawingStyle, unwritten: string[]): void {
+  const isTextTool = textTools.has(type);
+  const trend = recordAt(state, 'trendline');
+  const levelsStyle = recordAt(state, 'levelsStyle');
+  const firstLevel = recordAt(state, 'level1');
+  const changed = (key: keyof DrawingStyle) => !same(previous[key], next[key]);
+  if (changed('lineColor') || changed('lineOpacity')) {
+    const slot = isTextTool ? slotOf([[state, 'borderColor']], [state, 'borderColor']) : slotOf([[state, 'linecolor'], [state, 'lineColor'], [state, 'color'], [trend, 'color'], [firstLevel, 'color']], [state, 'linecolor']);
+    write(slot, colorText(next.lineColor, next.lineOpacity ?? 1, slot[0][slot[1]]));
+  }
+  if (changed('lineWidth')) write(slotOf([[state, 'linewidth'], [state, 'lineWidth'], [state, 'width'], [levelsStyle, 'linewidth'], [trend, 'linewidth'], [firstLevel, 'linewidth']], [state, 'linewidth']), next.lineWidth);
+  if (changed('lineStyle')) write(slotOf([[state, 'linestyle'], [state, 'lineStyle'], [levelsStyle, 'linestyle'], [trend, 'linestyle'], [firstLevel, 'linestyle']], [state, 'linestyle']), Math.max(0, lineStyles.indexOf(next.lineStyle)));
+  if (changed('textColor') && next.textColor) {
+    const slot = isTextTool ? slotOf([[state, 'color'], [state, 'textColor']], [state, 'color']) : slotOf([[state, 'textcolor'], [state, 'textColor']], [state, 'textcolor']);
+    write(slot, colorText(next.textColor, 1, slot[0][slot[1]]));
+  }
+  if (changed('fontSize') && next.fontSize !== undefined) write(slotOf([[state, 'fontsize'], [state, 'fontSize']], [state, 'fontsize']), next.fontSize);
+  if (changed('extendLeft') && next.extendLeft !== undefined) write(slotOf([[state, 'extendLeft'], [state, 'extendLinesLeft']], [state, 'extendLeft']), next.extendLeft);
+  if (changed('extendRight') && next.extendRight !== undefined) write(slotOf([[state, 'extendRight'], [state, 'extendLines']], [state, 'extendRight']), next.extendRight);
+  if (changed('fillColor') || changed('fillOpacity')) {
+    const opacity = next.fillOpacity ?? 0.15;
+    state.fillBackground = opacity > 0;
+    const before = parseColor(state.backgroundColor);
+    if (next.fillColor && before && before.a < 1) state.backgroundColor = colorText(next.fillColor, opacity, 'rgba');
+    else {
+      if (next.fillColor) state.backgroundColor = colorText(next.fillColor, 1, state.backgroundColor);
+      write(slotOf([[state, 'transparency'], [state, 'backgroundTransparency']], [state, 'transparency']), Math.round((1 - opacity) * 100));
+    }
+  }
+  const known: readonly string[] = ['lineColor', 'lineOpacity', 'lineWidth', 'lineStyle', 'textColor', 'fontSize', 'extendLeft', 'extendRight', 'fillColor', 'fillOpacity'];
+  for (const key of new Set([...Object.keys(previous), ...Object.keys(next)])) {
+    if (!known.includes(key) && !same(previous[key as keyof DrawingStyle], next[key as keyof DrawingStyle])) unwritten.push(key);
+  }
+}
+
+// Meridian option → TradingView flag, the reverse of the import's copies.
+const flagKeys: Readonly<Record<string, string>> = {
+  ...Object.fromEntries(['showPriceRange', 'showPercentPriceRange', 'showBarsRange', 'showDateTimeRange', 'showAngle', 'showMiddlePoint', 'alwaysShowStats', 'showPrices', 'reverse', 'fillBackground', 'extendLines', 'bold', 'italic', 'extendLeft', 'extendRight', 'showPrice', 'showTime', 'showText', 'showPriceLabels'].map((key) => [key, key])),
+  isPercent: 'coeffsAsPercents',
+  showBorder: 'drawBorder',
+  showBackground: 'fillBackground',
+  showLevels: 'showCoeffs',
+  showMiddle: 'showMidline',
+  isCompact: 'compact',
+  showStats: 'alwaysShowStats',
+};
+
+const keyOf = (map: Readonly<Record<string, string>>, value: unknown) => Object.entries(map).find(([, label]) => label === value)?.[0];
+
+function patchLevels(state: Record<string, unknown>, prefix: string, levels: readonly Level[]): boolean {
+  const keys = Object.keys(state).filter((key) => new RegExp(`^${prefix}\\d+$`).test(key) && finite(Array.isArray(state[key]) ? (state[key] as unknown[])[0] : recordAt(state, key)?.coeff) !== undefined);
+  if (keys.length !== levels.length) return false;
+  const coeffOf = (key: string) => finite(Array.isArray(state[key]) ? (state[key] as unknown[])[0] : recordAt(state, key)?.coeff) ?? 0;
+  keys.sort((left, right) => coeffOf(left) - coeffOf(right)).forEach((key, index) => {
+    const level = levels[index];
+    const before = state[key];
+    if (Array.isArray(before)) state[key] = [level.value, colorText(level.color, 1, before[1]), level.isVisible, ...(before.length > 3 ? [level.text ?? before[3]] : [])];
+    else state[key] = { ...(before as Record<string, unknown>), coeff: level.value, color: colorText(level.color, 1, (before as Record<string, unknown>).color), visible: level.isVisible };
+  });
+  return true;
+}
+
+function patchProps(mapping: ToolMapping, state: Record<string, unknown>, previous: Readonly<Record<string, unknown>>, next: Readonly<Record<string, unknown>>, unwritten: string[]): void {
+  const levelKeys = new Map(Object.entries(mapping.levels ?? {}).map(([prefix, key]) => [key, prefix]));
+  for (const key of new Set([...Object.keys(previous), ...Object.keys(next)])) {
+    const value = next[key];
+    if (same(previous[key], value)) continue;
+    const isWritten = ((): boolean => {
+      if (flagKeys[key] && typeof value === 'boolean') return (state[flagKeys[key]] = value, true);
+      if ((key === 'backgroundColor' || key === 'borderColor') && typeof value === 'string') return (state[key] = colorText(value, 1, state[key]), true);
+      if (key === 'textOrientation' && typeof value === 'string') return (state.textOrientation = value.toLowerCase(), true);
+      if (key === 'showMiddleLine' && typeof value === 'boolean') return (state.middleLine = { ...(recordAt(state, 'middleLine') ?? {}), showLine: value }, true);
+      if (key === 'showTrendLine' && typeof value === 'boolean') return (state.trendline = { ...(recordAt(state, 'trendline') ?? {}), visible: value }, true);
+      if (key === 'startArrow' && typeof value === 'boolean') return (state.leftEnd = value ? 1 : 0, true);
+      if (key === 'endArrow' && typeof value === 'boolean') return (state.rightEnd = value ? 1 : 0, true);
+      if ((key === 'textAlign' || key === 'labelsPosition') && keyOf(horizontalAligns, value)) return (state.horzLabelsAlign = keyOf(horizontalAligns, value), true);
+      if (key === 'textPosition' && (keyOf(linePositions, value) ?? keyOf(boxPositions, value))) return (state.vertLabelsAlign = keyOf(linePositions, value) ?? keyOf(boxPositions, value), true);
+      if (key === 'labelFontSize' && finite(value) !== undefined) return (state.labelFontSize = value, true);
+      if (key === 'backgroundOpacity' && finite(value) !== undefined) return (state.transparency = 100 - (value as number), true);
+      if (levelKeys.has(key) && Array.isArray(value)) return patchLevels(state, levelKeys.get(key)!, value as Level[]);
+      if (key === 'visibility') {
+        const visibility = isRecord(value) ? value : {};
+        const bands = Object.fromEntries(visibilityBands.flatMap((band) => [[band.key, visibility[band.key] ?? true], [`${band.key}From`, visibility[`${band.key}From`] ?? 1], [`${band.key}To`, visibility[`${band.key}To`] ?? band.max]]));
+        return (state.intervalsVisibilities = { ...(recordAt(state, 'intervalsVisibilities') ?? {}), ...bands }, true);
+      }
+      return patchPositionProp(key, value, state);
+    })();
+    if (!isWritten) unwritten.push(key);
+  }
+}
+
+function patchPositionProp(key: string, value: unknown, state: Record<string, unknown>): boolean {
+  if ((key === 'accountSize' || key === 'lotSize') && finite(value) !== undefined) return (state[key] = value, true);
+  if (key === 'riskPercent' && finite(value) !== undefined) {
+    const accountSize = finite(state.accountSize);
+    state.risk = state.riskDisplayMode === 'money' && accountSize ? (value as number) / 100 * accountSize : value;
+    return true;
+  }
+  const colorKeys: Readonly<Record<string, string>> = { profitColor: 'profitBackground', stopColor: 'stopBackground', textColor: 'textcolor' };
+  if (colorKeys[key] && typeof value === 'string') return (state[colorKeys[key]] = colorText(value, 1, state[colorKeys[key]]), true);
+  if (key === 'areaOpacity' && finite(value) !== undefined) {
+    state.profitBackgroundTransparency = 100 - (value as number);
+    state.stopBackgroundTransparency = 100 - (value as number);
+    return true;
+  }
+  return false;
+}
+
+// A TradingView tool (`{type, points, state, zorder, …}`, as its storage keeps it) with the edits
+// between two versions of its Meridian drawing written in. Only what changed is touched, so every
+// setting Meridian does not model goes back as TradingView sent it. `unwritten` names the edits
+// TradingView has no place for.
+export function patchTradingViewLineTool(base: Readonly<Record<string, unknown>>, previous: SerializedDrawing, next: SerializedDrawing, options: TradingViewExportOptions): TradingViewPatch {
+  const mapping = typeof base.type === 'string' ? toolMappings[base.type] : undefined;
+  if (!mapping || mapping.type !== next.type) return { kind: 'unwritable', reason: 'it is no longer the same kind of drawing as in TradingView' };
+  const tool = structuredClone(base) as Record<string, unknown>;
+  if (!isRecord(tool.state)) tool.state = {};
+  const state = tool.state as Record<string, unknown>;
+  const unwritten: string[] = [];
+  if (!same(previous.anchors, next.anchors)) {
+    const points = pointsFor(mapping.type, next.anchors, state, Array.isArray(base.points) ? base.points as TradingViewPoint[] : [], options);
+    if (typeof points === 'string') return { kind: 'unwritable', reason: points };
+    tool.points = points;
+  }
+  patchStyle(mapping.type, state, previous.style, next.style, unwritten);
+  if ((previous.text ?? '') !== (next.text ?? '')) {
+    state.text = next.text ?? '';
+    if (next.text && !textTools.has(mapping.type)) state.showLabel = true;
+  }
+  if (previous.locked !== next.locked) state.frozen = next.locked;
+  if (previous.visible !== next.visible) state.visible = next.visible;
+  if (previous.zIndex !== next.zIndex) tool.zorder = next.zIndex;
+  patchProps(mapping, state, previous.props ?? {}, next.props ?? {}, unwritten);
+  return { kind: 'patched', tool, unwritten };
+}

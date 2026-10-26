@@ -1,4 +1,5 @@
-import type { TradingViewAccount, TradingViewChartSettings, TradingViewChartSettingsScan, TradingViewDrawings, TradingViewDrawingSet, TradingViewDrawingTemplate, TradingViewLineToolData, TradingViewPointData, TradingViewScan, TradingViewScript, TradingViewScriptListing, TradingViewScriptPage, TradingViewSkippedLayout, TradingViewSource, TradingViewSymbol } from '../shared/tradingview';
+import type { TradingViewAccount, TradingViewChange, TradingViewChartSettings, TradingViewChartSettingsScan, TradingViewDrawings, TradingViewDrawingSet, TradingViewDrawingTemplate, TradingViewLineToolData, TradingViewOrigin, TradingViewPointData, TradingViewPush, TradingViewScan, TradingViewScript, TradingViewScriptListing, TradingViewScriptPage, TradingViewSkippedLayout, TradingViewSource, TradingViewSymbol, TradingViewWatchedLayout } from '../shared/tradingview';
+import { displaySymbol } from '../shared/tradingview';
 
 interface LineToolRecord extends TradingViewLineToolData {
   ownerSource?: string;
@@ -12,6 +13,9 @@ export type Fetcher = (url: string, init?: RequestInit) => Promise<Response>;
 export const tradingViewSite = 'https://www.tradingview.com';
 
 const sharedChartId = '_shared';
+
+// The change stream's key for drawings synced to all layouts.
+const syncedChartId = 'UserSync';
 
 const defaultStorage = 'https://charts-storage.tradingview.com/charts-storage/';
 
@@ -40,6 +44,10 @@ interface ScriptPage {
 
 interface ChartPage {
   storageUrl: string;
+  // The change stream's address for one layout; only a signed-in page names it.
+  notificationsUrl: string | null;
+  // The web build the page belongs to, which TradingView's own saves send along.
+  buildTime: string | null;
   account: TradingViewAccount | null;
 }
 
@@ -79,6 +87,9 @@ export function parseChartPage(html: string): ChartPage {
   const link = /<link\b[^>]*\brel="[^"]*\bchart-storage\b(?!-)[^"]*"[^>]*>/i.exec(html)?.[0];
   const href = link ? /\bhref="([^"]+)"/i.exec(link)?.[1] : undefined;
   const storageUrl = href ? (href.endsWith('/') ? href : `${href}/`) : defaultStorage;
+  const notificationsLink = /<link\b[^>]*\brel="[^"]*\bchart-storage-notifications\b[^"]*"[^>]*>/i.exec(html)?.[0];
+  const notificationsUrl = (notificationsLink ? /\bhref="([^"]+)"/i.exec(notificationsLink)?.[1] : undefined) ?? null;
+  const buildTime = /\bBUILD_TIME\s*=\s*"([^"]+)"/.exec(html)?.[1] ?? null;
   const isSignedIn = /\bis_authenticated\s*=\s*true\b/.test(html);
   const line = /^\s*var user\s*=\s*(\{.*\});\s*$/m.exec(html)?.[1];
   let account: TradingViewAccount | null = null;
@@ -91,7 +102,7 @@ export function parseChartPage(html: string): ChartPage {
       account = null;
     }
   }
-  return { storageUrl, account };
+  return { storageUrl, notificationsUrl, buildTime, account };
 }
 
 // A layout's short id from its address (https://www.tradingview.com/chart/AbCd1234/) or the id itself.
@@ -169,15 +180,57 @@ export function parseSizes(payload: unknown): StoredCount[] {
 }
 
 // `{sources: {[id]: {id, state: <line tool>, symbol, ...}}}`.
-export function parseSources(payload: unknown): LineToolRecord[] {
+export function originOf(source: TradingViewSource, record: Readonly<Record<string, unknown>>): TradingViewOrigin {
+  const serverUpdateTime = finite(record.serverUpdateTime);
+  return { source, record, ...(serverUpdateTime !== undefined ? { serverUpdateTime } : {}) };
+}
+
+// `{sources: {[id]: {id, symbol, ownerSource, serverUpdateTime, state}}}`. With the source they
+// were read from, each tool keeps its origin, for writing it back.
+export function parseSources(payload: unknown, source?: TradingViewSource): LineToolRecord[] {
   const sources = isRecord(payload) && isRecord(payload.sources) ? payload.sources : {};
-  return Object.values(sources).flatMap((source) => {
-    const tool = isRecord(source) ? lineToolOf(source.state) : null;
-    return tool ? [tool] : [];
+  return Object.values(sources).flatMap((record) => {
+    const tool = isRecord(record) ? lineToolOf(record.state) : null;
+    if (!tool || !isRecord(record)) return [];
+    return [source ? { ...tool, origin: originOf({ ...source, storageSymbol: text(record.symbol) ?? source.storageSymbol }, record) } : tool];
   });
 }
 
-// Storage can key a symbol with its settings: ={"symbol":"FX:EURUSD","adjustment":"splits"}.
+// A tool as TradingView's own chart saves it: its symbol, currency and unit repeated beside the
+// state, which loads leave out.
+export function savedRecord(record: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const tool = isRecord(record.state) ? record.state : {};
+  const state = isRecord(tool.state) ? tool.state : {};
+  const header = (key: string) => (key in record ? record[key] : state[key] ?? null);
+  return { ...record, symbol: header('symbol'), currencyId: header('currencyId'), unitId: header('unitId') };
+}
+
+// Server-sent events arrive in chunks split anywhere; an event's data lines join with a newline
+// once a blank line ends it. Comments (TradingView's keep-alive) and other fields are dropped.
+export class EventStreamParser {
+  private buffer = '';
+  private data: string[] = [];
+
+  feed(chunk: string): string[] {
+    const lines = (this.buffer + chunk).split('\n');
+    this.buffer = lines.pop() ?? '';
+    const events: string[] = [];
+    for (const raw of lines) {
+      const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+      if (!line) {
+        if (this.data.length) events.push(this.data.join('\n'));
+        this.data = [];
+        continue;
+      }
+      const colon = line.indexOf(':');
+      if (colon === 0 || (colon < 0 ? line : line.slice(0, colon)) !== 'data') continue;
+      const value = colon < 0 ? '' : line.slice(colon + 1);
+      this.data.push(value.startsWith(' ') ? value.slice(1) : value);
+    }
+    return events;
+  }
+}
+
 // The script page's address on www.tradingview.com, from any TradingView script link.
 export function scriptPageUrl(link: string): string {
   let url: URL;
@@ -251,16 +304,6 @@ export function parseScriptSource(body: unknown): string {
   return body.source;
 }
 
-export function displaySymbol(storageSymbol: string): string {
-  if (!storageSymbol.startsWith('=')) return storageSymbol;
-  try {
-    const parsed = JSON.parse(storageSymbol.slice(1)) as Record<string, unknown>;
-    return text(parsed.symbol) ?? storageSymbol;
-  } catch {
-    return storageSymbol;
-  }
-}
-
 // The error TradingView gives, such as "JWT validation failed", for the message the user sees.
 async function reasonOf(response: Response): Promise<string | undefined> {
   try {
@@ -298,6 +341,7 @@ export class TradingViewClient {
   private page?: ChartPage;
   private readonly tokens = new Map<string, Promise<string>>();
   private readonly layouts = new Map<string, Promise<Layout>>();
+  private readonly watched = new Map<string, { watched: TradingViewWatchedLayout; layout: Layout }>();
   private readonly seriesIds = new Set<string>([defaultSeriesId]);
 
   constructor(private readonly fetcher: Fetcher) {}
@@ -378,6 +422,56 @@ export class TradingViewClient {
       sets.push({ symbol: symbol.symbol, tools: [...tools.values()].map((tool) => placed(tool, this.seriesIds)) });
     }
     return { sets, skippedLayouts: [...skipped].map(([layoutName, reason]) => ({ layoutName, reason })) };
+  }
+
+  // Saves and deletes tools at one target as TradingView's chart does: only the tools named change.
+  // The client id lets every chart, this one included, tell its own saves in the change stream.
+  async push({ source, records }: TradingViewPush, clientId: string): Promise<{ serverUpdateTime: number }> {
+    if (source.scope === 'layout') throw new TradingViewError('Drawings saved inside an older TradingView layout cannot be written back.');
+    const account = await this.signedIn();
+    const isSynced = source.scope === 'synced';
+    const query: Record<string, string> = !isSynced && source.chartId ? { chart_id: source.chartId } : {};
+    const sources = Object.fromEntries(Object.entries(records).map(([id, record]) => [id, record && savedRecord(record)]));
+    const save = JSON.stringify({ sources, drawing_groups: {}, clientId: `${source.layoutId}/${source.chartId ?? syncedChartId}/${clientId}` });
+    const payload = await this.storage(account, source.layoutId, isSynced ? 'user/sources' : `layout/${source.layoutId}/sources`, query, save);
+    // Loads give ms; a save answers in seconds.
+    const seconds = isRecord(payload) ? finite(payload.serverUpdateTime) : undefined;
+    return { serverUpdateTime: seconds === undefined ? Date.now() : Math.round(seconds * 1000) };
+  }
+
+  // Loads the layouts whose change streams are followed, for their charts' price series ids.
+  async watchLayouts(layouts: readonly TradingViewWatchedLayout[]): Promise<void> {
+    await this.signedIn();
+    for (const watched of layouts) this.watched.set(watched.layoutId, { watched, layout: await this.layout(watched.layoutUrl, watched.layoutName) });
+  }
+
+  // The layout's change stream, opened with the account's cookies as TradingView's chart does, or
+  // null when the chart page names none.
+  async streamUrl(layoutId: string): Promise<string | null> {
+    await this.signedIn();
+    const base = this.page?.notificationsUrl;
+    if (!base) return null;
+    const url = new URL(`/auth/charts-storage/layout/${encodeURIComponent(layoutId)}/subscribe`, base);
+    url.searchParams.set('id', 'private');
+    return url.href;
+  }
+
+  // One change-stream message: `{[chart id | _shared | UserSync]: {sources, clientId, symbol?}}`.
+  // Messages this client caused are dropped.
+  changesOf(layoutId: string, message: unknown, clientId: string): TradingViewChange[] {
+    const entry = this.watched.get(layoutId);
+    if (!entry || !isRecord(message)) return [];
+    return Object.entries(message).flatMap(([chartKey, value]): TradingViewChange[] => {
+      if (!isRecord(value) || text(value.clientId)?.split('/')[2] === clientId) return [];
+      const isSynced = chartKey === syncedChartId;
+      const seriesId = entry.layout.charts.find((chart) => chart.chartId === chartKey)?.seriesId;
+      const source: TradingViewSource = { ...entry.watched, scope: isSynced ? 'synced' : 'chart', ...(isSynced ? {} : { chartId: chartKey }), storageSymbol: text(value.symbol) ?? '', ...(seriesId ? { seriesId } : {}) };
+      if (value.sources === null) return source.storageSymbol ? [{ source, tools: [], removedIds: [], isSymbolCleared: true }] : [];
+      const records = isRecord(value.sources) ? Object.entries(value.sources) : [];
+      const removedIds = records.filter(([, record]) => record === null).map(([id]) => id);
+      const tools = parseSources({ sources: Object.fromEntries(records.filter(([, record]) => record !== null)) }, source).map((tool) => placed(tool, this.seriesIds));
+      return tools.length || removedIds.length ? [{ source, tools, removedIds, isSymbolCleared: false }] : [];
+    });
   }
 
   // Every template saved for the given tool classes. TradingView lists names HTML-escaped (S&amp;R)
@@ -472,7 +566,7 @@ export class TradingViewClient {
       if (source.chartId !== sharedChartId) query.includeOwnerSource = source.seriesId ?? defaultSeriesId;
     }
     query.brokerName = '';
-    return parseSources(await this.storage(account, source.layoutId, path, query));
+    return parseSources(await this.storage(account, source.layoutId, path, query), source);
   }
 
   private layout(url: string, name: string): Promise<Layout> {
@@ -508,22 +602,37 @@ export class TradingViewClient {
     return token;
   }
 
-  private async storage(account: TradingViewAccount, layoutId: string, path: string, query: Record<string, string>): Promise<unknown> {
-    const url = new URL(path, this.page?.storageUrl ?? defaultStorage);
-    for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
-    url.searchParams.set('layout_id', layoutId);
-    url.searchParams.set('jwt', await this.token(account, layoutId));
-    const body = await this.json(url.href, 'your drawings');
-    if (!isRecord(body) || body.success !== true) throw new TradingViewError('TradingView could not read your drawings.');
-    return body.payload;
+  // A body makes it a save (PUT). A token outlives an import but not a sync left running for
+  // hours, so one TradingView no longer accepts is fetched again, once.
+  private async storage(account: TradingViewAccount, layoutId: string, path: string, query: Record<string, string>, save?: string): Promise<unknown> {
+    for (let attempt = 0; ; attempt += 1) {
+      const url = new URL(path, this.page?.storageUrl ?? defaultStorage);
+      for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+      url.searchParams.set('layout_id', layoutId);
+      url.searchParams.set('jwt', await this.token(account, layoutId));
+      try {
+        const body = await this.json(url.href, 'your drawings', save);
+        if (!isRecord(body) || body.success !== true) throw new TradingViewError(`TradingView could not ${save === undefined ? 'read' : 'save'} your drawings.`);
+        return body.payload;
+      } catch (error) {
+        if (attempt > 0 || !(error instanceof TradingViewError) || error.status !== 403 || !/jwt/i.test(error.reason ?? '')) throw error;
+        this.tokens.delete(layoutId);
+      }
+    }
   }
 
   // TradingView's own fetch marks requests to its site as XHR; without that, /my-charts/ redirects
   // to the home page instead of answering. A redirect from a data request means the session is gone.
-  private async request(url: string, what: string, isPage: boolean): Promise<Response> {
+  // A save goes out as the chart page's saves do (checked 2026-10-26): without www.tradingview.com
+  // as its origin TradingView's proxy answers a bare 403, and without the session's cookies,
+  // which a request carrying an Origin header only sends when asked, storage refuses any save
+  // naming a tool with 403 "Header validation failed".
+  private async request(url: string, what: string, isPage: boolean, save?: string): Promise<Response> {
     const isSite = new URL(url).origin === tradingViewSite;
     const headers: Record<string, string> = isPage ? { Accept: 'text/html' } : { Accept: 'application/json', ...(isSite ? { 'X-Requested-With': 'XMLHttpRequest' } : {}) };
-    const send = () => this.fetcher(url, { headers, redirect: isPage ? 'follow' : 'manual', signal: AbortSignal.timeout(20_000) });
+    if (save !== undefined) Object.assign(headers, { 'Content-Type': 'application/json', Origin: tradingViewSite, ...(this.page?.buildTime ? { 'X-BUILD-TIME': this.page.buildTime } : {}) });
+    const init: RequestInit = save === undefined ? {} : { method: 'PUT', body: save, credentials: 'include' };
+    const send = () => this.fetcher(url, { ...init, headers, redirect: isPage ? 'follow' : 'manual', signal: AbortSignal.timeout(20_000) });
     let response = await send();
     if (response.status === 429) {
       await response.body?.cancel();
@@ -537,7 +646,7 @@ export class TradingViewClient {
     if (response.type === 'opaqueredirect' || (status >= 300 && status < 400)) throw new TradingViewError(`TradingView sent a page instead of ${what}. Sign in to TradingView again.`);
     if (status === 401 || status === 403) throw new TradingViewError(`TradingView refused access to ${what} (${status}${detail}). Sign in to TradingView again if this continues.`, status, reason);
     if (status === 429) throw new TradingViewError('TradingView is limiting requests. Try again in a minute.', status, reason);
-    throw new TradingViewError(`TradingView answered ${status}${detail} when reading ${what}.`, status, reason);
+    throw new TradingViewError(`TradingView answered ${status}${detail} when ${save === undefined ? 'reading' : 'saving'} ${what}.`, status, reason);
   }
 
   private async text(url: string, what: string): Promise<string> {
@@ -553,8 +662,8 @@ export class TradingViewClient {
     }
   }
 
-  private async json(url: string, what: string): Promise<unknown> {
-    const body = await (await this.request(url, what, false)).text();
+  private async json(url: string, what: string, save?: string): Promise<unknown> {
+    const body = await (await this.request(url, what, false, save)).text();
     try { return JSON.parse(body); }
     catch { throw new TradingViewError(`TradingView sent an unreadable answer when reading ${what}.`); }
   }
