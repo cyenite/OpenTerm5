@@ -40,3 +40,39 @@ export function toChartTimeframe(timeframe: ChartTimeframe): string {
 export function fromChartTimeframe(value: string): ChartTimeframe | null {
   return chartTimeframes.find((candidate) => toChartTimeframe(candidate.label) === value)?.label ?? null;
 }
+
+const unitNames = { S: 'second', M: 'minute', H: 'hour', D: 'day', W: 'week', MN: 'month' } as const;
+
+type Unit = keyof typeof unitNames;
+
+const intradayUnitSeconds: Partial<Record<Unit, number>> = { S: 1, M: 60, H: 3600 };
+
+// A capital M after a number is a month, as in TradingView; any other suffix ignores case.
+function unitOf(suffix: string): Unit | null {
+  if (suffix === 'M' || suffix.toLowerCase() === 'mn') return 'MN';
+  if (!suffix) return 'M';
+  const unit = suffix.toUpperCase();
+  return unit in unitNames ? unit as Unit : null;
+}
+
+// A typed interval, TradingView's way ('15', '4h', '1D', '1W', '1M') or MetaTrader's ('M15', 'H4',
+// 'D1', 'MN1'). A bare number is minutes. Null when it names no timeframe the terminal offers.
+export function parseTimeframe(text: string): ChartTimeframe | null {
+  const value = text.replace(/\s+/g, '');
+  const metaTrader = /^(mn|[smhdw])(\d+)$/i.exec(value);
+  const tradingView = /^(\d*)([a-z]*)$/i.exec(value);
+  const unit = metaTrader ? metaTrader[1].toUpperCase() as Unit : tradingView && value ? unitOf(tradingView[2]) : null;
+  const count = Number(metaTrader ? metaTrader[2] : tradingView?.[1] || 1);
+  if (!unit || !count) return null;
+  const unitSeconds = intradayUnitSeconds[unit];
+  // Minutes add up to hours (60 is H1), but days, weeks and months are calendar periods.
+  if (unitSeconds) return chartTimeframes.find((candidate) => candidate.seconds === count * unitSeconds && candidate.seconds < 86400)?.label ?? null;
+  const label = `${unit}${count}`;
+  return isChartTimeframe(label) ? label : null;
+}
+
+// 'M15' as '15 minutes', for the timeframe being typed.
+export function timeframeDescription(timeframe: ChartTimeframe): string {
+  const [, unit, count] = /^(MN|[SMHDW])(\d+)$/.exec(timeframe)!;
+  return `${count} ${unitNames[unit as Unit]}${count === '1' ? '' : 's'}`;
+}

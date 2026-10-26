@@ -31,6 +31,7 @@ OpenTerm5 follows MetaTrader 5's shortcuts where they exist. On macOS, use **Cmd
 
 | Shortcut | Action |
 |---|---|
+| Type a timeframe (`15`, `4h`, `1D`), then Enter | Switch the active chart to that timeframe |
 | Alt+1 | Bar chart |
 | Alt+2 | Candlesticks |
 | Alt+3 | Line chart |

@@ -185,6 +185,11 @@ export function themeSettings(settings: ChartSettings, theme: MeridianTheme): Ch
   };
 }
 
+// Every colour back to following the theme, for a chart switched to another theme.
+export function withThemeColors(settings: ChartSettings): ChartSettings {
+  return { ...settings, ...Object.fromEntries(colourKeys.map((key) => [key, null])) };
+}
+
 export function settingsFields(settings: ChartSettings, theme: MeridianTheme): Field[] {
   const { chart } = theme;
   const colour = (key: (typeof colourKeys)[number], label: string, tab: string, fallback: string): Field => ({ key, label, tab, type: 'color', value: settings[key] ?? fallback });

@@ -7,6 +7,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Type a timeframe on a chart to switch to it, as in TradingView. The first digit opens a box on the
+  chart with what you type; Enter switches and Escape cancels. A number is minutes (`15`, `240`), and
+  `s`, `h`, `D`, `W` and `M` after it mean seconds, hours, days, weeks and months (`5s`, `4h`, `1D`,
+  `1W`, `1M`); MetaTrader names (`M15`, `H4`) work in the box too. It works in pop-out windows,
+  Lite included.
+- Favourite timeframes. Star timeframes in any timeframe menu to put them on the chart bar, or take
+  them off; M1, M5, M15, M30, H1, H4 and D1 are the starting set, and the chart's current timeframe
+  always shows.
+- A chart can have a theme of its own: right-click it and choose one under **Theme**. Charts opened
+  afterwards start with the theme chosen last, including after a restart, and **Match Application**
+  puts a chart back on the window's theme. Choosing a theme this way resets the chart's own colours
+  from Chart Settings so the theme shows in full.
+
+### Changed
+
+- Right-clicking a chart in a Lite picture-in-picture window opens a short menu: timeframes, chart
+  type, theme, reset view and the window commands.
+
+### Fixed
+
+- Submenus stay inside their window. In a small window, such as a Lite picture-in-picture window,
+  they open to the left or over the menu when there is no room on the right, end above the window's
+  bottom edge and scroll when they are taller than it, instead of running off the window (the
+  Timeframes submenu showed nothing usable).
+
 ## [0.6.0] - 2026-10-26
 
 ### Added

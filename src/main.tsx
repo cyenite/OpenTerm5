@@ -17,6 +17,7 @@ import { startSymbolDrawings } from './lib/symbol-drawings';
 import { startDrawingTemplates } from './lib/drawing-templates';
 import { startPineScripts } from './lib/pine/pine-scripts';
 import { startIndicatorFavorites } from './lib/indicator-favorites';
+import { startTimeframeFavorites } from './lib/timeframe-favorites';
 import './styles.css';
 
 document.body.classList.add(`platform-${window.terminal.platform}`);
@@ -33,6 +34,7 @@ startDrawingTemplates();
 startImportedThemes();
 startPineScripts();
 startIndicatorFavorites();
+startTimeframeFavorites();
 startAutomation();
 startJournaling();
 startUpdates();

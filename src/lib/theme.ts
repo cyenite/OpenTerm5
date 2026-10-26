@@ -1,4 +1,4 @@
-import { applyTheme, resolveTheme, systemThemeId, type MeridianTheme } from '@meridian/charts/themes';
+import { applyTheme, getTheme, resolveTheme, systemThemeId, type MeridianTheme } from '@meridian/charts/themes';
 import { importedThemes } from './custom-themes';
 import { Store } from './store';
 import { workspace } from './workspace';
@@ -21,6 +21,11 @@ export function startTheming(): void {
   workspace.subscribe(update);
   importedThemes.subscribe(update);
   media.addEventListener('change', update);
+}
+
+// A chart's own theme, or the application's when it has none or its theme was removed.
+export function chartTheme(themeId: string | undefined, appTheme: MeridianTheme): MeridianTheme {
+  return (themeId && getTheme(themeId)) || appTheme;
 }
 
 export function setThemePreference(theme: string): void {

@@ -1,4 +1,8 @@
+import { listThemes } from '@meridian/charts/themes';
 import type { MenuItem } from '../components/MenuBar';
+import { chartInstance } from './chart-instances';
+import { popoutMenuItems } from './popouts';
+import { timeframeMenuItems } from './timeframe-favorites';
 import { formatPrice } from './format';
 import { indicatorMenuItems, studyTitle } from './indicator-menu';
 import { session } from './session';
@@ -12,12 +16,13 @@ import {
   focusChart,
   moveChart,
   openDialog,
+  setChartTheme,
   tabOfChart,
   toggleMaximized,
   updateChart,
   workspace,
+  type ChartConfig,
 } from './workspace';
-import { chartTimeframes } from './mt5-timeframes';
 import { isReplayingChart, replay, replayTradingHint } from './replay-session';
 import { activeBacktest, backtest, closeBacktestPositions, isBacktestingChart, reportBacktest } from './backtest/runtime';
 
@@ -48,6 +53,34 @@ function backtestItems(symbol: string): MenuItem[] {
   return [
     { label: 'Place Order', shortcut: 'F9', action: placeBacktestOrder },
     { label: `Close All ${symbol}`, isDisabled: !positions.length, action: () => reportBacktest(closeBacktestPositions((position) => position.symbol === symbol)) },
+  ];
+}
+
+function themeItems(chart: ChartConfig): MenuItem[] {
+  return [
+    { label: 'Match Application', isChecked: !chart.theme, action: () => setChartTheme(chart.id, undefined) },
+    separator,
+    ...listThemes().map((theme) => ({ label: theme.label, isChecked: chart.theme === theme.id, action: () => setChartTheme(chart.id, theme.id) })),
+  ];
+}
+
+const chartTypeItems = (chart: ChartConfig): MenuItem[] => chartTypes.map((type) => ({ label: type.label, shortcut: type.shortcut, isChecked: chart.type === type.key, action: () => setChartType(type.key) }));
+
+// A Lite pop-out can be made small, so its menu keeps to watching the price: what is charted, how it
+// looks and where the window goes. Everything else is a switch to Full away.
+export function liteChartMenu(chartId: string): MenuItem[] {
+  focusChart(chartId);
+  const state = workspace.get();
+  const chart = state.charts.find((candidate) => candidate.id === chartId);
+  const tab = tabOfChart(state, chartId);
+  if (!chart || !tab) return [];
+  return [
+    { label: 'Timeframes', items: timeframeMenuItems(chart.timeframe, setTimeframe) },
+    { label: 'Chart Type', items: chartTypeItems(chart) },
+    { label: 'Theme', items: themeItems(chart) },
+    { label: 'Reset Chart View', shortcut: 'Alt+R', action: () => chartInstance(chartId)?.resetView() },
+    separator,
+    ...popoutMenuItems(tab.id),
   ];
 }
 
@@ -84,8 +117,8 @@ export function chartMenu(chartId: string, price?: number): MenuItem[] {
     ];
   return [
     ...trading,
-    { label: 'Timeframes', items: chartTimeframes.map((timeframe) => ({ label: timeframe.label, isChecked: chart.timeframe === timeframe.label, action: () => setTimeframe(timeframe.label) })) },
-    ...chartTypes.map((type) => ({ label: type.label, shortcut: type.shortcut, isChecked: chart.type === type.key, action: () => setChartType(type.key) })),
+    { label: 'Timeframes', items: timeframeMenuItems(chart.timeframe, setTimeframe) },
+    ...chartTypeItems(chart),
     separator,
     { label: 'Indicators', items: indicatorMenuItems(chartId) },
     {
@@ -98,6 +131,7 @@ export function chartMenu(chartId: string, price?: number): MenuItem[] {
     },
     { label: 'Objects List...', shortcut: 'Ctrl+B', action: () => openDialog({ kind: 'objects', chartId }) },
     { label: 'Template', items: [{ label: 'Save Template...', action: () => openDialog({ kind: 'template', chartId }) }] },
+    { label: 'Theme', items: themeItems(chart) },
     separator,
     { label: 'Grid', shortcut: 'Ctrl+G', isChecked: chart.isGridShown, action: () => updateChart(chartId, (current) => ({ isGridShown: !current.isGridShown })) },
     { label: 'Volumes', shortcut: 'Ctrl+L', isChecked: chart.isVolumeShown, action: () => updateChart(chartId, (current) => ({ isVolumeShown: !current.isVolumeShown })) },
