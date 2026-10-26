@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-26
+
 ### Added
 
 - Type a timeframe on a chart to switch to it, as in TradingView. The first digit opens a box on the
@@ -449,7 +451,8 @@ First public release of OpenTerm5 (previously developed as Terminal5), under the
 - **Project files:** documentation under `docs/`, a contributing guide, code of conduct, security
   policy, issue and pull request templates, and CI on Linux, macOS and Windows.
 
-[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/cyenite/OpenTerm5/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/cyenite/OpenTerm5/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/cyenite/OpenTerm5/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/cyenite/OpenTerm5/compare/v0.3.0...v0.4.0
