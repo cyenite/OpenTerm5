@@ -216,8 +216,8 @@ TradingView theme.
 - Toolbox with Trade, Exposure, History (with CSV export) and Journal tabs.
 - Market and pending orders, SL/TP modification, partial close, Close By and One-Click trading.
 - Orders show their progress as they go: a live timer in the status bar, then the broker's result.
-- Bybit accounts (USDT and USDC perpetuals and futures) next to MT5 ones, with their own watchlists
-  and risk ticket settings.
+- Bybit accounts (USDT and USDC perpetuals and futures) and Binance USDⓈ-M futures accounts next to
+  MT5 ones, sharing one set of crypto watchlists and risk ticket settings.
 - Several saved accounts with one-click switching. Passwords can be kept in your OS keychain.
 - Context menus throughout, and the MT5 keyboard shortcuts you already know.
 
@@ -243,6 +243,8 @@ TradingView theme.
 - Backtesting sessions: a simulated account with spread, slippage, commission, leverage and stop
   out; orders placed with risk-sized lines on the chart and filled along each bar; R, MAE and MFE
   per trade; statistics, an equity curve and CSV export in a side panel.
+- Picture in picture: pop a chart tab out into its own always-on-top window, charts only (Lite) or
+  with the toolbar, drawing tools and trading panels (Full), and drag it back when you're done.
 - Undo and redo, copy and paste between charts and an object tree.
 - Price alerts drawn on the chart, and Chart Settings saved with each chart and its templates.
 - Older history loads as you scroll, panes resize and axes drag.
@@ -322,7 +324,7 @@ The full list is in [Keyboard shortcuts](docs/user-guide/keyboard-shortcuts.md).
 |---|---|
 | [Getting started](docs/getting-started.md) | Install, build, log in and find your way around |
 | [Trading](docs/user-guide/trading.md) | Charts, layouts, orders and trading from the chart |
-| [Accounts and brokers](docs/user-guide/accounts-and-brokers.md) | Logging in, saved accounts, broker detection and Bybit accounts |
+| [Accounts and brokers](docs/user-guide/accounts-and-brokers.md) | Logging in, saved accounts, broker detection, Bybit and Binance accounts |
 | [Backtesting](docs/user-guide/backtesting.md) | Backtest sessions, placing orders, fills and statistics |
 | [Risk and automation](docs/user-guide/risk-and-automation.md) | Risk-based orders, position management and equity guards |
 | [Trade Copier](docs/user-guide/trade-copier.md) | Copying trades between accounts |
@@ -339,8 +341,8 @@ interface. Charts are drawn by Meridian (`packages/meridian-charts`), OpenTerm5'
 engine and theme system.
 
 The main process contains an independent client for the protocol that MT5 web trading uses, and keeps
-one broker session per account. Bybit accounts connect through Bybit's REST and WebSocket APIs behind
-the same interface, so the rest of the app treats them like any other account. The trade manager, trade copier and signal engines run alongside it, so
+one broker session per account. Bybit and Binance accounts connect through each exchange's REST and WebSocket
+APIs behind the same interface, so the rest of the app treats them like any other account. The trade manager, trade copier and signal engines run alongside it, so
 they keep working while you use the interface. They do need OpenTerm5 to be running and connected, so
 keep a broker-side stop on anything you can't watch. See [Architecture](docs/development/architecture.md)
 for the details.
