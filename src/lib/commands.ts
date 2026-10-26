@@ -2,6 +2,7 @@ import type { ChartTimeframe } from './mt5-timeframes';
 import { defaultSymbol } from './broker-symbols';
 import { cancelReplaySelection, replay, stepReplay, toggleReplayPlay } from './replay';
 import { chooseMode, isBacktestingChart, modeOf } from './backtest/runtime';
+import { openTimeframePrompt } from './timeframe-prompt';
 import { activeChart, closeChart, openChart, openDialog, pages, setChartSymbol, setChartTimeframe, stepChart, toggleMaximized, updateActiveChart, workspace, type ChartType, type ToolboxTab, type WorkspaceState } from './workspace';
 
 type PanelFlag = 'isMarketWatchShown' | 'isNavigatorShown' | 'isToolboxShown' | 'isDataWindowShown' | 'isStatusBarShown' | 'isChartBarShown' | 'isTradeAssistantShown' | 'isBacktestPanelShown' | 'isTradeDrawingToolbarShown';
@@ -108,11 +109,28 @@ function isChartFocus(target: EventTarget | null): boolean {
   return target === (target as Node | null)?.ownerDocument?.body || !!closestOf(target, '.chart-area');
 }
 
+// Typing a number on the charts opens the timeframe box with it, as in TradingView. Without
+// `chartId` it changes the active chart.
+export function handleTimeframeKey(event: KeyboardEvent, chartId?: string): boolean {
+  if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || !/^[0-9]$/.test(event.key)) return false;
+  if (closestOf(event.target, 'input, textarea, select, [contenteditable="true"]')) return false;
+  const view = (event.target as Node | null)?.ownerDocument?.defaultView ?? window;
+  const state = workspace.get();
+  // The main window's charts are hidden behind the other pages.
+  if (view === window && !state.isAnalysisMode && state.page !== 'trading') return false;
+  const id = chartId ?? activeChart(state)?.id;
+  if (!id) return false;
+  event.preventDefault();
+  openTimeframePrompt(id, event.key, view);
+  return true;
+}
+
 export function handleShortcut(event: KeyboardEvent): boolean {
   // A focused panel that used the key (typing into Market Watch starts a search) has claimed it.
   if (event.defaultPrevented || closestOf(event.target, 'input, textarea, select')) {
     return false;
   }
+  if (handleTimeframeKey(event)) return true;
   const key = event.key.toLowerCase();
   const isCtrl = event.ctrlKey || event.metaKey;
   const isAnalysis = workspace.get().isAnalysisMode;

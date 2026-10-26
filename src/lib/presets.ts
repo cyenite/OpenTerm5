@@ -73,6 +73,7 @@ export function restoreChart(value: unknown): ChartConfig | null {
   if (linkGroups.some((group) => group.key === linkGroup)) chart.linkGroup = linkGroup as ChartConfig['linkGroup'];
   if (value.settings === undefined) delete chart.settings;
   else chart.settings = restoreSettings(value.settings);
+  if (typeof value.theme !== 'string') delete chart.theme;
   return chart;
 }
 

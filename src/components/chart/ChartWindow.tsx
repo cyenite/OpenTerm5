@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { defaultSettings, MeridianChart, type ChartSettings, type MeridianHover, type MeridianPriceLine, type SerializedDrawing } from '@meridian/charts';
 import type { MenuItem } from '../MenuBar';
 import { chartInstance, registerChart } from '../../lib/chart-instances';
@@ -16,9 +16,11 @@ import { log, requireSymbols, session, signingIn } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { drawingTemplateStore } from '../../lib/drawing-templates';
 import { drawingsForSymbol, setSymbolDrawings, symbolDrawings } from '../../lib/symbol-drawings';
-import { themeStore } from '../../lib/theme';
+import { themeCssVariables } from '@meridian/charts/themes';
+import { chartTheme, themeStore } from '../../lib/theme';
+import { importedThemes } from '../../lib/custom-themes';
 import { focusChart, layoutDrawings, setLayoutDrawings, updateChart, workspace, type ChartConfig } from '../../lib/workspace';
-import { chartMenu } from '../../lib/chart-menu';
+import { chartMenu, liteChartMenu } from '../../lib/chart-menu';
 import { openContextMenu } from '../../lib/context-menu';
 import { OneClickPanel } from './OneClickPanel';
 import { TradeOverlay } from './TradeOverlay';
@@ -104,7 +106,10 @@ export function ChartWindow({ chart, isActive, isLite = false }: ChartWindowProp
   const container = useRef<HTMLDivElement>(null);
   const [instance, setInstance] = useState<MeridianChart | null>(null);
   const tool = useStore(workspace, (state) => state.tool);
-  const theme = useStore(themeStore, (state) => state.theme);
+  const appTheme = useStore(themeStore, (state) => state.theme);
+  // The chart's own theme may be an imported one, re-registered or removed by an import.
+  const imported = useStore(importedThemes, (state) => state.themes);
+  const theme = useMemo(() => chartTheme(chart.theme, appTheme), [chart.theme, appTheme, imported]);
   const isOneClickEnabled = useStore(workspace, (state) => state.isOneClickEnabled && !state.isAnalysisMode) && !isLite;
   const isTradeOverlayShown = useStore(workspace, (state) => !state.isAnalysisMode || state.isAnalysisPositionsShown);
   const isReplaying = useIsReplayingChart(chart.id);
@@ -119,6 +124,8 @@ export function ChartWindow({ chart, isActive, isLite = false }: ChartWindowProp
   const digits = spec?.digits ?? 5;
   const activeRef = useRef(isActive);
   activeRef.current = isActive;
+  const liteRef = useRef(isLite);
+  liteRef.current = isLite;
   const chartRef = useRef(chart);
   chartRef.current = chart;
   const shared = useStore(symbolDrawings, (state) => drawingsForSymbol(state, chart.symbol));
@@ -157,7 +164,7 @@ export function ChartWindow({ chart, isActive, isLite = false }: ChartWindowProp
       timeframe: toChartTimeframe(current.timeframe),
       provider: mt5Provider,
       title: chartTitle(current, session.get().symbols[current.symbol]?.description),
-      theme: themeStore.get().theme,
+      theme: chartTheme(current.theme, themeStore.get().theme),
       priceStyle: current.type,
       isGridShown: current.isGridShown,
       isVolumeShown: current.isVolumeShown,
@@ -214,7 +221,7 @@ export function ChartWindow({ chart, isActive, isLite = false }: ChartWindowProp
     meridian.onContextMenu((info, event) => {
       const current = chartRef.current;
       const digits = session.get().symbols[current.symbol]?.digits ?? 5;
-      openContextMenu(event, [...chartEngineItems(current.id, current.symbol, info.price, digits), ...chartMenu(current.id, info.price ?? undefined)]);
+      openContextMenu(event, liteRef.current ? liteChartMenu(current.id) : [...chartEngineItems(current.id, current.symbol, info.price, digits), ...chartMenu(current.id, info.price ?? undefined)]);
       return true;
     });
 
@@ -372,6 +379,9 @@ export function ChartWindow({ chart, isActive, isLite = false }: ChartWindowProp
   return (
     <div
       className={`chart-window${isActive ? ' is-active' : ''}`}
+      data-chart-id={chart.id}
+      // Trading lines and panels over a chart with its own theme take that theme's colours.
+      style={chart.theme ? themeCssVariables(theme) : undefined}
       onMouseDown={() => focusChart(chart.id)}
     >
       <div className="chart-canvas" ref={container} data-tool={tool} />

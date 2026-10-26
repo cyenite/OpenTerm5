@@ -2,7 +2,7 @@ import { markets, type Market, type OrderTypeKey } from '../../shared/protocol';
 import type { ChartTimeframe } from './mt5-timeframes';
 import { defaultThemeId } from '@meridian/charts/themes';
 import type { ChartSettings, InputValue } from '@meridian/charts';
-import { restoreSettings } from '@meridian/charts/settings';
+import { restoreSettings, withThemeColors } from '@meridian/charts/settings';
 import type { Drawing, IndicatorConfig } from './chart-model';
 import { Store } from './store';
 import { instrumentKey } from '../../shared/symbol-match';
@@ -55,6 +55,8 @@ export interface ChartConfig {
   isVolumeShown: boolean;
   // Chart Settings from the chart's own settings dialog; missing means the defaults.
   settings?: ChartSettings;
+  // A Meridian theme id for this chart alone, from the chart menu; missing follows the application.
+  theme?: string;
   // Symbol and interval sync only spread between charts of the same group (or of none).
   linkGroup?: LinkGroup;
 }
@@ -144,6 +146,8 @@ export interface WorkspaceState {
   // Chart Settings that new charts start with, such as ones imported from TradingView; missing
   // means the defaults.
   defaultChartSettings?: ChartSettings;
+  // The theme the chart menu last chose, which new charts start with; missing follows the application.
+  defaultChartTheme?: string;
 }
 
 const STORAGE_KEY = 'openterm.workspace.v1';
@@ -230,6 +234,7 @@ function initialState(): WorkspaceState {
       if (!restored.profiles.some((profile) => profile.name === 'Default')) restored.profiles = [captureProfile(restored, 'Default'), ...restored.profiles];
       if (saved.defaultChartSettings === undefined) delete restored.defaultChartSettings;
       else restored.defaultChartSettings = restoreSettings(saved.defaultChartSettings);
+      if (typeof saved.defaultChartTheme !== 'string') delete restored.defaultChartTheme;
       return restored;
     }
   } catch {
@@ -312,10 +317,26 @@ export function setChartTimeframe(chartId: string, timeframe: ChartTimeframe): v
   workspace.set({ charts: state.charts.map((chart) => ids.has(chart.id) ? { ...chart, timeframe } : chart) });
 }
 
+function withChartDefaults(state: WorkspaceState, chart: ChartConfig): ChartConfig {
+  return {
+    ...chart,
+    ...(state.defaultChartSettings ? { settings: structuredClone(state.defaultChartSettings) } : {}),
+    ...(state.defaultChartTheme ? { theme: state.defaultChartTheme } : {}),
+  };
+}
+
 function newChart(state: WorkspaceState, symbol: string, timeframe?: ChartTimeframe): ChartConfig {
-  const chart = makeChart(symbol, timeframe ?? activeChart(state)?.timeframe ?? 'H1');
-  if (state.defaultChartSettings) chart.settings = structuredClone(state.defaultChartSettings);
-  return chart;
+  return withChartDefaults(state, makeChart(symbol, timeframe ?? activeChart(state)?.timeframe ?? 'H1'));
+}
+
+// The chart menu's theme is for one chart, and charts opened later start with it. The chart drops
+// colours of its own so the theme shows, and so do the settings new charts start with.
+export function setChartTheme(chartId: string, theme: string | undefined): void {
+  workspace.set((state) => ({
+    charts: state.charts.map((chart) => chart.id === chartId ? { ...chart, theme, ...(chart.settings ? { settings: withThemeColors(chart.settings) } : {}) } : chart),
+    defaultChartTheme: theme,
+    ...(state.defaultChartSettings ? { defaultChartSettings: withThemeColors(state.defaultChartSettings) } : {}),
+  }));
 }
 
 // Opens a chart in a tab of its own.
@@ -382,8 +403,7 @@ export function setMarket(market: Market): void {
       return { market, marketTabIds, activeTabId, isChartMaximized: false };
     }
     const { tab, charts } = defaultTab(market);
-    if (state.defaultChartSettings) for (const chart of charts) chart.settings = structuredClone(state.defaultChartSettings);
-    return { market, marketTabIds, tabs: [...state.tabs, tab], charts: [...state.charts, ...charts], activeTabId: tab.id, isChartMaximized: false };
+    return { market, marketTabIds, tabs: [...state.tabs, tab], charts: [...state.charts, ...charts.map((chart) => withChartDefaults(state, chart))], activeTabId: tab.id, isChartMaximized: false };
   });
 }
 

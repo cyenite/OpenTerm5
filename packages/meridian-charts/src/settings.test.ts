@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applySettingsFields, backgroundGradientOf, defaultSettings, restoreSettings, settingsFields, themeSettings } from './settings';
+import { applySettingsFields, backgroundGradientOf, defaultSettings, restoreSettings, settingsFields, themeSettings, withThemeColors } from './settings';
 import { createTheme, meridianDark } from './themes';
 import type { FieldValues } from './ui/dialog';
 
@@ -57,4 +57,10 @@ test('the last price line follows the candle until a custom colour is chosen', (
   assert.equal(applySettingsFields({ ...formOf(), lastPriceLineColorSource: 'Custom', lastPriceLineColor: '#2962ff' }, meridianDark).lastPriceLineColor, '#2962ff');
   const custom = { ...defaultSettings, lastPriceLineColor: '#2962ff', verticalGridColor: '#101010', horizontalGridStyle: 'dashed' as const, scaleFontSize: 13 };
   assert.deepEqual(applySettingsFields(formOf(custom), meridianDark), custom);
+});
+
+test('a chart switched to another theme drops its own colours and keeps the rest', () => {
+  const custom = { ...themeSettings(defaultSettings, dusk), lastPriceLineColor: '#ff0000', scaleFontSize: 14, isVerticalGridShown: false };
+  const switched = withThemeColors(custom);
+  assert.deepEqual(switched, { ...defaultSettings, scaleFontSize: 14, isVerticalGridShown: false });
 });

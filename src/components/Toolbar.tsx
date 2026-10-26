@@ -5,7 +5,7 @@ import { defaultSymbol } from '../lib/broker-symbols';
 import { openMenuAt } from '../lib/context-menu';
 import { indicatorFavorites } from '../lib/indicator-favorites';
 import { favoriteIndicatorItems, toggleIndicatorsDialog } from '../lib/indicator-menu';
-import { chartTimeframes } from '../lib/mt5-timeframes';
+import { timeframeFavorites, timeframeMenuItems, toolbarTimeframes } from '../lib/timeframe-favorites';
 import { session, signingIn } from '../lib/session';
 import { useStore } from '../lib/store';
 import { useWatchedSpecs } from '../lib/watchlists';
@@ -139,18 +139,16 @@ export function SymbolPicker({ chartId }: ChartPickerProps) {
   );
 }
 
-// The toolbar's timeframes are the common ones; any other the chart is on joins them so the
-// current choice always shows, and the menu lists them all.
+// The toolbar's timeframes are the favourites starred in the menu, which lists them all.
 export function TimeframePicker({ chartId }: ChartPickerProps) {
   const timeframe = useStore(workspace, (state) => pickedChart(state, chartId)?.timeframe);
-  const shown = chartTimeframes.filter((candidate) => candidate.isOnToolbar || candidate.label === timeframe);
-  const all: MenuItem[] = chartTimeframes.map((candidate) => ({ label: candidate.label, isChecked: candidate.label === timeframe, action: () => setTimeframe(candidate.label) }));
+  const favorites = useStore(timeframeFavorites, (state) => state.labels);
   return (
     <ToolGroup label="Timeframe">
-      {shown.map((candidate) => (
-        <ToolButton key={candidate.label} text={candidate.label} isActive={timeframe === candidate.label} isDisabled={!timeframe} hint={{ title: `Timeframe ${candidate.label}`, description: 'The period each bar on the active chart covers.' }} onClick={() => setTimeframe(candidate.label)} />
+      {toolbarTimeframes(favorites, timeframe).map((candidate) => (
+        <ToolButton key={candidate} text={candidate} isActive={timeframe === candidate} isDisabled={!timeframe} hint={{ title: `Timeframe ${candidate}`, description: 'The period each bar on the active chart covers. Type a timeframe on the chart (15, 4h, 1D) to switch to it.' }} onClick={() => setTimeframe(candidate)} />
       ))}
-      <ToolButton hasMenu isDisabled={!timeframe} hint={{ title: 'All Timeframes', description: 'Seconds, minutes, hours, days, weeks and months.' }} onClick={(event) => menuBelow(event, all)} />
+      <ToolButton hasMenu isDisabled={!timeframe} hint={{ title: 'All Timeframes', description: 'Seconds, minutes, hours, days, weeks and months. Star one to keep it on the toolbar.' }} onClick={(event) => menuBelow(event, timeframeMenuItems(timeframe, setTimeframe))} />
     </ToolGroup>
   );
 }

@@ -42,11 +42,19 @@ sit on the right.
 
 ### Timeframes and chart types
 
-All 21 MetaTrader 5 timeframes are available from the toolbar and the chart's context menu. Nine come
-directly from the broker (M1, M5, M15, M30, H1, H4, D1, W1, MN1). The others are built from real
-broker bars, aligned to the broker's trading day. Gaps in the data stay as gaps.
+All 21 MetaTrader 5 timeframes are available from the toolbar's timeframe menu and the chart's
+context menu. Nine come directly from the broker (M1, M5, M15, M30, H1, H4, D1, W1, MN1). The others
+are built from real broker bars, aligned to the broker's trading day. Gaps in the data stay as gaps.
 
-Seconds timeframes (S1, S5, S15 and S30) are in the same lists, with S5 on the toolbar. MetaTrader
+The toolbar shows your favourite timeframes as buttons, M1, M5, M15, M30, H1, H4 and D1 to begin
+with. Click the star beside a timeframe in either menu to add it to the toolbar or take it off; the
+chart's current timeframe always shows. To switch without the mouse, click a chart and type the
+timeframe, as in TradingView: the first digit opens a box with what you type, and Enter switches the
+chart (Escape cancels). A number is minutes (`15`, `240`); `s`, `h`, `D`, `W` and `M` after it mean
+seconds, hours, days, weeks and months (`5s`, `4h`, `1D`, `1W`, `1M`). In the box, MetaTrader names
+(`M15`, `H4`, `MN1`) work too.
+
+Seconds timeframes (S1, S5, S15 and S30) are in the same lists. MetaTrader
 does not provide seconds bars or past ticks, so OpenTerm5 builds them from the bid quotes it receives,
 with the number of ticks as the volume. A seconds chart therefore starts from the first quote
 OpenTerm5 received for that symbol, and it says so until two bars exist. OpenTerm5 keeps the last
@@ -154,6 +162,11 @@ it. Ctrl+V pastes a copied object, also into another chart. Delete removes the s
 Meridian Light or Meridian Midnight. **Match System** follows your operating system's light or dark
 setting. Themes replace MetaTrader's chart colour schemes.
 
+A chart can also have a theme of its own: right-click it and choose one under **Theme**. Charts you
+open afterwards start with the same theme, including after a restart. **Match Application** puts
+the chart back on the window's theme. Choosing a theme this way resets the chart's own colours from
+Chart Settings, so the theme shows in full.
+
 ### Profiles, templates and images
 
 - **File → Profiles** saves the set of open charts and their layout.
@@ -236,6 +249,9 @@ elsewhere or with OpenTerm5 minimised.
   title bar, toolbar, drawing tools or trading panels, and drawings are locked. Point at the top
   edge for a slim strip with the tab handle and buttons for Full mode and returning the tab; drag
   the strip to move the window. It stays until you move down onto the charts or leave the window.
+  Right-click a chart for a short menu (timeframes, chart type, theme, reset view and the window
+  commands), and type a timeframe to switch it, as in the main window. Menus stay inside the
+  window, however small, and scroll when they are taller than it.
 - **Full** adds a toolbar for the tab (symbol, layout setup, timeframes, chart type, indicators, undo,
   object tree and chart settings), the drawing toolbar and the trading panels. The window has no
   title bar either: drag it by an empty part of the toolbar. Menus and dialogs opened from it, such

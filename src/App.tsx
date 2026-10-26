@@ -20,6 +20,7 @@ import { AppBar } from './components/AppBar';
 import { ChartWorkspace } from './components/ChartWorkspace';
 import { ContextMenuHost } from './components/ContextMenu';
 import { ChartPopouts } from './components/chart/ChartPopout';
+import { TimeframePromptHost } from './components/chart/TimeframePrompt';
 import { SurfacePortal } from './components/ui/Surface';
 import { focusedPopoutWindow } from './lib/popouts';
 import { Dock } from './components/Dock';
@@ -126,6 +127,7 @@ export function App() {
       {state.dialog && <DialogHost dialog={state.dialog} />}
       <ChartPopouts />
       <ContextMenuHost />
+      <TimeframePromptHost />
       <HintBubble />
     </div>
   );

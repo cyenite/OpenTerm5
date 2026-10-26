@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type Ref } from 'react';
 import {
   closeActiveChart,
   newOrder,
@@ -42,10 +42,11 @@ import {
   updateActiveChart,
   workspace,
 } from '../lib/workspace';
-import { chartTimeframes } from '../lib/mt5-timeframes';
+import { timeframeMenuItems } from '../lib/timeframe-favorites';
 import { useIsReplayingChart } from '../lib/replay-session';
 import { chooseMode, modeOf, useIsBacktestingChart } from '../lib/backtest/runtime';
 import { requestUpdate } from '../lib/updates';
+import { Icon } from './ui/Icon';
 
 export interface MenuItem {
   label: string;
@@ -53,8 +54,11 @@ export interface MenuItem {
   isChecked?: boolean;
   isDisabled?: boolean;
   isSeparator?: boolean;
+  // A star that toggles without closing the menu, as TradingView's timeframe menu has.
+  isFavorite?: boolean;
   items?: MenuItem[];
   action?: () => void;
+  onToggleFavorite?: () => void;
 }
 
 const separator: MenuItem = { label: '', isSeparator: true };
@@ -143,7 +147,7 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
       items: [
         ...chartTypes.map((type) => ({ label: type.label, shortcut: type.shortcut, isChecked: chart?.type === type.key, isDisabled: !hasChart, action: () => setChartType(type.key) })),
         separator,
-        { label: 'Timeframes', isDisabled: !hasChart, items: chartTimeframes.map((timeframe) => ({ label: timeframe.label, isChecked: chart?.timeframe === timeframe.label, action: () => setTimeframe(timeframe.label) })) },
+        { label: 'Timeframes', isDisabled: !hasChart, items: timeframeMenuItems(chart?.timeframe, setTimeframe) },
         {
           label: 'Indicators List',
           isDisabled: !chart?.indicators.length,
@@ -214,13 +218,14 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
 
 interface MenuListProps {
   items: MenuItem[];
+  ref?: Ref<HTMLUListElement>;
   onDone: () => void;
 }
 
-export function MenuList({ items, onDone }: MenuListProps) {
+export function MenuList({ items, ref, onDone }: MenuListProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   return (
-    <ul className="menu-list" role="menu" onMouseDown={(event) => event.stopPropagation()}>
+    <ul ref={ref} className="menu-list" role="menu" onMouseDown={(event) => event.stopPropagation()}>
       {items.map((item, index) => (
         <MenuEntry key={`${item.label}-${index}`} item={item} onDone={onDone} isExpanded={activeIndex === index} onExpand={() => setActiveIndex(index)} />
       ))}
@@ -235,19 +240,47 @@ interface MenuEntryProps {
   onExpand: () => void;
 }
 
+const menuMargin = 4;
+
+// A submenu opens beside its entry inside the window: to the left when the right has no room, over
+// the menu when neither side has, raised to end above the window's bottom, and scrolling when it is
+// taller than the window, so a small pop-out window still shows all of it.
+function placeSubmenu(entry: HTMLElement, list: HTMLElement): void {
+  const view = list.ownerDocument.defaultView;
+  if (!view) return;
+  Object.assign(list.style, { left: '', right: '', top: '', maxHeight: `${view.innerHeight - 2 * menuMargin}px` });
+  const box = list.getBoundingClientRect();
+  const anchor = entry.getBoundingClientRect();
+  if (box.right > view.innerWidth - menuMargin) {
+    if (anchor.left - box.width >= menuMargin) Object.assign(list.style, { left: 'auto', right: '100%' });
+    else list.style.left = `${Math.max(menuMargin, view.innerWidth - menuMargin - box.width) - anchor.left}px`;
+  }
+  if (box.bottom > view.innerHeight - menuMargin) list.style.top = `${Math.max(menuMargin, view.innerHeight - menuMargin - box.height) - anchor.top}px`;
+}
+
 function MenuEntry({ item, onDone, isExpanded, onExpand }: MenuEntryProps) {
+  const entry = useRef<HTMLLIElement>(null);
+  const submenu = useRef<HTMLUListElement>(null);
+  // The menu's items are built when it opens, so a star shows its own toggle at once.
+  const [isFavorite, setIsFavorite] = useState(item.isFavorite);
+  const hasItems = item.items !== undefined && item.items.length > 0;
+
+  useLayoutEffect(() => {
+    if (isExpanded && entry.current && submenu.current) placeSubmenu(entry.current, submenu.current);
+  }, [isExpanded]);
+
   if (item.isSeparator) {
     return <li className="menu-separator" role="separator" />;
   }
-  const hasItems = item.items !== undefined && item.items.length > 0;
   return (
     <li
+      ref={entry}
       role="menuitem"
       tabIndex={item.isDisabled ? -1 : 0}
       aria-disabled={item.isDisabled}
       aria-haspopup={hasItems ? 'menu' : undefined}
       aria-expanded={hasItems ? isExpanded : undefined}
-      className={`menu-entry${item.isDisabled ? ' is-disabled' : ''}${hasItems ? ' has-items' : ''}${isExpanded ? ' is-expanded' : ''}`}
+      className={`menu-entry${item.isDisabled ? ' is-disabled' : ''}${hasItems ? ' has-items' : ''}${isExpanded ? ' is-expanded' : ''}${item.onToggleFavorite ? ' has-favorite' : ''}`}
       onMouseEnter={onExpand}
       onFocus={onExpand}
       onKeyDown={(event) => {
@@ -274,7 +307,23 @@ function MenuEntry({ item, onDone, isExpanded, onExpand }: MenuEntryProps) {
       <span className="menu-check">{item.isChecked ? '✓' : ''}</span>
       <span className="menu-label">{item.label}</span>
       <span className="menu-shortcut">{item.shortcut ?? (hasItems ? '▸' : '')}</span>
-      {hasItems && !item.isDisabled && <MenuList items={item.items!} onDone={onDone} />}
+      {item.onToggleFavorite && (
+        <button
+          type="button"
+          className={`menu-favorite${isFavorite ? ' is-favorite' : ''}`}
+          aria-label={isFavorite ? `Remove ${item.label} from favorites` : `Add ${item.label} to favorites`}
+          aria-pressed={!!isFavorite}
+          title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+          onClick={(event) => {
+            event.stopPropagation();
+            setIsFavorite(!isFavorite);
+            item.onToggleFavorite!();
+          }}
+        >
+          <Icon name="star" size={13} />
+        </button>
+      )}
+      {hasItems && !item.isDisabled && <MenuList ref={submenu} items={item.items!} onDone={onDone} />}
     </li>
   );
 }

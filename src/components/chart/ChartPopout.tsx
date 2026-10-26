@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { chartInstance, chartUi } from '../../lib/chart-instances';
 import { tabActiveChartId, visibleChartIds, type ChartTab } from '../../lib/chart-tabs';
-import { handleShortcut } from '../../lib/commands';
+import { handleShortcut, handleTimeframeKey } from '../../lib/commands';
 import { tabTitle } from '../../lib/layout-menu';
 import { dockTab, forgetPopout, popoutModeOf, popouts, registerPopoutWindow, setPopoutMode, tabDragType, type Popout, type PopoutMode } from '../../lib/popouts';
 import { replay } from '../../lib/replay';
@@ -254,15 +254,23 @@ function PopoutTab({ tab, title, mode }: PopoutTabProps) {
   const replayTabId = useStore(replay, (state) => state.session?.tabId);
   const replayPurpose = useStore(replay, (state) => state.session?.purpose);
   const isFull = mode === 'full';
+  const tabId = tab.id;
 
-  // Full mode answers the terminal's shortcuts, as the main window does.
+  // Full mode answers the terminal's shortcuts, as the main window does; Lite only a typed timeframe.
   useEffect(() => {
     const view = body.current?.ownerDocument.defaultView;
-    if (!isFull || !view) return;
-    const onKey = (event: KeyboardEvent) => { if (!workspace.get().dialog) handleShortcut(event); };
+    if (!view) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (workspace.get().dialog) return;
+      if (isFull) handleShortcut(event);
+      else {
+        const current = workspace.get().tabs.find((candidate) => candidate.id === tabId);
+        handleTimeframeKey(event, current && tabActiveChartId(current));
+      }
+    };
     view.addEventListener('keydown', onKey);
     return () => view.removeEventListener('keydown', onKey);
-  }, [isFull]);
+  }, [isFull, tabId]);
 
   return (
     <div className={`popout is-${mode}`} onMouseDownCapture={() => focusChart(tabActiveChartId(tab))}>
