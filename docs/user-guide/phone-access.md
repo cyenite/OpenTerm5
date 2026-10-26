@@ -79,8 +79,7 @@ pairings last only until OpenTerm5 quits.
   saved passwords, change connection settings, or change copiers, signal sources or guards.
 - **Use it on a network you trust.** When the phone opens OpenTerm5 from the computer's address, the
   page itself comes over plain HTTP. On a public or shared Wi-Fi network someone could alter that
-  page before it reaches the phone. Your home or office network is fine. A native app, which does
-  not download its code from the computer, is planned.
+  page before it reaches the phone. Your home or office network is fine.
 
 ## Reaching the computer from elsewhere
 

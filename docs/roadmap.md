@@ -21,10 +21,9 @@ Issues tagged `roadmap` track each item; comment there before starting work on o
    notifications.
 8. **Execution modes and market data.** Request execution with requotes, exchange Time & Sales, tick
    history export, and custom symbols.
-9. **Phone apps.** Native iOS and Android apps for Phone Access (the same client, packaged so its
-   code does not come from the computer), a relay so phones can reach the computer from anywhere
-   without a VPN, and a headless OpenTerm5 that runs the broker sessions and automation on a server,
-   which phones and the desktop both connect to.
+9. **Phone Access beyond the local network.** A relay so phones can reach the computer from
+   anywhere without a VPN, and a headless OpenTerm5 that runs the broker sessions and automation on
+   a server, which phones and the desktop both connect to.
 10. **Signed releases.** Code-signed and notarised installers for Windows and macOS. Automatic
    updates already work on Windows and Linux; macOS only links to the new release until the app is
    signed and notarised, which Squirrel.Mac requires before it installs an update.
