@@ -276,21 +276,29 @@ interface Draft {
 
 type Drag =
   | { kind: 'pan'; lastX: number; lastY: number; pane: Pane }
-  | { kind: 'price-axis'; pane: Pane; lastY: number }
-  | { kind: 'time-axis'; lastX: number }
+  | { kind: 'price-axis'; pane: Pane; startY: number; span: number }
+  | { kind: 'time-axis'; startX: number; spacing: number }
   | { kind: 'separator'; upper: Pane; lower: Pane; lastY: number }
-  | { kind: 'move'; id: string; origin: { index: number; price: number }; anchors: DrawingPoint[]; hasMoved: boolean }
+  | { kind: 'move'; id: string; origin: { index: number; price: number }; items: { id: string; anchors: DrawingPoint[] }[]; hasMoved: boolean }
+  | { kind: 'select-box'; start: Pt; current: Pt }
   | { kind: 'anchor'; id: string; index: number }
   | { kind: 'place'; startX: number; startY: number; hasMoved: boolean }
   | { kind: 'freehand' }
   | { kind: 'zoom'; start: Pt; current: Pt };
+
+// The drawing under the pointer, and which of its handles when on one.
+type HoverTarget = { id: string; handle: number | null };
 
 // A view the host asked for, applied again as older history arrives until it is reached.
 type ViewRequest = { kind: 'range'; from: number; to: number } | { kind: 'time'; time: number };
 
 const TIME_AXIS_HEIGHT = 28;
 const RAIL_WIDTH = 52;
-const HANDLE_RADIUS = 5;
+// TradingView's anchors: 6px circles in its blue, filled with the chart's background, picked up 2px
+// beyond their edge.
+const HANDLE_RADIUS = 6;
+const HANDLE_REACH = HANDLE_RADIUS + 2;
+const ANCHOR_COLOR = '#2962ff';
 const HIT_TOLERANCE = 5;
 const MEASURE = 'measure';
 const ZOOM = 'zoom-in';
@@ -400,7 +408,11 @@ export class MeridianChart {
   private drawingList: SerializedDrawing[] = [];
   private priceLines: MeridianPriceLine[] = [];
   private tradeMarkers: MeridianTradeMarker[] = [];
+  // The drawing the floating toolbar and settings act on, and every selected drawing (Ctrl+click and
+  // Ctrl+drag select several, as in TradingView).
   private selectedId: string | null = null;
+  private selection = new Set<string>();
+  private hovered: HoverTarget | null = null;
   private tool: string | null = null;
   private cursorMode: CursorMode = 'cross';
   private magnet: MagnetMode = 'off';
@@ -412,6 +424,7 @@ export class MeridianChart {
   private draft: Draft | null = null;
   private drag: Drag | null = null;
   private hover: Pt | null = null;
+  private wheel = { x: 0, y: 0, time: 0 };
   private isCtrlDown = false;
   private width = 0;
   private height = 0;
@@ -814,9 +827,9 @@ export class MeridianChart {
   // ── Clipboard ───────────────────────────────────────────────────────────
 
   copySelection(): boolean {
-    const drawing = this.selected();
-    if (!drawing) return false;
-    clipboard = [structuredClone(drawing)];
+    const drawings = this.selectedDrawings();
+    if (!drawings.length) return false;
+    clipboard = drawings.map((drawing) => structuredClone(drawing));
     return true;
   }
 
@@ -1169,8 +1182,7 @@ export class MeridianChart {
       this.redoStack = this.redoStack.map(rebase);
     }
     this.drawingList = next;
-    if (this.selectedId && !this.drawingList.some((drawing) => drawing.id === this.selectedId)) this.select(null);
-    else if (this.selectedId) this.select(this.selectedId);
+    this.keepSelection();
     this.refreshTree();
     this.invalidate();
   }
@@ -1183,6 +1195,7 @@ export class MeridianChart {
     if (!this.drawingList.some((drawing) => drawing.id === id)) return;
     this.checkpoint();
     this.drawingList = this.drawingList.filter((drawing) => drawing.id !== id);
+    this.selection.delete(id);
     if (this.selectedId === id) this.select(null);
     this.emit('drawings');
     this.invalidate();
@@ -1567,7 +1580,7 @@ export class MeridianChart {
         icon: drawing.type,
         isVisible: drawing.visible,
         isLocked: drawing.locked,
-        isSelected: drawing.id === this.selectedId,
+        isSelected: this.selection.has(drawing.id),
       })),
     );
   }
@@ -1608,7 +1621,7 @@ export class MeridianChart {
     }
     // Studies come back in their saved order.
     this.studies.sort((left, right) => snapshot.studies.findIndex((study) => study.id === left.id) - snapshot.studies.findIndex((study) => study.id === right.id));
-    this.select(this.selectedId && this.drawingList.some((drawing) => drawing.id === this.selectedId) ? this.selectedId : null);
+    this.keepSelection();
     this.emit('drawings');
     this.emit('indicators');
     this.listeners.history.forEach((listener) => listener());
@@ -1625,7 +1638,7 @@ export class MeridianChart {
     const bar = index === null ? null : this.barList[index];
     const point = this.hover;
     const isOnPricePane = point && point.x >= 0 && point.x < this.plotWidth && this.barList.length && this.paneAt(point.y) === this.panes[0];
-    const price = isOnPricePane ? this.panes[0].scale.yToPrice(point.y) : null;
+    const price = isOnPricePane ? this.panes[0].scale.yToPrice(this.crosshairY(point)) : null;
     const hover: MeridianHover = bar
       ? { time: bar.time, price, ohlc: bar, readout: { groups: this.studies.filter((study) => study.isVisible).map((study) => ({ name: studyCaption(study.definition, study.inputs), rows: this.studyValues(study, index!).map((value) => ({ label: value.title, value: value.text, color: value.color })) })) } }
       : { time: null, price, ohlc: null, readout: null };
@@ -1690,12 +1703,12 @@ export class MeridianChart {
     this.removeTransient();
     const timeAxisTop = this.height - TIME_AXIS_HEIGHT;
     if (p.y >= timeAxisTop) {
-      if (p.x < this.plotWidth) this.drag = { kind: 'time-axis', lastX: p.x };
+      if (p.x < this.plotWidth) this.drag = { kind: 'time-axis', startX: p.x, spacing: this.timeScale.spacing };
       return;
     }
     if (p.x >= this.plotWidth) {
       const pane = this.paneAt(p.y);
-      if (pane) this.drag = { kind: 'price-axis', pane, lastY: p.y };
+      if (pane) this.drag = { kind: 'price-axis', pane, startY: p.y, span: pane.scale.max - pane.scale.min };
       return;
     }
     const separator = this.panes.findIndex((pane, index) => index > 0 && Math.abs(p.y - pane.top) <= 3);
@@ -1721,26 +1734,37 @@ export class MeridianChart {
       if (hit && !hit.locked && !this.isLocked) this.removeDrawing(hit.id);
       return;
     }
-    const selected = this.selected();
-    if (selected && !selected.locked && !this.isLocked) {
-      const handle = this.handlePoints(selected).findIndex((point) => Math.hypot(point.x - p.x, point.y - p.y) <= HANDLE_RADIUS + 3);
-      if (handle >= 0) {
-        this.dragBefore = this.snapshot();
-        this.drag = { kind: 'anchor', id: selected.id, index: handle };
-        return;
-      }
+    const target = pane === this.panes[0] ? this.hoverTarget(p) : null;
+    const hit = target && this.drawingList.find((drawing) => drawing.id === target.id);
+    if (hit && this.isCtrlDown) {
+      this.toggleSelected(hit.id);
+      return;
     }
-    const hit = pane === this.panes[0] ? this.hitDrawing(p) : null;
-    if (hit) {
+    if (hit && target.handle !== null) {
       this.select(hit.id);
-      if (!hit.locked && !this.isLocked) {
+      this.dragBefore = this.snapshot();
+      this.drag = { kind: 'anchor', id: hit.id, index: target.handle };
+      this.canvas.style.cursor = this.dragCursor(hit, target.handle);
+      return;
+    }
+    if (hit) {
+      // A drawing among several selected moves them all.
+      if (!this.selection.has(hit.id) || this.selection.size < 2) this.select(hit.id);
+      const items = this.selectedDrawings().filter((drawing) => !drawing.locked).map((drawing) => ({ id: drawing.id, anchors: structuredClone(drawing.anchors) }));
+      if (items.length && !this.isLocked) {
         this.dragBefore = this.snapshot();
-        this.drag = { kind: 'move', id: hit.id, origin: { index: this.timeScale.xToIndex(p.x), price: this.panes[0].scale.yToPrice(p.y) }, anchors: structuredClone(hit.anchors), hasMoved: false };
+        this.drag = { kind: 'move', id: hit.id, origin: { index: this.timeScale.xToIndex(p.x), price: this.panes[0].scale.yToPrice(p.y) }, items, hasMoved: false };
+        this.canvas.style.cursor = 'grabbing';
       }
+      return;
+    }
+    if (this.isCtrlDown && pane === this.panes[0]) {
+      this.drag = { kind: 'select-box', start: p, current: p };
       return;
     }
     this.select(null);
     this.drag = { kind: 'pan', lastX: p.x, lastY: p.y, pane };
+    this.canvas.style.cursor = 'grabbing';
   };
 
   private onPointerMove = (event: PointerEvent): void => {
@@ -1767,6 +1791,8 @@ export class MeridianChart {
       if (this.draft.anchors.length > 1) this.commit(this.draft.type, this.draft.anchors, true);
       this.draft = null;
     } else if (drag.kind === 'move' || drag.kind === 'anchor') {
+      // A click without a drag on one of several selected drawings selects just that one.
+      if (drag.kind === 'move' && !drag.hasMoved && this.selection.size > 1) this.select(drag.id);
       if (drag.kind === 'anchor' || drag.hasMoved) {
         if (this.dragBefore) this.checkpoint(this.dragBefore);
         this.emit('drawings');
@@ -1774,9 +1800,12 @@ export class MeridianChart {
       this.dragBefore = null;
     } else if (drag.kind === 'zoom') {
       this.zoomToBox(drag.start, drag.current);
+    } else if (drag.kind === 'select-box') {
+      this.selectInBox(drag.start, drag.current);
     } else if (drag.kind === 'pan' && event.type === 'pointerup' && !this.tool && !this.draft) {
       this.emitTimeClick(p);
     }
+    if (!this.tool) this.updateHoverCursor(p);
     this.invalidate();
   };
 
@@ -1944,16 +1973,31 @@ export class MeridianChart {
     this.invalidate();
   }
 
+  // TradingView's wheel: deltas in hundredths (lines and pages scaled up), a vertical step zooms by
+  // at most a tenth per event around the right edge (around the pointer with Ctrl), a horizontal
+  // one scrolls 0.8px per unit. Shift swaps the axes off macOS, and a gesture that is mostly one
+  // axis drops the other.
   private onWheel = (event: WheelEvent): void => {
     event.preventDefault();
     this.requestedView = null;
-    const p = this.point(event);
-    if (Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.shiftKey) {
-      this.timeScale.pan(-(event.deltaX || event.deltaY));
-    } else {
-      const factor = Math.exp(-event.deltaY * (event.deltaMode === 1 ? 0.05 : 0.0015));
-      this.timeScale.zoom(factor, p.x < this.plotWidth ? p.x : this.plotWidth);
+    const unit = event.deltaMode === 2 ? 120 : event.deltaMode === 1 ? 32 : 1;
+    const isSwapped = event.shiftKey && !/Mac/.test(this.view.navigator.platform);
+    const rawX = isSwapped ? -event.deltaY : event.deltaX;
+    const rawY = isSwapped ? event.deltaX : event.deltaY;
+    if (event.timeStamp - this.wheel.time > 100) this.wheel = { x: 0, y: 0, time: 0 };
+    this.wheel = { x: this.wheel.x + rawX, y: this.wheel.y + rawY, time: event.timeStamp };
+    let deltaX = rawX * unit / 100;
+    let deltaY = rawY * unit / 100;
+    if (this.wheel.x && this.wheel.y) {
+      if (Math.abs(this.wheel.x) >= Math.abs(3 * this.wheel.y)) deltaY = 0;
+      if (Math.abs(this.wheel.y) >= Math.abs(3 * this.wheel.x)) deltaX = 0;
     }
+    if (deltaY) {
+      const p = this.point(event);
+      const isAtPointer = event.ctrlKey || event.metaKey;
+      this.timeScale.zoomStep(-deltaY, isAtPointer ? Math.max(1, Math.min(p.x, this.plotWidth - 2)) : this.plotWidth);
+    }
+    if (deltaX) this.timeScale.pan(-80 * deltaX);
     this.invalidate();
   };
 
@@ -1981,22 +2025,29 @@ export class MeridianChart {
       if (this.tool) this.applyTool(null, true);
       else this.select(null);
       this.removeTransient();
-    } else if ((event.key === 'Delete' || event.key === 'Backspace') && this.selectedId) {
+    } else if ((event.key === 'Delete' || event.key === 'Backspace') && this.selection.size) {
       this.removeSelected();
     } else if (event.key === 'Enter' && this.draft?.definition.anchors === 'multi') {
       const anchors = this.draft.anchors.slice(0, -1);
       if (anchors.length >= 2) this.commit(this.draft.type, anchors, true);
       this.draft = null;
+    } else if (isMod && !event.altKey && !event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      this.zoom(event.key === 'ArrowUp' ? 1.25 : 0.8);
     } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      // TradingView's keys: a bar at a time, ten with Ctrl or Alt, and Shift to either end.
       this.requestedView = null;
-      this.timeScale.pan((event.key === 'ArrowLeft' ? 1 : -1) * this.timeScale.spacing * (event.shiftKey ? 10 : 1));
+      const isLeft = event.key === 'ArrowLeft';
+      if (event.shiftKey && !isMod && !event.altKey) {
+        if (isLeft) this.timeScale.rightEdge = Math.min(this.timeScale.lastIndex, this.plotWidth / this.timeScale.spacing);
+        else this.scrollToEnd();
+      } else this.timeScale.pan((isLeft ? 1 : -1) * this.timeScale.spacing * (isMod || event.altKey ? 10 : 1));
     } else if (event.key === 'Home') {
       this.requestedView = null;
       this.timeScale.rightEdge = Math.min(this.timeScale.lastIndex, this.plotWidth / this.timeScale.spacing);
     } else if (event.key === 'End') {
       this.scrollToEnd();
     } else if (event.key === 'Control' || event.key === 'Meta') {
-      this.isCtrlDown = true;
+      this.setCtrlDown(true);
       return;
     } else return;
     event.preventDefault();
@@ -2005,8 +2056,16 @@ export class MeridianChart {
   };
 
   private onKeyUp = (event: KeyboardEvent): void => {
-    if (event.key === 'Control' || event.key === 'Meta') this.isCtrlDown = false;
+    if (event.key === 'Control' || event.key === 'Meta') this.setCtrlDown(false);
   };
+
+  // Ctrl turns the magnet round and changes the pointer over drawings, so both follow it at once.
+  private setCtrlDown(isDown: boolean): void {
+    if (this.isCtrlDown === isDown) return;
+    this.isCtrlDown = isDown;
+    if (this.hover && !this.drag) this.updateHoverCursor(this.hover);
+    this.invalidate();
+  }
 
   // Alt shortcuts: tools, scale modes and reset. By physical key, since Alt changes the
   // character on some layouts.
@@ -2027,13 +2086,50 @@ export class MeridianChart {
 
   private updateHoverCursor(p: Pt): void {
     if (this.tool) return;
+    this.hovered = null;
     if (p.y >= this.height - TIME_AXIS_HEIGHT) { this.canvas.style.cursor = 'ew-resize'; return; }
     if (p.x >= this.plotWidth) { this.canvas.style.cursor = 'ns-resize'; return; }
     if (this.panes.some((pane, index) => index > 0 && Math.abs(p.y - pane.top) <= 3)) { this.canvas.style.cursor = 'row-resize'; return; }
-    const selected = this.selected();
-    if (selected && this.handlePoints(selected).some((point) => Math.hypot(point.x - p.x, point.y - p.y) <= HANDLE_RADIUS + 3)) { this.canvas.style.cursor = 'move'; return; }
-    if (this.paneAt(p.y) === this.panes[0] && this.hitDrawing(p)) { this.canvas.style.cursor = 'pointer'; return; }
-    this.updateCursor();
+    const target = this.cursorMode === 'eraser' || this.paneAt(p.y) !== this.panes[0] ? null : this.hoverTarget(p);
+    this.hovered = target;
+    const drawing = target && this.drawingList.find((candidate) => candidate.id === target.id);
+    if (!target || !drawing) { this.updateCursor(); return; }
+    // As in TradingView: a hand over a drawing (and with Ctrl, which adds it to the selection), the
+    // handle's own pointer over a handle.
+    this.canvas.style.cursor = target.handle === null || this.isCtrlDown ? 'pointer' : this.handleCursor(drawing, target.handle);
+  }
+
+  // The selected drawings' handles first, then the topmost drawing under the pointer, whose handles
+  // can be dragged straight away when it is not locked.
+  private hoverTarget(p: Pt): HoverTarget | null {
+    if (this.isHidden) return null;
+    const onHandle = (drawing: SerializedDrawing) => drawing.locked || this.isLocked ? -1 : this.handlePoints(drawing).findIndex((point) => Math.hypot(point.x - p.x, point.y - p.y) <= HANDLE_REACH);
+    for (const drawing of this.selectedDrawings()) {
+      const handle = onHandle(drawing);
+      if (handle >= 0) return { id: drawing.id, handle };
+    }
+    const hit = this.hitDrawing(p);
+    if (!hit) return null;
+    const handle = onHandle(hit);
+    return { id: hit.id, handle: handle >= 0 ? handle : null };
+  }
+
+  private handleCursor(drawing: SerializedDrawing, handle: number): string {
+    const cursor = toolDefinitions.get(drawing.type)?.handles?.cursors?.[handle] ?? 'default';
+    if (cursor !== 'diagonal') return cursor;
+    // A corner's arrow points away from the middle of the drawing, whichever way it was drawn.
+    const points = this.handlePoints(drawing);
+    const xs = points.map((point) => point.x);
+    const ys = points.map((point) => point.y);
+    const dx = points[handle].x - (Math.min(...xs) + Math.max(...xs)) / 2;
+    const dy = points[handle].y - (Math.min(...ys) + Math.max(...ys)) / 2;
+    return dx * dy >= 0 ? 'nwse-resize' : 'nesw-resize';
+  }
+
+  // While a handle is dragged it keeps its resize arrow; a free point is held like a moved drawing.
+  private dragCursor(drawing: SerializedDrawing, handle: number): string {
+    const cursor = this.handleCursor(drawing, handle);
+    return cursor === 'default' ? 'grabbing' : cursor;
   }
 
   private continueDrag(drag: Drag, p: Pt): void {
@@ -2046,15 +2142,25 @@ export class MeridianChart {
         drag.lastY = p.y;
         break;
       }
-      case 'price-axis':
-        drag.pane.scale.stretch(Math.exp((p.y - drag.lastY) * 0.005));
-        drag.lastY = p.y;
+      // Both axes scale like TradingView's: against the range the drag started from, so the grabbed
+      // point follows the pointer. The time axis keeps the right edge, the price axis its centre.
+      case 'price-axis': {
+        const { scale } = drag.pane;
+        const bottom = scale.top + scale.height;
+        const padding = 0.2 * (scale.height - 1);
+        const ratio = Math.max(0.1, (bottom - drag.startY + padding) / (Math.max(0, bottom - p.y) + padding));
+        const span = scale.max - scale.min;
+        if (span > 0) scale.stretch(drag.span * ratio / span);
         break;
-      case 'time-axis':
+      }
+      case 'time-axis': {
+        const from = Math.max(0, Math.min(this.plotWidth, this.plotWidth - drag.startX));
+        const to = Math.max(0, Math.min(this.plotWidth, this.plotWidth - p.x));
+        if (!from || !to) break;
         this.requestedView = null;
-        this.timeScale.zoom(Math.exp((p.x - drag.lastX) * 0.01), this.plotWidth);
-        drag.lastX = p.x;
+        this.timeScale.zoom(drag.spacing * to / from / this.timeScale.spacing, this.plotWidth);
         break;
+      }
       case 'separator': {
         const delta = p.y - drag.lastY;
         const total = drag.upper.height + drag.lower.height;
@@ -2067,15 +2173,19 @@ export class MeridianChart {
         break;
       }
       case 'move': {
-        const drawing = this.drawingList.find((candidate) => candidate.id === drag.id);
-        if (!drawing) break;
         const deltaIndex = this.timeScale.xToIndex(p.x) - drag.origin.index;
         const shift = Math.round(deltaIndex);
         const deltaPrice = this.panes[0].scale.yToPrice(p.y) - drag.origin.price;
-        drawing.anchors = drag.anchors.map((anchor) => ({ time: this.timeScale.timeAt(this.timeScale.indexOf(anchor.time) + shift), price: anchor.price + deltaPrice }));
+        for (const item of drag.items) {
+          const drawing = this.drawingList.find((candidate) => candidate.id === item.id);
+          if (drawing) drawing.anchors = item.anchors.map((anchor) => ({ time: this.timeScale.timeAt(this.timeScale.indexOf(anchor.time) + shift), price: anchor.price + deltaPrice }));
+        }
         drag.hasMoved = true;
         break;
       }
+      case 'select-box':
+        drag.current = { x: Math.max(0, Math.min(this.plotWidth, p.x)), y: Math.max(this.panes[0].top, Math.min(this.panes[0].top + this.panes[0].height, p.y)) };
+        break;
       case 'anchor': {
         const drawing = this.drawingList.find((candidate) => candidate.id === drag.id);
         const definition = drawing && toolDefinitions.get(drawing.type);
@@ -2109,22 +2219,43 @@ export class MeridianChart {
 
   // ── Placing drawings ────────────────────────────────────────────────────
 
+  // Free strokes (`isSnapped` false) follow the pointer exactly; every other point takes the bar's
+  // time and, with the magnet, its price.
   private dataPoint(p: Pt, isSnapped: boolean): DrawingPoint {
     const scale = this.panes[0].scale;
     const index = this.timeScale.xToIndex(p.x);
-    let time = this.timeScale.timeAt(isSnapped ? Math.round(index) : index);
-    let price = scale.yToPrice(p.y);
     const barIndex = Math.round(index);
-    const bar = this.displayBars[barIndex];
-    const isStrong = this.magnet === 'strong' || this.isCtrlDown;
-    if (bar && (isStrong || this.magnet === 'weak')) {
-      const nearest = [bar.open, bar.high, bar.low, bar.close].reduce((best, value) => Math.abs(value - price) < Math.abs(best - price) ? value : best);
-      if (isStrong || Math.abs(scale.priceToY(nearest) - p.y) <= 24) {
-        price = nearest;
-        time = bar.time;
-      }
-    }
-    return { time, price };
+    const snapped = isSnapped ? this.magnetPrice(barIndex, p.y) : null;
+    if (snapped !== null) return { time: this.displayBars[barIndex].time, price: snapped };
+    return { time: this.timeScale.timeAt(isSnapped ? barIndex : index), price: scale.yToPrice(p.y) };
+  }
+
+  // TradingView's magnet works only while a drawing is placed or edited, and Ctrl turns it the
+  // other way round for as long as it is held: off when it is on, strong when it is off.
+  private activeMagnet(): MagnetMode {
+    const isEditing = (!!this.tool && this.tool !== ZOOM) || !!this.draft || this.drag?.kind === 'anchor';
+    if (!isEditing) return 'off';
+    if (this.isCtrlDown) return this.magnet === 'off' ? 'strong' : 'off';
+    return this.magnet;
+  }
+
+  // The bar's open, high, low or close nearest to `y`: always on a strong magnet, within 50px on a
+  // weak one.
+  private magnetPrice(index: number, y: number): number | null {
+    const mode = this.activeMagnet();
+    const bar = this.displayBars[index];
+    if (mode === 'off' || !bar || this.paneAt(y) !== this.panes[0]) return null;
+    const scale = this.panes[0].scale;
+    const distance = (price: number) => Math.abs(scale.priceToY(price) - y);
+    const nearest = [bar.open, bar.high, bar.low, bar.close].reduce((best, price) => distance(price) < distance(best) ? price : best);
+    return mode === 'strong' || distance(nearest) < 50 ? nearest : null;
+  }
+
+  // Where the crosshair's horizontal line sits: on the magnet's price when it holds one.
+  private crosshairY(hover: Pt): number {
+    if (!this.barList.length || hover.x >= this.plotWidth) return hover.y;
+    const price = this.magnetPrice(this.timeScale.barAt(hover.x), hover.y);
+    return price === null ? hover.y : this.panes[0].scale.priceToY(price);
   }
 
   private startPlacing(p: Pt): void {
@@ -2253,7 +2384,51 @@ export class MeridianChart {
 
   private select(id: string | null): void {
     this.selectedId = id;
-    const drawing = this.selected();
+    this.selection = new Set(id ? [id] : []);
+    this.showSelection();
+  }
+
+  private selectedDrawings(): SerializedDrawing[] {
+    return this.drawingList.filter((drawing) => this.selection.has(drawing.id));
+  }
+
+  // Ctrl+click: in or out of the selection, which keeps the others.
+  private toggleSelected(id: string): void {
+    const next = new Set(this.selection);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    this.selection = next;
+    this.selectedId = next.has(id) ? id : [...next].at(-1) ?? null;
+    this.showSelection();
+    this.refreshTree();
+  }
+
+  // Ctrl+drag on the chart: every shown drawing with a point inside the box.
+  private selectInBox(start: Pt, end: Pt): void {
+    const left = Math.min(start.x, end.x);
+    const right = Math.max(start.x, end.x);
+    const top = Math.min(start.y, end.y);
+    const bottom = Math.max(start.y, end.y);
+    const isInside = (point: Pt) => point.x >= left && point.x <= right && point.y >= top && point.y <= bottom;
+    const ids = this.shownDrawings().filter((drawing) => [...this.handlePoints(drawing), ...this.anchorPoints(drawing)].some(isInside)).map((drawing) => drawing.id);
+    this.selection = new Set(ids);
+    this.selectedId = ids.at(-1) ?? null;
+    this.showSelection();
+    this.refreshTree();
+  }
+
+  // After the list was replaced (by the host, or an undo): the selected drawings that still exist
+  // stay selected.
+  private keepSelection(): void {
+    const ids = new Set(this.drawingList.map((drawing) => drawing.id));
+    this.selection = new Set([...this.selection].filter((id) => ids.has(id)));
+    if (this.selectedId && !ids.has(this.selectedId)) this.selectedId = [...this.selection].at(-1) ?? null;
+    this.showSelection();
+  }
+
+  // The floating toolbar edits one drawing, so it shows only while one is selected.
+  private showSelection(): void {
+    const drawing = this.selection.size === 1 ? this.selected() : undefined;
     const definition = drawing && toolDefinitions.get(drawing.type);
     if (drawing) this.styleBar.show(drawing, { isFillable: !!definition?.isFillable, hasText: !!definition?.hasText });
     else this.styleBar.hide();
@@ -2276,8 +2451,13 @@ export class MeridianChart {
   }
 
   private removeSelected(): void {
-    const drawing = this.selected();
-    if (drawing && !drawing.locked) this.removeDrawing(drawing.id);
+    const ids = new Set(this.selectedDrawings().filter((drawing) => !drawing.locked).map((drawing) => drawing.id));
+    if (!ids.size) return;
+    this.checkpoint();
+    this.drawingList = this.drawingList.filter((drawing) => !ids.has(drawing.id));
+    this.select(null);
+    this.emit('drawings');
+    this.invalidate();
   }
 
   removeAllDrawings(): void {
@@ -2699,6 +2879,11 @@ export class MeridianChart {
     return this.drawingList.filter((drawing) => drawing.visible && isShownOn(drawing, this.interval));
   }
 
+  private anchorPoints(drawing: SerializedDrawing): Pt[] {
+    const scale = this.panes[0].scale;
+    return drawing.anchors.map((anchor) => ({ x: this.timeScale.timeToX(anchor.time), y: scale.priceToY(anchor.price) }));
+  }
+
   private handlePoints(drawing: SerializedDrawing): Pt[] {
     if (toolDefinitions.get(drawing.type)?.anchors === 'free') return [];
     const scale = this.panes[0].scale;
@@ -3064,7 +3249,7 @@ export class MeridianChart {
           continue;
         }
         const top = Math.min(open, close);
-        const height = Math.max(wick, Math.max(open, close) - top);
+        const height = Math.max(border, Math.max(open, close) - top);
         const bottom = top + height;
         if (isWickVisible) {
           fill(wickColor, wickLeft, high, wick, top - high);
@@ -3536,23 +3721,62 @@ export class MeridianChart {
       const look = this.lookFor(this.draft.type);
       const draft: SerializedDrawing = { id: 'draft', type: this.draft.type, paneId: 'price', anchors: this.draft.anchors, style: look?.style ?? styleFor(this.draft.type), locked: false, visible: true, zIndex: 0, createdAt: 0, ...(this.draft.definition.hasText ? { text: look?.text ?? this.draft.definition.defaultText ?? '' } : {}), ...(look?.props ? { props: look.props } : {}) };
       paintShapes(ctx, this.shapesOf(draft, true).shapes, defaults);
-      if (this.draft.definition.anchors !== 'free') this.paintHandles(this.handlePoints(draft), draft.style.lineColor);
+      if (this.draft.definition.anchors !== 'free') this.paintHandles(this.anchorPoints(draft).slice(0, -1), true, null);
     }
-    const selected = this.selected();
-    if (selected && selected.visible && isShownOn(selected, this.interval)) this.paintHandles(this.handlePoints(selected), selected.style.lineColor);
+    // TradingView shows a drawing's handles while it is selected, or hovered when it can be edited,
+    // and hides the one being dragged.
+    const hovered = this.hovered;
+    for (const drawing of this.shownDrawings()) {
+      const isSelected = this.selection.has(drawing.id);
+      const isHovered = hovered?.id === drawing.id && !drawing.locked && !this.isLocked;
+      if (!isSelected && !isHovered) continue;
+      const dragged = this.drag?.kind === 'anchor' && this.drag.id === drawing.id ? this.drag.index : null;
+      const points = this.handlePoints(drawing).map((point, index) => index === dragged ? null : point);
+      this.paintHandles(points, isSelected, hovered?.id === drawing.id ? hovered.handle : null);
+    }
+    if (this.drag?.kind === 'select-box') {
+      const { start, current } = this.drag;
+      ctx.fillStyle = 'rgba(41, 98, 255, 0.1)';
+      ctx.strokeStyle = ANCHOR_COLOR;
+      ctx.lineWidth = 1;
+      ctx.fillRect(Math.min(start.x, current.x), Math.min(start.y, current.y), Math.abs(current.x - start.x), Math.abs(current.y - start.y));
+      ctx.strokeRect(this.crisp(Math.min(start.x, current.x)), this.crisp(Math.min(start.y, current.y)), Math.round(Math.abs(current.x - start.x)), Math.round(Math.abs(current.y - start.y)));
+    }
   }
 
-  private paintHandles(points: Pt[], color: string): void {
+  // In device pixels on the pixel grid, like TradingView's: a ring 1px thick (2px when selected)
+  // filled with the background, and a faint 3px halo round the one under the pointer.
+  private paintHandles(points: readonly (Pt | null)[], isSelected: boolean, hovered: number | null): void {
     const ctx = this.context;
-    for (const point of points) {
+    const ratio = this.ratio;
+    const thin = Math.max(1, Math.floor(ratio));
+    const width = thin + (isSelected ? Math.max(1, Math.floor(ratio / 2)) : 0);
+    const halo = Math.max(1, Math.floor(3 * ratio));
+    let size = Math.round(HANDLE_RADIUS * ratio * 2);
+    if (size % 2 !== thin % 2) size += 1;
+    const offset = thin % 2 / 2;
+    ctx.save();
+    ctx.scale(1 / ratio, 1 / ratio);
+    ctx.fillStyle = this.theme.chart.background;
+    ctx.strokeStyle = ANCHOR_COLOR;
+    points.forEach((point, index) => {
+      if (!point) return;
+      const x = Math.round(point.x * ratio) + offset;
+      const y = Math.round(point.y * ratio) + offset;
       ctx.beginPath();
-      ctx.arc(point.x, point.y, HANDLE_RADIUS, 0, Math.PI * 2);
-      ctx.fillStyle = this.theme.chart.background;
+      ctx.arc(x, y, size / 2 - width / 2, 0, Math.PI * 2);
+      ctx.lineWidth = width;
       ctx.fill();
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = color;
       ctx.stroke();
-    }
+      if (index !== hovered) return;
+      ctx.globalAlpha = 0.2;
+      ctx.beginPath();
+      ctx.arc(x, y, size / 2 + halo / 2, 0, Math.PI * 2);
+      ctx.lineWidth = halo;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    });
+    ctx.restore();
   }
 
   // Another chart's crosshair: a vertical line on this chart's bar holding its time, a horizontal
@@ -3640,14 +3864,14 @@ export class MeridianChart {
       ctx.moveTo(x, 0);
       ctx.lineTo(x, timeAxisTop);
       if (pane) {
-        const y = this.crisp(hover.y);
+        const y = this.crisp(this.crosshairY(hover));
         ctx.moveTo(0, y);
         ctx.lineTo(this.plotWidth, y);
       }
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    if (pane && this.chartSettings.isPriceCrosshairLabelShown) this.priceTag(pane, hover.y);
+    if (pane && this.chartSettings.isPriceCrosshairLabelShown) this.priceTag(pane, this.crosshairY(hover));
     if (this.chartSettings.isTimeCrosshairLabelShown) this.timeTag(x, this.barList[index].time);
   }
 

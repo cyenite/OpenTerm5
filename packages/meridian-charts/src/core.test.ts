@@ -187,4 +187,25 @@ test('candle widths fill the spacing when zoomed out and keep the wick centred',
     }
   }
   assert.ok(candleWidths(30, 1).body < 26);
+  assert.equal(candleWidths(50, 1).wick, 1);
+  assert.equal(candleWidths(60, 1).wick, 3, 'wide candles get TradingView\'s 3px wick');
+  assert.equal(candleWidths(60, 2).wick, 6);
+  assert.equal(candleWidths(200, 1).wick, 5);
+});
+
+test('wheel steps zoom by at most a tenth, and zooming in stops at two bars across', () => {
+  const scale = new TimeScale();
+  scale.width = 800;
+  scale.setTimes(Array.from({ length: 500 }, (_, index) => index * 60_000), 60_000);
+  scale.spacing = 10;
+  scale.zoomStep(15);
+  assert.equal(scale.spacing, 11, 'a huge delta is one capped step');
+  scale.zoomStep(-0.5);
+  assert.ok(Math.abs(scale.spacing - 10.45) < 1e-9);
+  const edge = scale.rightEdge;
+  scale.zoomStep(1);
+  assert.equal(scale.rightEdge, edge, 'the right edge stays put');
+  for (let step = 0; step < 200; step++) scale.zoomStep(1);
+  assert.equal(scale.spacing, 400);
+  assert.equal(scale.maxSpacing, scale.width / 2);
 });

@@ -64,16 +64,20 @@ chart. Closing OpenTerm5 or switching accounts starts the history again.
 Switch between bar, candlestick and line charts with Alt+1, Alt+2 and Alt+3. Hollow candles, area,
 baseline and Heikin Ashi charts are on the toolbar and in the **Charts** menu.
 
-Charts are drawn by Meridian, OpenTerm5's own chart engine. Drag the chart or use the mouse wheel to
-scroll and zoom; scrolling back loads older history. Drag the price axis to rescale it (double-click it
-to return to automatic scaling), drag the time axis to change the bar spacing, and drag the boundary
-between panes to resize them. The last price with the bar countdown, the ask line and each study's
+Charts are drawn by Meridian, OpenTerm5's own chart engine. Drag the chart to scroll; scrolling back
+loads older history. The mouse wheel zooms as TradingView does: a little per notch, keeping the latest
+bar in place (hold Ctrl to zoom around the pointer), down to two bars across the chart. Drag the price
+axis to rescale it (double-click it to return to automatic scaling), drag the time axis to change the
+bar spacing (left spreads the bars, right squeezes them), and drag the boundary between panes to resize
+them. Type a letter on a chart to search for a symbol to show on it. The last price with the bar countdown, the ask line and each study's
 latest value sit on the price axis.
 
 Right-click the price axis to choose a regular, percent, indexed (to 100) or logarithmic scale, to
-invert it, or to turn automatic scaling back on. Right-click the chart for **Reset Chart View**, undo,
-redo, paste, **Add Alert** at the price under the pointer, the object tree, bar replay and **Chart
-Settings…**, followed by the usual chart menu. Chart Settings sets the candle body, border and wick
+invert it, or to turn automatic scaling back on. Right-click the chart for a short menu, as in TradingView:
+**Reset Chart View**, **Copy Price** and **Paste**; **Add Alert** at the price under the pointer and
+**Trading** at it; **Object Tree** and **Remove** (drawings or indicators); the chart's own **Theme**
+and, in a multi-chart layout, **Layout** (maximise, move the chart, apply its indicators to the
+others); and **Settings…**. Everything else is on the chart bar and the menus. Chart Settings sets the candle body, border and wick
 colours, what the status line shows, the scale mode, the last-price line and label, the countdown, the
 right margin, the background, grid, crosshair and the symbol watermark. Settings are saved with the
 chart and with its templates; colours you leave unchanged follow the theme.
@@ -88,7 +92,7 @@ same symbol). See [Chart layouts](#chart-layouts) for this and the other sync op
 - **Object tree** (the button at the bottom of the drawing toolbar, or the top bar) lists the chart's
   indicators and drawings. Click a drawing to select it, double-click for its settings, and use the
   row's buttons to hide, lock or remove it.
-- **Bar replay** (**Replay** in the top bar, or the chart's context menu) hides the later bars. Click
+- **Bar replay** (**Replay** in the top bar) hides the later bars. Click
   a bar on any chart to start from, then use the replay bar under the charts to play (Shift+Down),
   step forward (Shift+Right), change the speed or pick another start (a date, the first available
   bar or a random one). **Exit Replay** goes back to live charts. Indicators and drawings work as
@@ -110,8 +114,8 @@ same symbol). See [Chart layouts](#chart-layouts) for this and the other sync op
     trade with risk-sized lines on the chart.
 ### Indicators
 
-Add an indicator from **Insert → Indicators**, from the chart's context menu, or by clicking it in the
-Navigator. Indicators come in two groups:
+Add an indicator from **Insert → Indicators**, the **Indicators** button on the chart bar (or `/`), or
+by clicking it in the Navigator. Indicators come in two groups:
 
 - **MetaTrader 5:** MetaTrader's own formulas: Moving Average (simple or exponential), Bollinger
   Bands, Ichimoku Kinko Hyo, Parabolic SAR, ADX Wilder, RSI, Stochastic, CCI, Momentum, Rate of
@@ -123,8 +127,8 @@ Navigator. Indicators come in two groups:
   Oscillator.
 
 An indicator starts with its default settings. Hover over its legend row and use **Settings** to change
-them (or double-click the row), **Hide** to hide it or **Remove** to remove it. **Indicators List** in the chart's context menu also
-removes indicators. Volume-based indicators use tick volume.
+them (or double-click the row), **Hide** to hide it or **Remove** to remove it. **Remove → Indicators** in the chart's context menu
+removes them all. Volume-based indicators use tick volume.
 
 Charts made with versions before Meridian keep their indicators, which now use the MetaTrader 5
 group.
@@ -141,12 +145,15 @@ pitchforks; Fibonacci and Gann tools; chart patterns, Elliott waves and cycles; 
 positions, volume profiles and measurers; brushes, arrows and shapes; and text and notes. Each group
 button shows the tool you last used from it; the arrow beside it opens the full list, where the star
 adds a tool to the favourites bar above the chart. Below the groups are the measure and zoom tools,
-the magnet (which snaps anchors to the bar's open, high, low or close), stay in drawing mode, lock,
+the magnet (while you draw or move an anchor, the crosshair and the anchor snap to the bar's open,
+high, low or close: always with the strong magnet, within 50px with the weak one), stay in drawing mode, lock,
 hide and remove.
 
 Click to place each anchor, or press and drag for two-point tools. Polylines and paths end with a
-double-click. Shift-click anywhere to measure. Select an object to move it, drag its anchors, or change
-its colour, width and style from the bar that appears above the chart; double-click it for all its
+double-click. Shift-click anywhere to measure. Hover an object to see its handles and drag them straight away (a
+rectangle also has handles on its sides). Select an object to move it, or change its colour, width and
+style from the bar that appears above the chart; Ctrl+click adds objects to the selection and Ctrl+drag
+on the chart selects every object with a point in the box, so several move, copy and delete together; double-click it for all its
 settings. The settings come in tabs: **Style**, **Levels** (for Fibonacci, Gann and pitchfork tools,
 each level with its own value, colour and visibility), **Text**, **Coordinates** and **Visibility**,
 which chooses the timeframes the object shows on. Double-clicking a text object edits its text in
@@ -176,7 +183,7 @@ Chart Settings, so the theme shows in full.
 - **File → Profiles** saves the set of open charts and their layout.
 - **Charts → Templates** saves a chart's indicators, drawings and appearance, so you can apply them to
   another symbol.
-- **Save As Picture…** in the chart's context menu exports a PNG of the chart.
+- **Charts → Save Chart Image…** (or the camera on the chart bar) exports a PNG of the chart.
 
 ### Analysis mode
 
@@ -207,9 +214,9 @@ show.
 | Close a tab | The **×** on its tab, or middle-click it |
 | Choose the active chart | Click it, or press **Tab** and **Shift+Tab** to move between charts in reading order |
 | Resize charts | Drag the line between two charts. **Shift**+drag moves the matching lines too; double-click resets |
-| Maximise a chart | **Alt+Enter**, or **Maximize Chart** in the chart menu. Press it again, or choose any layout, to restore |
-| Swap charts | Right-click a chart and choose **Move Chart → Forward** or **Back** |
-| Close a chart | Right-click it and choose **Close**, or Ctrl+F4. The layout steps down to fit the charts left |
+| Maximise a chart | **Alt+Enter**, or **Layout → Maximize Chart** in the chart menu. Press it again, or choose any layout, to restore |
+| Swap charts | Right-click a chart and choose **Layout → Move Chart Forward** or **Move Chart Back** |
+| Close a chart | **File → Close** or Ctrl+F4. The layout steps down to fit the charts left |
 
 Switching to a smaller layout hides the extra charts rather than closing them, and a larger layout
 brings them back before adding copies of the active chart. Each layout remembers its own divider
@@ -254,7 +261,7 @@ elsewhere or with OpenTerm5 minimised.
   edge for a slim strip with the tab handle and buttons for Full mode and returning the tab; drag
   the strip to move the window. It stays until you move down onto the charts or leave the window.
   Right-click a chart for a short menu (timeframes, chart type, theme, reset view and the window
-  commands), and type a timeframe to switch it, as in the main window. Menus stay inside the
+  commands), and type a timeframe or a symbol to switch it, as in the main window. Menus stay inside the
   window, however small, and scroll when they are taller than it.
 - **Full** adds a toolbar for the tab (symbol, layout setup, timeframes, chart type, indicators, undo,
   object tree and chart settings), the drawing toolbar and the trading panels. The window has no

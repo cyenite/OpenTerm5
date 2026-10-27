@@ -148,6 +148,7 @@ function adoptPopout(child: BrowserWindow): void {
   window?.webContents.setBackgroundThrottling(false);
   child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   child.webContents.on('will-navigate', (event) => event.preventDefault());
+  zoom.attach(child.webContents, process.platform === 'darwin');
   child.on('closed', () => {
     popouts.delete(child);
     if (!popouts.size) window?.webContents.setBackgroundThrottling(true);
@@ -478,7 +479,7 @@ ipcMain.handle('updates:request', async (_event, method: UpdateMethod, params: u
   }
 });
 ipcMain.handle('settings:get', () => settings);
-ipcMain.handle('zoom:step', (_event, step: unknown) => window && isZoomStep(step) ? zoom.step(window.webContents, step) : 1);
+ipcMain.handle('zoom:step', (_event, step: unknown) => isZoomStep(step) ? zoom.step(step) : 1);
 ipcMain.handle('settings:save', async (_event, next: ConnectionSettings) => changeConnection(async () => {
   await saveSettings(next);
   settings = await loadSettings();

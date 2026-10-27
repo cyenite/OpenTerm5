@@ -302,3 +302,14 @@ test('position handles sit where TradingView puts them: levels on the entry edge
   assert.deepEqual(handles.drag(anchors, 3, at(40, 104)), [at(10, 100), at(40, 110), at(40, 95)], 'the far edge keeps the levels');
   assert.deepEqual(handles.drag(anchors, 0, at(12, 101)), [at(12, 101), at(30, 110), at(30, 95)]);
 });
+
+test('rectangle handles are TradingView\'s: four corners, then a handle in the middle of each side', () => {
+  const handles = toolDefinitions.get('rectangle')!.handles!;
+  const anchors = [at(10, 100), at(30, 120)];
+  assert.deepEqual(handles.at(anchors), [at(10, 100), at(30, 120), at(10, 120), at(30, 100), at(10, 110), at(30, 110), at(20, 100), at(20, 120)]);
+  assert.deepEqual(handles.drag(anchors, 2, at(5, 125)), [at(5, 100), at(30, 125)], 'a corner moves its two sides');
+  assert.deepEqual(handles.drag(anchors, 5, at(40, 90)), [at(10, 100), at(40, 120)], 'a side handle moves only its side');
+  assert.deepEqual(handles.drag(anchors, 6, at(40, 90)), [at(10, 90), at(30, 120)]);
+  assert.equal(handles.cursors?.[4], 'ew-resize');
+  assert.equal(handles.cursors?.[7], 'ns-resize');
+});

@@ -31,9 +31,10 @@ test('a replaying chart refuses trade tickets, while charts outside the replay s
   workspace.set({ dialog: null });
 
   const labels = (chartId: string) => chartMenu(chartId).map((item) => [item.label, !!item.isDisabled]);
-  assert.deepEqual(labels(left)[0], ['Trading is off while this chart replays', true]);
+  const tradingItem = (chartId: string) => labels(chartId).find(([label]) => String(label).startsWith('Trading'));
+  assert.deepEqual(tradingItem(left), ['Trading is off while this chart replays', true]);
   assert.equal(labels(left).some(([label]) => label === 'Trading'), false);
-  assert.deepEqual(labels(right)[0], ['Trading', false]);
+  assert.deepEqual(tradingItem(right), ['Trading', false]);
   openDialog({ kind: 'order', symbol: 'EURUSD', chartId: right });
   assert.equal(workspace.get().dialog?.kind, 'order');
   workspace.set({ dialog: null });
