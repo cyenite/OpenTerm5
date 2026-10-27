@@ -7,6 +7,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Type a letter on a chart to search for a symbol, as in TradingView. The box opens with the letter
+  you typed and lists matching symbols; Enter or a click switches the chart. It works in pop-out
+  windows too.
+- Select several drawings: Ctrl+click adds or removes one, and Ctrl+drag on the chart selects every
+  drawing with a point in the box. They move, copy (Ctrl+C) and delete together.
+- Chart keys from TradingView: Ctrl+Up and Ctrl+Down zoom, Ctrl or Alt with Left and Right scroll ten
+  bars, Shift+Left and Shift+Right jump to the first loaded bar and back to the latest.
+- Rectangles have handles on their sides and corners, with resize pointers.
+
+### Changed
+
+- Chart zoom works like TradingView's. Each wheel notch changes the zoom by up to a tenth, so fast
+  scrolling no longer leaps several levels, and the latest bar stays in place (Ctrl zooms around the
+  pointer). You can zoom in until two bars fill the chart, and wide candles get thicker wicks.
+  Dragging the time axis left now spreads the bars.
+- The chart's right-click menu is shorter, as in TradingView: Reset Chart View, Copy Price, Paste,
+  Add Alert, Trading, Object Tree, Remove, Theme, Layout and Settings. Timeframes, chart types,
+  indicators, templates, grid, volumes, zoom, replay, picture and close are on the chart bar and the
+  menus.
+- Drawing handles look and behave like TradingView's: blue rings with a halo under the pointer, shown
+  when you hover a drawing as well as when it is selected, with TradingView's pointers over them.
+- The magnet snaps the crosshair to the bar's open, high, low or close while you draw or edit, as in
+  TradingView, within 50px with the weak magnet. It no longer snaps without a drawing tool, and Ctrl
+  turns it the other way.
+- Drawing toolbar icons redrawn in TradingView's style.
+
+### Fixed
+
+- Ctrl+=, Ctrl+- and Ctrl+0 now zoom the interface from pop-out windows too.
+
 ## [0.8.0] - 2026-10-26
 
 ### Added

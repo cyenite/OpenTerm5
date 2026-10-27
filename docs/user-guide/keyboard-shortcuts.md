@@ -32,6 +32,7 @@ OpenTerm5 follows MetaTrader 5's shortcuts where they exist. On macOS, use **Cmd
 | Shortcut | Action |
 |---|---|
 | Type a timeframe (`15`, `4h`, `1D`), then Enter | Switch the active chart to that timeframe |
+| Type a letter | Symbol search for the chart, with that letter; Enter or a click switches the chart |
 | Alt+1 | Bar chart |
 | Alt+2 | Candlesticks |
 | Alt+3 | Line chart |
@@ -52,8 +53,11 @@ These work while a chart has the keyboard focus (click it first):
 | Shortcut | Action |
 |---|---|
 | Ctrl+Z and Ctrl+Y | Undo and redo changes to drawings and indicators |
-| Ctrl+C and Ctrl+V | Copy and paste the selected drawing |
-| Delete | Remove the selected drawing |
+| Ctrl+C and Ctrl+V | Copy and paste the selected drawings |
+| Delete | Remove the selected drawings |
+| Ctrl+Up and Ctrl+Down | Zoom the chart in and out |
+| Left and Right | Scroll one bar; with Ctrl or Alt, ten bars |
+| Shift+Left and Shift+Right | Scroll to the first loaded bar, or back to the latest |
 | Escape | Cancel the current tool or drawing |
 | Alt+T, Alt+H, Alt+J | Trend line, horizontal line, horizontal ray |
 | Alt+V, Alt+C, Alt+F | Vertical line, cross line, Fibonacci retracement |
@@ -67,6 +71,10 @@ These work while a chart has the keyboard focus (click it first):
 | Action | Result |
 |---|---|
 | Right-click | Context menu for whatever is under the pointer |
+| Mouse wheel on a chart | Zoom, keeping the latest bar in place; with Ctrl, around the pointer. Shift+wheel scrolls |
+| Ctrl+click a drawing | Add it to the selection, or take it out |
+| Ctrl+drag on a chart | Select every drawing with a point inside the box |
+| Hold Ctrl while drawing | Turn the magnet the other way: off when it is on, strong when it is off |
 | Double-click a Market Watch symbol | New order for that symbol |
 | Double-click a position or order | Modify it |
 | Double-click the line between charts | Make every chart in the layout the same size |
