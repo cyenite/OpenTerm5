@@ -158,11 +158,15 @@ it. Ctrl+V pastes a copied object, also into another chart. Delete removes the s
 
 ### Themes
 
-**View → Theme** chooses a Meridian theme for the whole window, charts included: Meridian Dark,
-Meridian Light or Meridian Midnight. **Match System** follows your operating system's light or dark
-setting. Themes replace MetaTrader's chart colour schemes.
+**View → Theme** chooses a theme for the whole window, charts included. The dark themes are Meridian
+Dark, Meridian Midnight, Tokyo Night, Catppuccin Mocha, Nord, Dracula, Rosé Pine, Gruvbox Dark,
+Kanagawa and GitHub Dark Dimmed; the light ones are Meridian Light, Catppuccin Latte, Solarized
+Light, Rosé Pine Dawn and GitHub Light. **Match System** follows your operating system's light or
+dark setting between Meridian Dark and Light. Themes replace MetaTrader's chart colour schemes.
 
-A chart can also have a theme of its own: right-click it and choose one under **Theme**. Charts you
+A chart can also have a theme of its own: right-click it and choose one under **Theme**. Besides the
+window themes, that menu has chart themes: Classic, Aurora, Amber Terminal, Colour-blind Safe (blue
+for up, orange for down), Ink (grey and black, for printing), Daylight and High Contrast. Charts you
 open afterwards start with the same theme, including after a restart. **Match Application** puts
 the chart back on the window's theme. Choosing a theme this way resets the chart's own colours from
 Chart Settings, so the theme shows in full.

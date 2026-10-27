@@ -7,6 +7,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Twelve new themes under **View > Theme**, adapted from popular editor palettes: Tokyo Night,
+  Catppuccin Mocha, Nord, Dracula, Rosé Pine, Gruvbox Dark, Kanagawa and GitHub Dark Dimmed, and
+  the light Catppuccin Latte, Solarized Light, Rosé Pine Dawn and GitHub Light. Prices and P/L stay
+  readable in all of them. The menu now lists dark themes first, then light ones.
+- Seven chart themes for a single chart, under **Theme** in a chart's right-click menu: Classic,
+  Aurora, Amber Terminal, Colour-blind Safe (blue up, orange down), Ink, Daylight and High Contrast.
+
+### Fixed
+
+- Text on coloured buttons and tags stays readable in every theme. Buy and Sell buttons, One-Click
+  trading, order-line labels, the chart's price tags and the crosshair labels switch to dark text
+  where white would be too faint, so Meridian Dark's Buy, Sell and accent buttons now have dark
+  labels. Meridian Light's profit, loss and warning colours are slightly darker so they read on white,
+  and the open-position line is a darker grey.
+
 ## [0.8.0] - 2026-10-26
 
 ### Added

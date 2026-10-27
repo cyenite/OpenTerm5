@@ -508,7 +508,7 @@ button:active:not(:disabled) {
 
 .panel-close:hover {
   background: var(--sell);
-  color: #fff;
+  color: var(--sell-text);
 }
 
 .panel-body {
@@ -1088,17 +1088,18 @@ button:active:not(:disabled) {
   align-items: center;
   min-width: 78px;
   border: 0;
-  color: #fff;
   padding: 2px 8px;
   cursor: pointer;
 }
 
 .one-click-side.is-sell {
   background: var(--sell);
+  color: var(--sell-text);
 }
 
 .one-click-side.is-buy {
   background: var(--buy);
+  color: var(--buy-text);
 }
 
 .one-click-side span {
@@ -1295,19 +1296,19 @@ tr.is-pending > td:not(:last-child) {
 button.is-sell {
   background: var(--sell);
   border-color: var(--sell);
-  color: #fff;
+  color: var(--sell-text);
 }
 
 button.is-buy {
   background: var(--buy);
   border-color: var(--buy);
-  color: #fff;
+  color: var(--buy-text);
 }
 
 button.is-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
 }
 
 button:disabled {
@@ -1605,7 +1606,7 @@ button:disabled {
 }
 
 .menu-entry:hover:not(.is-disabled) > .menu-shortcut {
-  color: rgb(255 255 255 / 0.8);
+  color: color-mix(in srgb, var(--accent-text) 80%, transparent);
 }
 
 .menu-separator {
@@ -1639,7 +1640,7 @@ button:disabled {
   padding: 0 4px;
   border-radius: 8px;
   background: var(--bad);
-  color: #fff;
+  color: var(--bad-text);
   font-size: 10.5px;
   line-height: 16px;
   text-align: center;
@@ -2056,14 +2057,14 @@ button.is-primary,
 button.is-buy,
 .dialog-actions button.is-buy {
   background: var(--buy);
-  color: #fff;
+  color: var(--buy-text);
   box-shadow: none;
 }
 
 button.is-sell,
 .dialog-actions button.is-sell {
   background: var(--sell);
-  color: #fff;
+  color: var(--sell-text);
   box-shadow: none;
 }
 
@@ -2575,6 +2576,10 @@ pre {
   --line-stop: var(--loss);
   --line-target: var(--profit);
   --line-pending: var(--warn);
+  --line-entry-text: var(--buy-text);
+  --line-stop-text: var(--loss-text);
+  --line-target-text: var(--profit-text);
+  --line-pending-text: var(--warn-text);
 }
 
 .overlay-capture {
@@ -2604,11 +2609,12 @@ pre {
   display: flex;
   align-items: center;
   --line: var(--line-entry);
+  --line-text: var(--line-entry-text);
 }
 
-.overlay-line.is-stop { --line: var(--line-stop); }
-.overlay-line.is-target { --line: var(--line-target); }
-.overlay-line.is-pending { --line: var(--line-pending); }
+.overlay-line.is-stop { --line: var(--line-stop); --line-text: var(--line-stop-text); }
+.overlay-line.is-target { --line: var(--line-target); --line-text: var(--line-target-text); }
+.overlay-line.is-pending { --line: var(--line-pending); --line-text: var(--line-pending-text); }
 
 .overlay-line.is-draggable {
   pointer-events: auto;
@@ -2713,7 +2719,7 @@ pre {
   padding: 1px 7px;
   border-radius: 4px;
   background: var(--line);
-  color: #fff;
+  color: var(--line-text);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -3255,7 +3261,7 @@ button.is-link {
   color: var(--muted);
 }
 
-.overlay-line.is-position { --line: #8e8e93; }
+.overlay-line.is-position { --line: #6e6e73; --line-text: #ffffff; }
 .overlay-line.is-position .overlay-rule { border-top-style: solid; }
 
 .overlay-label > b {
@@ -3279,19 +3285,19 @@ button.is-link {
 .overlay-ghost {
   min-height: 16px;
   padding: 0 6px;
-  border: 1px dashed rgb(255 255 255 / 0.7);
+  border: 1px dashed color-mix(in srgb, currentColor 70%, transparent);
   border-radius: 3px;
   background: transparent;
   box-shadow: none;
-  color: #fff;
+  color: inherit;
   font-size: 10px;
   font-weight: 600;
   cursor: ns-resize;
   touch-action: none;
 }
 
-.overlay-ghost.is-tp:hover { background: var(--line-target); border-style: solid; }
-.overlay-ghost.is-sl:hover { background: var(--line-stop); border-style: solid; }
+.overlay-ghost.is-tp:hover { background: var(--line-target); border-style: solid; color: var(--line-target-text); }
+.overlay-ghost.is-sl:hover { background: var(--line-stop); border-style: solid; color: var(--line-stop-text); }
 
 .overlay-close {
   width: 16px;
@@ -3301,13 +3307,14 @@ button.is-link {
   border-radius: 50%;
   background: rgb(0 0 0 / 0.25);
   box-shadow: none;
-  color: #fff;
+  color: inherit;
   font-size: 12px;
   line-height: 16px;
 }
 
 .overlay-close:hover {
   background: var(--line-stop);
+  color: var(--line-stop-text);
 }
 
 .app-bar .account-chip {
@@ -3400,11 +3407,10 @@ button.is-link {
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #fff;
 }
 
-.side-badge.is-buy { background: var(--buy); }
-.side-badge.is-sell { background: var(--sell); }
+.side-badge.is-buy { background: var(--buy); color: var(--buy-text); }
+.side-badge.is-sell { background: var(--sell); color: var(--sell-text); }
 
 .position-figures {
   display: grid;
@@ -4497,16 +4503,17 @@ button.is-link {
   border: 0;
   border-radius: var(--radius);
   box-shadow: none;
-  color: #fff;
   cursor: pointer;
 }
 
 .assistant-side.is-sell {
   background: var(--sell);
+  color: var(--sell-text);
 }
 
 .assistant-side.is-buy {
   background: var(--buy);
+  color: var(--buy-text);
 }
 
 .assistant-side span {
@@ -4855,7 +4862,6 @@ button.is-link {
   min-width: 30px;
   padding: 0 4px;
   border-radius: 3px;
-  color: #fff;
   font-size: 10px;
   font-weight: 600;
   text-align: center;
@@ -4864,10 +4870,12 @@ button.is-link {
 
 .side-tag.is-buy {
   background: var(--buy);
+  color: var(--buy-text);
 }
 
 .side-tag.is-sell {
   background: var(--sell);
+  color: var(--sell-text);
 }
 
 .backtest-journal {

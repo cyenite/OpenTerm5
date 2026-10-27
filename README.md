@@ -190,8 +190,8 @@ Tradescribe for the calendar, reports and AI review. Press <kbd>Ctrl</kbd>+<kbd>
 
 Type your broker's server name (`FTMO-Server`, say) and OpenTerm5 finds its address from a list of
 about 2,800 MT5 servers. An address it can't verify has to be approved before your password goes
-anywhere. Then choose Meridian Dark, Light or Midnight, match your system, or import your saved
-TradingView theme.
+anywhere. Then pick one of 15 themes, from Meridian Dark to Tokyo Night, Nord and Catppuccin, match
+your system, give a single chart one of 7 chart themes, or import your saved TradingView theme.
 
 <table>
   <tr>
