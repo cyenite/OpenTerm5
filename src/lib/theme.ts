@@ -1,4 +1,4 @@
-import { applyTheme, getTheme, resolveTheme, systemThemeId, type MeridianTheme } from '@meridian/charts/themes';
+import { applyTheme, getTheme, listThemes, resolveTheme, systemThemeId, type MeridianTheme } from '@meridian/charts/themes';
 import { importedThemes } from './custom-themes';
 import { Store } from './store';
 import { workspace } from './workspace';
@@ -26,6 +26,15 @@ export function startTheming(): void {
 // A chart's own theme, or the application's when it has none or its theme was removed.
 export function chartTheme(themeId: string | undefined, appTheme: MeridianTheme): MeridianTheme {
   return (themeId && getTheme(themeId)) || appTheme;
+}
+
+// Menu groups, dark themes first. Only a chart offers the chart-only themes.
+export function themeGroups(isForChart: boolean): MeridianTheme[][] {
+  const themes = listThemes();
+  const windowThemes = themes.filter((theme) => !theme.isChartOnly);
+  const groups = [windowThemes.filter((theme) => theme.mode === 'dark'), windowThemes.filter((theme) => theme.mode === 'light')];
+  if (isForChart) groups.push(themes.filter((theme) => theme.isChartOnly));
+  return groups.filter((group) => group.length);
 }
 
 export function setThemePreference(theme: string): void {
