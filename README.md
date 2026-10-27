@@ -29,7 +29,8 @@ already know: Market Watch, charts, the Toolbox, one-click trading. Then it keep
 usually pay for as Expert Advisors, VPS add-ons or monthly subscriptions come built in:
 
 - 📈 **Charts that feel like TradingView**, drawn by Meridian, OpenTerm5's own chart engine: 86 studies,
-  82 drawing tools, layouts of up to 16 synced charts, bar replay, undo and redo.
+  82 drawing tools, layouts of up to 16 synced charts, bar replay, undo and redo, and drawings kept in
+  sync with your TradingView account.
 - 🧪 **Backtesting on replayed history**: trade a simulated account bar by bar, with realistic fills,
   saved sessions and full statistics.
 - 🎯 **Risk-based orders.** Say "1% of balance, stop under that low", and OpenTerm5 works out the lots,
@@ -65,12 +66,28 @@ signals and guards keep running in the background, so switching modes never stop
 
 ![Analysis mode with a Fibonacci retracement, a trend line, a long position tool, an EMA and MACD, the drawing toolbar on the left and the watchlist on the right](docs/images/screenshots/analysis-mode.png)
 
+### Just start typing
+
+Click a chart and type, as you would in TradingView. Letters open symbol search with what you typed
+and Enter switches the chart; numbers switch the timeframe (`15`, `4h`, `1D`, or MetaTrader's `M15`
+and `H4`). Star the timeframes you use most to keep them on the chart bar.
+
+![Symbol search opened by typing USD on an EURUSD chart, listing USD pairs, crypto and metals](docs/images/screenshots/symbol-search.png)
+
 ### Drawing tools that behave the way your hands expect
 
 Fibonacci, Gann, pitchforks, channels, patterns, long and short positions, volume profiles: 82 tools in
 all, with favourites, a magnet and a floating style bar. The settings dialog works like TradingView's,
 down to custom colours, editable levels, templates and visibility per timeframe. Edits show live, and
 **Cancel** really does put things back.
+
+Pick up several drawings at once: <kbd>Ctrl</kbd>+drag a box over them, or <kbd>Ctrl</kbd>+click
+each one, then move, copy or delete them together. With the magnet on, the crosshair and every anchor
+you place snap to the bar's open, high, low or close. And if you also chart on TradingView, link a
+symbol in **File → Import from TradingView → Sync**: what you draw or change there shows up here within
+seconds, and your edits, deletions and undos here are saved back to TradingView.
+
+![Four drawings selected together with a Ctrl+drag box: a Fibonacci retracement, a trend line, a long position and a rectangle, each showing its handles](docs/images/screenshots/drawing-handles.png)
 
 <table>
   <tr>
@@ -236,8 +253,10 @@ your system, give a single chart one of 7 chart themes, or import your saved Tra
   TradingView script link (open-source scripts only) or the source, or import TradingView's popular list. Plots, fills (gradients too),
   shapes, bar and background colours, lines, boxes, labels, polylines, tables and `request.security()`
   are drawn; each script keeps its author and licence.
-- 82 drawing tools in six groups, with favourites, a magnet, text on lines, templates and per-timeframe
-  visibility.
+- 82 drawing tools in six groups, with favourites, a magnet that snaps to open, high, low or close,
+  text on lines, templates, per-timeframe visibility, and Ctrl+click or Ctrl+drag to select several.
+- Type on a chart to switch it: a symbol name opens symbol search, a number changes the timeframe.
+  Favourite timeframes go on the chart bar.
 - Layouts of 1 to 16 charts per tab with symbol, interval, crosshair, time, date range and drawing
   sync, and bar replay that runs every chart of a layout on one clock.
 - Backtesting sessions: a simulated account with spread, slippage, commission, leverage and stop
@@ -278,6 +297,9 @@ your system, give a single chart one of 7 chart themes, or import your saved Tra
   Discord, Slack, Telegram or JSON.
 - **Import from TradingView:** bring over your drawings (placed on your broker's bars, daylight saving
   included), drawing templates, chart themes and chart settings.
+- **Sync with TradingView:** link a TradingView symbol to an account symbol and its drawings stay in
+  step: changes in TradingView arrive within seconds, and edits, deletions and undos here are saved
+  back. Drawings you create in OpenTerm5 stay local for now.
 - **Journaling:** automatic, verified trade sync to Tradescribe, with in-app reviews.
 
 </details>
@@ -313,6 +335,7 @@ a demo account and have a play.
 | <kbd>F9</kbd> | New order |
 | <kbd>Ctrl</kbd>+<kbd>1</kbd> to <kbd>Ctrl</kbd>+<kbd>5</kbd> | Trading, Trade Copier, Signals, Automation, Journaling |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> | Switch between trading and analysis mode |
+| Type on a chart | A symbol name opens symbol search, a number changes the timeframe |
 | <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd> | Undo and redo on the chart |
 | <kbd>Alt</kbd>+<kbd>B</kbd> | Depth of Market |
 
