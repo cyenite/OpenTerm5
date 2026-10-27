@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-27
+
 ### Added
 
 - Type a letter on a chart to search for a symbol, as in TradingView. The box opens with the letter
@@ -17,6 +19,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Chart keys from TradingView: Ctrl+Up and Ctrl+Down zoom, Ctrl or Alt with Left and Right scroll ten
   bars, Shift+Left and Shift+Right jump to the first loaded bar and back to the latest.
 - Rectangles have handles on their sides and corners, with resize pointers.
+- Twelve new themes under **View > Theme**, adapted from popular editor palettes: Tokyo Night,
+  Catppuccin Mocha, Nord, Dracula, Rosé Pine, Gruvbox Dark, Kanagawa and GitHub Dark Dimmed, and
+  the light Catppuccin Latte, Solarized Light, Rosé Pine Dawn and GitHub Light. Prices and P/L stay
+  readable in all of them. The menu now lists dark themes first, then light ones.
+- Seven chart themes for a single chart, under **Theme** in a chart's right-click menu: Classic,
+  Aurora, Amber Terminal, Colour-blind Safe (blue up, orange down), Ink, Daylight and High Contrast.
 
 ### Changed
 
@@ -38,12 +46,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - Ctrl+=, Ctrl+- and Ctrl+0 now zoom the interface from pop-out windows too.
-- Twelve new themes under **View > Theme**, adapted from popular editor palettes: Tokyo Night,
-  Catppuccin Mocha, Nord, Dracula, Rosé Pine, Gruvbox Dark, Kanagawa and GitHub Dark Dimmed, and
-  the light Catppuccin Latte, Solarized Light, Rosé Pine Dawn and GitHub Light. Prices and P/L stay
-  readable in all of them. The menu now lists dark themes first, then light ones.
-- Seven chart themes for a single chart, under **Theme** in a chart's right-click menu: Classic,
-  Aurora, Amber Terminal, Colour-blind Safe (blue up, orange down), Ink, Daylight and High Contrast.
 - Text on coloured buttons and tags stays readable in every theme. Buy and Sell buttons, One-Click
   trading, order-line labels, the chart's price tags and the crosshair labels switch to dark text
   where white would be too faint, so Meridian Dark's Buy, Sell and accent buttons now have dark
@@ -499,7 +501,8 @@ First public release of OpenTerm5 (previously developed as Terminal5), under the
 - **Project files:** documentation under `docs/`, a contributing guide, code of conduct, security
   policy, issue and pull request templates, and CI on Linux, macOS and Windows.
 
-[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/cyenite/OpenTerm5/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/cyenite/OpenTerm5/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/cyenite/OpenTerm5/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/cyenite/OpenTerm5/compare/v0.5.0...v0.6.0
