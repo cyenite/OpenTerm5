@@ -1,6 +1,6 @@
-import { listThemes } from '@meridian/charts/themes';
 import type { MenuItem } from '../components/MenuBar';
 import { chartInstance } from './chart-instances';
+import { themeGroups } from './theme';
 import { popoutMenuItems } from './popouts';
 import { timeframeMenuItems } from './timeframe-favorites';
 import { formatPrice } from './format';
@@ -59,7 +59,10 @@ function themeItems(chart: ChartConfig): MenuItem[] {
   return [
     { label: 'Match Application', isChecked: !chart.theme, action: () => setChartTheme(chart.id, undefined) },
     separator,
-    ...listThemes().map((theme) => ({ label: theme.label, isChecked: chart.theme === theme.id, action: () => setChartTheme(chart.id, theme.id) })),
+    ...themeGroups(true).flatMap((group, index) => [
+      ...(index ? [separator] : []),
+      ...group.map((theme) => ({ label: theme.label, isChecked: chart.theme === theme.id, action: () => setChartTheme(chart.id, theme.id) })),
+    ]),
   ];
 }
 

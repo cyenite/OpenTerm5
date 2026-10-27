@@ -13,7 +13,7 @@ import { applySettingsFields, backgroundGradientOf, defaultSettings, restoreSett
 import { shiftOutput } from './studies/output';
 import { isVisibleColor, paintMarkers, paintObjects, paintTables, type StudyView } from './studies/paint';
 import { getStudy, resolveInputs, studyCaption } from './studies/registry';
-import { listThemes, type MeridianTheme } from './themes';
+import { listThemes, readableTextOn, type MeridianTheme } from './themes';
 import type { Bar, DataProvider, DrawingPoint, DrawingStyle, DrawingTemplate, DrawingTemplateStore, InputValue, PriceStyle, SerializedDrawing, StudyBand, StudyDefinition, StudyOutput, StudyPlot, StudyRequest } from './types';
 import { askTemplateName, confirmRemove, fieldValues, openDialog, type Field, type TemplateListActions } from './ui/dialog';
 import { Legend, type LegendEntry, type LegendValue } from './ui/legend';
@@ -144,6 +144,7 @@ export function meridianUiVariables(theme: MeridianTheme): Record<string, string
     '--mc-border': ui.border,
     '--mc-hover': ui.hover,
     '--mc-accent': ui.accent,
+    '--mc-accent-text': ui.accentText,
     '--mc-active-bg': ui.accentSoft,
     '--mc-legend-hover': ui.hover,
   };
@@ -3556,7 +3557,7 @@ export class MeridianChart {
         const width = ctx.measureText(line.label).width + 12;
         ctx.fillStyle = line.color;
         ctx.fillRect(8, y - 9, width, 18);
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = readableTextOn(line.color, this.theme);
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillText(line.label, 14, y);
@@ -3704,7 +3705,7 @@ export class MeridianChart {
     const top = Math.max(pane.top, Math.min(pane.top + pane.height - height, y - line / 2));
     ctx.fillStyle = color;
     ctx.fillRect(this.plotWidth + 1, top, this.width - this.plotWidth - 1, height);
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = readableTextOn(color, this.theme);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText(text, this.plotWidth + 8, top + line / 2);
@@ -3813,7 +3814,7 @@ export class MeridianChart {
     ctx.font = this.scaleFont();
     ctx.fillStyle = this.theme.ui.muted;
     ctx.fillRect(this.plotWidth + 1, y - height / 2, this.width - this.plotWidth - 1, height);
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = readableTextOn(this.theme.ui.muted, this.theme);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText(text, this.plotWidth + 8, y);
@@ -3828,7 +3829,7 @@ export class MeridianChart {
     const left = Math.max(0, Math.min(this.plotWidth - width, x - width / 2));
     ctx.fillStyle = this.theme.ui.muted;
     ctx.fillRect(left, timeAxisTop + 1, width, TIME_AXIS_HEIGHT - 2);
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = readableTextOn(this.theme.ui.muted, this.theme);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(label, left + width / 2, timeAxisTop + TIME_AXIS_HEIGHT / 2);

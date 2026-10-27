@@ -128,7 +128,7 @@ const css = `
 .mc-check { appearance: none; -webkit-appearance: none; width: 18px; height: 18px; flex: none; margin: 0; border-radius: 4px; border: 1px solid var(--mc-muted); background: transparent; cursor: pointer; display: grid; place-content: center; }
 .mc-check:hover { border-color: var(--mc-text); }
 .mc-check:checked { background: var(--mc-accent); border-color: var(--mc-accent); }
-.mc-check:checked::after { content: ''; width: 9px; height: 5px; margin-top: -2px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg); }
+.mc-check:checked::after { content: ''; width: 9px; height: 5px; margin-top: -2px; border-left: 2px solid var(--mc-accent-text); border-bottom: 2px solid var(--mc-accent-text); transform: rotate(-45deg); }
 .mc-color { width: 34px; height: 34px; flex: none; display: flex; align-items: center; justify-content: center; padding: 0; border-radius: 6px; border: 1px solid var(--mc-border); background: var(--mc-input); cursor: pointer; box-shadow: none; min-height: 0; }
 .mc-color:hover, .mc-color.is-open { border-color: var(--mc-muted); }
 .mc-swatch-face { position: relative; width: 22px; height: 22px; border-radius: 4px; overflow: hidden; background: repeating-conic-gradient(#c8c8c8 0 25%, #fff 0 50%) 0 0 / 8px 8px; }

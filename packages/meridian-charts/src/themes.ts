@@ -1,3 +1,5 @@
+import { libraryThemes } from './theme-library';
+
 // One Meridian theme colours both the application around the charts (as CSS custom properties)
 // and the charts themselves, so a host never has to keep two palettes in step.
 
@@ -56,6 +58,8 @@ export interface MeridianTheme {
   readonly mode: MeridianMode;
   readonly ui: MeridianUiTokens;
   readonly chart: MeridianChartTokens;
+  // Offered as a chart's own theme only, never for the application window.
+  readonly isChartOnly?: boolean;
 }
 
 export interface ThemePatch {
@@ -64,6 +68,7 @@ export interface ThemePatch {
   mode?: MeridianMode;
   ui?: Partial<MeridianUiTokens>;
   chart?: Partial<MeridianChartTokens>;
+  isChartOnly?: boolean;
 }
 
 const fontFamily = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, sans-serif";
@@ -85,7 +90,7 @@ export const meridianDark: MeridianTheme = {
     text: '#f5f5f7',
     muted: '#98989d',
     accent: '#0a84ff',
-    accentText: '#ffffff',
+    accentText: '#000000',
     accentSoft: 'rgb(10 132 255 / 0.2)',
     selection: 'rgb(10 132 255 / 0.28)',
     hover: 'rgb(255 255 255 / 0.06)',
@@ -138,13 +143,13 @@ export const meridianLight: MeridianTheme = {
     selection: 'rgb(41 98 255 / 0.16)',
     hover: 'rgb(19 23 34 / 0.05)',
     buy: '#2962ff',
-    sell: '#f23645',
-    profit: '#089981',
-    loss: '#f23645',
-    up: '#089981',
-    down: '#f23645',
-    good: '#089981',
-    warn: '#e65100',
+    sell: '#df323f',
+    profit: '#078570',
+    loss: '#df323f',
+    up: '#078570',
+    down: '#df323f',
+    good: '#078570',
+    warn: '#cf4900',
     bad: '#d50000',
     switchOn: '#2962ff',
     controlShadow: '0 0.5px 1.5px rgb(19 23 34 / 0.16), inset 0 0 0 0.5px rgb(19 23 34 / 0.1)',
@@ -206,7 +211,8 @@ export const meridianMidnight: MeridianTheme = {
   },
 };
 
-const registry = new Map<string, MeridianTheme>([meridianDark, meridianLight, meridianMidnight].map((theme) => [theme.id, theme]));
+const library = libraryThemes.map((patch) => createTheme(patch.mode === 'light' ? meridianLight : meridianDark, patch));
+const registry = new Map<string, MeridianTheme>([meridianDark, meridianLight, meridianMidnight, ...library].map((theme) => [theme.id, theme]));
 
 export const defaultThemeId = meridianDark.id;
 
@@ -234,6 +240,7 @@ export function createTheme(base: MeridianTheme, patch: ThemePatch): MeridianThe
     mode: patch.mode ?? base.mode,
     ui: { ...base.ui, ...patch.ui },
     chart: { ...base.chart, ...patch.chart },
+    ...(patch.isChartOnly ? { isChartOnly: true } : {}),
   };
 }
 
@@ -246,10 +253,53 @@ export function resolveTheme(preference: string, prefersDark: boolean): Meridian
   return registry.get(preference) ?? meridianDark;
 }
 
-const kebab = (key: string) => key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+function channels(color: string): number[] | null {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim());
+  if (hex) {
+    const digits = hex[1].length === 3 ? [...hex[1]].map((digit) => digit + digit).join('') : hex[1];
+    return [0, 2, 4].map((at) => parseInt(digits.slice(at, at + 2), 16));
+  }
+  const rgb = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/i.exec(color.trim());
+  return rgb ? rgb.slice(1, 4).map(Number) : null;
+}
 
+function luminance(color: string): number | null {
+  const rgb = channels(color);
+  if (!rgb) return null;
+  const [r, g, b] = rgb.map((channel) => {
+    const c = channel / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+// WCAG contrast ratio of two opaque colours (hex or rgb()), or null when either cannot be read.
+export function contrastRatio(a: string, b: string): number | null {
+  const first = luminance(a), second = luminance(b);
+  if (first === null || second === null) return null;
+  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+}
+
+// Label colour for text on a filled tag or button: white where it reads at 4.5:1, otherwise the
+// theme's dark ink, otherwise black. Pale fills (most editor palettes' buy and sell) need the ink.
+export function readableTextOn(fill: string, theme: MeridianTheme): string {
+  const candidates = ['#ffffff', theme.mode === 'dark' ? theme.ui.chrome : theme.ui.text, '#000000'];
+  const ratios = candidates.map((candidate) => contrastRatio(candidate, fill));
+  if (ratios[0] === null) return candidates[0];
+  const readable = ratios.findIndex((ratio) => ratio !== null && ratio >= 4.5);
+  if (readable >= 0) return candidates[readable];
+  return candidates[ratios.indexOf(Math.max(...ratios.map((ratio) => ratio ?? 0)))];
+}
+
+const kebab = (key: string) => key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+const filledTokens = ['buy', 'sell', 'profit', 'loss', 'warn', 'bad'] as const;
+
+// The theme's tokens, plus a `--<token>-text` label colour for each colour the host fills tags with.
 export function themeCssVariables(theme: MeridianTheme): Record<string, string> {
-  return Object.fromEntries(Object.entries(theme.ui).map(([key, value]) => [`--${kebab(key)}`, value]));
+  return {
+    ...Object.fromEntries(Object.entries(theme.ui).map(([key, value]) => [`--${kebab(key)}`, value])),
+    ...Object.fromEntries(filledTokens.map((key) => [`--${key}-text`, readableTextOn(theme.ui[key], theme)])),
+  };
 }
 
 export function applyTheme(theme: MeridianTheme, root: HTMLElement = document.documentElement): void {

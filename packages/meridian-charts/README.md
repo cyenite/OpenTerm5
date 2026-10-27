@@ -65,7 +65,11 @@ dependencies: charts are drawn on a canvas, and the toolbar, legend and dialogs 
   `saveDrawingFavorites()`.
 - **Themes** (`themes.ts`): one palette colours both the host application, through CSS custom
   properties, and the charts. `listThemes`, `getTheme`, `resolveTheme` (with `"system"` following
-  the operating system), `createTheme`, `registerTheme` and `applyTheme`.
+  the operating system), `createTheme`, `registerTheme` and `applyTheme`. `theme-library.ts` adds
+  ported editor palettes and chart-only themes (`isChartOnly`), meant for one chart rather than the
+  whole host. `contrastRatio` and `readableTextOn(fill, theme)` pick label colours for filled tags;
+  `themeCssVariables` also emits `--buy-text`, `--sell-text`, `--profit-text`, `--loss-text`,
+  `--warn-text` and `--bad-text`.
 
 The package lives in the OpenTerm5 repository and is imported as `@meridian/charts` through a path
 alias; it has no build step of its own. Run its tests with `npm test` from the repository root.

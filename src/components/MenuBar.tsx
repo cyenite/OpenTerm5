@@ -12,8 +12,7 @@ import {
   zoom,
 } from '../lib/commands';
 import { indicatorMenuItems, studyTitle } from '../lib/indicator-menu';
-import { listThemes } from '@meridian/charts/themes';
-import { setThemePreference, systemThemeId } from '../lib/theme';
+import { setThemePreference, systemThemeId, themeGroups } from '../lib/theme';
 import { useStore } from '../lib/store';
 import { appZoom, stepAppZoom } from '../lib/app-zoom';
 import { zoomSteps } from '../../shared/zoom';
@@ -127,7 +126,10 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
         { label: 'Theme', items: [
           { label: 'Match System', isChecked: state.theme === systemThemeId, action: () => setThemePreference(systemThemeId) },
           separator,
-          ...listThemes().map((theme) => ({ label: theme.label, isChecked: state.theme === theme.id, action: () => setThemePreference(theme.id) })),
+          ...themeGroups(false).flatMap((group, index) => [
+            ...(index ? [separator] : []),
+            ...group.map((theme) => ({ label: theme.label, isChecked: state.theme === theme.id, action: () => setThemePreference(theme.id) })),
+          ]),
         ] },
       ],
     },

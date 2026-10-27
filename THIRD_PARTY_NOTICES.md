@@ -35,6 +35,21 @@ PineTS runs imported Pine Script indicators. It depends on `acorn`, `acorn-walk`
 Electron bundles Chromium and Node.js, whose licences ship with every packaged build in
 `LICENSES.chromium.html` and the Electron licence file.
 
+## Theme palettes
+
+The built-in application themes adapt these colour palettes (all MIT licensed). Some text colours
+were adjusted for contrast.
+
+- Tokyo Night: enkia
+- Catppuccin Mocha and Latte: Catppuccin
+- Nord: Arctic Ice Studio and Sven Greb
+- Dracula: Dracula Theme, Zeno Rocha
+- Rosé Pine and Rosé Pine Dawn: Rosé Pine
+- Gruvbox Dark: Pavel Pertsev
+- Kanagawa: Tommaso Laurenzi (rebelot)
+- GitHub Dark Dimmed and GitHub Light: GitHub Inc. (Primer primitives)
+- Solarized Light: Ethan Schoonover
+
 ## Trademarks
 
 MetaTrader and MetaQuotes are trademarks of MetaQuotes Ltd. TradingView is a trademark of
