@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { chartInstance, chartUi } from '../../lib/chart-instances';
 import { tabActiveChartId, visibleChartIds, type ChartTab } from '../../lib/chart-tabs';
-import { handleShortcut, handleTimeframeKey } from '../../lib/commands';
+import { handleShortcut, handleChartTypingKey } from '../../lib/commands';
 import { tabTitle } from '../../lib/layout-menu';
 import { dockTab, forgetPopout, popoutModeOf, popouts, registerPopoutWindow, setPopoutMode, tabDragType, type Popout, type PopoutMode } from '../../lib/popouts';
 import { replay } from '../../lib/replay';
@@ -256,7 +256,7 @@ function PopoutTab({ tab, title, mode }: PopoutTabProps) {
   const isFull = mode === 'full';
   const tabId = tab.id;
 
-  // Full mode answers the terminal's shortcuts, as the main window does; Lite only a typed timeframe.
+  // Full mode answers the terminal's shortcuts, as the main window does; Lite only a typed timeframe or symbol.
   useEffect(() => {
     const view = body.current?.ownerDocument.defaultView;
     if (!view) return;
@@ -265,7 +265,7 @@ function PopoutTab({ tab, title, mode }: PopoutTabProps) {
       if (isFull) handleShortcut(event);
       else {
         const current = workspace.get().tabs.find((candidate) => candidate.id === tabId);
-        handleTimeframeKey(event, current && tabActiveChartId(current));
+        handleChartTypingKey(event, current && tabActiveChartId(current));
       }
     };
     view.addEventListener('keydown', onKey);

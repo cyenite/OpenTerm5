@@ -11,8 +11,12 @@ export class TimeScale {
   interval = 60_000;
   private times: number[] = [];
   readonly minSpacing = 0.5;
-  readonly maxSpacing = 60;
   rightMarginBars = 5;
+
+  // As TradingView: zoomed in until two bars fill the plot.
+  get maxSpacing(): number {
+    return Math.max(this.minSpacing, this.width / 2);
+  }
 
   get count(): number {
     return this.times.length;
@@ -130,6 +134,14 @@ export class TimeScale {
     this.spacing = Math.max(this.minSpacing, Math.min(this.maxSpacing, this.spacing * factor));
     this.rightEdge = anchor + (this.width - anchorX) / this.spacing;
     this.clamp();
+  }
+
+  // One wheel step, TradingView's way: `step` in [-1, 1] changes the spacing by up to a tenth, so a
+  // burst of fast notches (or a large delta from a free-spinning wheel) cannot leap several zoom
+  // levels at once.
+  zoomStep(step: number, anchorX = this.width): void {
+    const clamped = Math.max(-1, Math.min(1, step));
+    this.zoom(1 + clamped / 10, anchorX);
   }
 
   scrollToEnd(): void {

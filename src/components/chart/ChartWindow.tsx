@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { defaultSettings, MeridianChart, type ChartSettings, type MeridianHover, type MeridianPriceLine, type SerializedDrawing } from '@meridian/charts';
-import type { MenuItem } from '../MenuBar';
 import { chartInstance, registerChart } from '../../lib/chart-instances';
 import { attachDrawingTools } from '../../lib/drawing-tools';
 import { followDateRange, startLayoutSync } from '../../lib/layout-sync';
-import { attachReplay, exitReplay, followReplay, replay, startReplay } from '../../lib/replay';
+import { attachReplay, followReplay } from '../../lib/replay';
 import { replayTradingHint, useIsReplayingChart } from '../../lib/replay-session';
 import type { IndicatorConfig } from '../../lib/chart-model';
-import { formatPrice } from '../../lib/format';
-import { priceAlerts, updateAlerts } from '../../lib/price-alerts';
+import { priceAlerts } from '../../lib/price-alerts';
 import { cursor } from '../../lib/cursor';
 import { mt5Provider, tickBars } from '../../lib/mt5-provider';
 import { isSecondsTimeframe, timeframeSeconds, toChartTimeframe } from '../../lib/mt5-timeframes';
@@ -26,7 +24,7 @@ import { OneClickPanel } from './OneClickPanel';
 import { TradeOverlay } from './TradeOverlay';
 import { SigningIn } from '../ui/SigningIn';
 import { pineScriptsReady } from '../../lib/pine/pine-scripts';
-import { activeBacktest, backtest, endBacktest, useIsBacktestingChart } from '../../lib/backtest/runtime';
+import { activeBacktest, backtest, useIsBacktestingChart } from '../../lib/backtest/runtime';
 import { netOf } from '../../lib/backtest/stats';
 
 interface ChartWindowProps {
@@ -65,42 +63,6 @@ function useCollectingTicks(chart: ChartConfig): boolean {
 const chartTitle = (chart: ChartConfig, description?: string) => [chart.symbol, chart.timeframe, description].filter(Boolean).join(' · ');
 
 const sameSettings = (left: ChartSettings | undefined, right: ChartSettings | undefined) => JSON.stringify(left ?? defaultSettings) === JSON.stringify(right ?? defaultSettings);
-
-function addAlert(symbol: string, price: number, digits: number): void {
-  const profileId = session.get().profileId;
-  const bid = session.get().ticks[symbol]?.bid;
-  if (!profileId) return;
-  const level = Number(price.toFixed(digits));
-  const condition = bid !== undefined && level < bid ? 'bidBelow' : 'bidAbove';
-  try {
-    updateAlerts([...priceAlerts.get().alerts, { id: crypto.randomUUID(), profileId, symbol, condition, price: level, createdAt: Date.now(), triggeredAt: null, isEnabled: true }]);
-    log(`${symbol}: alert added at ${formatPrice(level, digits)}.`, 'Alerts');
-  } catch {
-    log('The alert could not be saved.', 'Alerts');
-  }
-}
-
-// The chart engine's own commands, shown above the terminal's chart menu.
-export function chartEngineItems(chartId: string, symbol: string, price: number | null, digits: number): MenuItem[] {
-  const instance = chartInstance(chartId);
-  if (!instance) return [];
-  const separator: MenuItem = { label: '', isSeparator: true };
-  const hasAccount = !!session.get().profileId;
-  return [
-    { label: 'Reset Chart View', shortcut: 'Alt+R', action: () => instance.resetView() },
-    { label: 'Undo', shortcut: 'Ctrl+Z', isDisabled: !instance.canUndo(), action: () => instance.undo() },
-    { label: 'Redo', shortcut: 'Ctrl+Y', isDisabled: !instance.canRedo(), action: () => instance.redo() },
-    { label: 'Paste', shortcut: 'Ctrl+V', isDisabled: !instance.canPaste(), action: () => instance.paste() },
-    separator,
-    ...(price !== null && hasAccount ? [{ label: `Add Alert at ${formatPrice(price, digits)}`, action: () => addAlert(symbol, price, digits) }, separator] : []),
-    { label: 'Object Tree', isChecked: instance.isObjectTreeShown(), action: () => instance.toggleObjectTree() },
-    replay.get().session?.purpose === 'backtest'
-      ? { label: 'End Backtest Session', action: endBacktest }
-      : { label: replay.get().session ? 'Exit Bar Replay' : 'Bar Replay', action: () => (replay.get().session ? exitReplay() : startReplay(chartId)) },
-    { label: 'Chart Settings...', action: () => instance.openChartSettings() },
-    separator,
-  ];
-}
 
 export function ChartWindow({ chart, isActive, isLite = false }: ChartWindowProps) {
   const container = useRef<HTMLDivElement>(null);
@@ -217,11 +179,10 @@ export function ChartWindow({ chart, isActive, isLite = false }: ChartWindowProp
     });
     const stopLayoutSync = startLayoutSync(current.id, meridian);
     const detachReplay = attachReplay(current.id, meridian);
-    // A right-click on the plot opens the terminal's chart menu with the engine's commands.
+    // A right-click on the plot opens the terminal's chart menu, which holds the engine's commands.
     meridian.onContextMenu((info, event) => {
       const current = chartRef.current;
-      const digits = session.get().symbols[current.symbol]?.digits ?? 5;
-      openContextMenu(event, liteRef.current ? liteChartMenu(current.id) : [...chartEngineItems(current.id, current.symbol, info.price, digits), ...chartMenu(current.id, info.price ?? undefined)]);
+      openContextMenu(event, liteRef.current ? liteChartMenu(current.id) : chartMenu(current.id, info.price ?? undefined));
       return true;
     });
 

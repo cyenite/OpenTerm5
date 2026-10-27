@@ -3,6 +3,7 @@ import { defaultSymbol } from './broker-symbols';
 import { cancelReplaySelection, replay, stepReplay, toggleReplayPlay } from './replay';
 import { chooseMode, isBacktestingChart, modeOf } from './backtest/runtime';
 import { openTimeframePrompt } from './timeframe-prompt';
+import { openSymbolPrompt } from './symbol-prompt';
 import { activeChart, closeChart, openChart, openDialog, pages, setChartSymbol, setChartTimeframe, stepChart, toggleMaximized, updateActiveChart, workspace, type ChartType, type ToolboxTab, type WorkspaceState } from './workspace';
 
 type PanelFlag = 'isMarketWatchShown' | 'isNavigatorShown' | 'isToolboxShown' | 'isDataWindowShown' | 'isStatusBarShown' | 'isChartBarShown' | 'isTradeAssistantShown' | 'isBacktestPanelShown' | 'isTradeDrawingToolbarShown';
@@ -109,10 +110,11 @@ function isChartFocus(target: EventTarget | null): boolean {
   return target === (target as Node | null)?.ownerDocument?.body || !!closestOf(target, '.chart-area');
 }
 
-// Typing a number on the charts opens the timeframe box with it, as in TradingView. Without
-// `chartId` it changes the active chart.
-export function handleTimeframeKey(event: KeyboardEvent, chartId?: string): boolean {
-  if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || !/^[0-9]$/.test(event.key)) return false;
+// Typing on the charts, as in TradingView: a number opens the timeframe box with it, a letter the
+// symbol search. Without `chartId` it changes the active chart.
+export function handleChartTypingKey(event: KeyboardEvent, chartId?: string): boolean {
+  const isDigit = /^[0-9]$/.test(event.key);
+  if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || !isDigit && !/^[a-z]$/i.test(event.key)) return false;
   if (closestOf(event.target, 'input, textarea, select, [contenteditable="true"]')) return false;
   const view = (event.target as Node | null)?.ownerDocument?.defaultView ?? window;
   const state = workspace.get();
@@ -121,7 +123,8 @@ export function handleTimeframeKey(event: KeyboardEvent, chartId?: string): bool
   const id = chartId ?? activeChart(state)?.id;
   if (!id) return false;
   event.preventDefault();
-  openTimeframePrompt(id, event.key, view);
+  if (isDigit) openTimeframePrompt(id, event.key, view);
+  else openSymbolPrompt(id, event.key.toUpperCase(), view);
   return true;
 }
 
@@ -130,7 +133,7 @@ export function handleShortcut(event: KeyboardEvent): boolean {
   if (event.defaultPrevented || closestOf(event.target, 'input, textarea, select')) {
     return false;
   }
-  if (handleTimeframeKey(event)) return true;
+  if (handleChartTypingKey(event)) return true;
   const key = event.key.toLowerCase();
   const isCtrl = event.ctrlKey || event.metaKey;
   const isAnalysis = workspace.get().isAnalysisMode;

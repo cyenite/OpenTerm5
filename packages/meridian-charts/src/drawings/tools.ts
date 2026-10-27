@@ -54,9 +54,15 @@ export function fieldValue<T>(env: { drawing: SerializedDrawing }, definition: T
   return definition?.fields?.find((field) => field.key === key)?.default as T;
 }
 
+// The pointer over a handle, as TradingView shows it: an arrow for a free point, a resize arrow for
+// one that moves along an axis. `diagonal` picks the corner's arrow from where it sits on screen.
+export type HandleCursor = 'default' | 'ns-resize' | 'ew-resize' | 'diagonal';
+
 export interface ToolHandles {
   at: (anchors: readonly DrawingPoint[]) => DrawingPoint[];
   drag: (anchors: readonly DrawingPoint[], handle: number, point: DrawingPoint) => DrawingPoint[];
+  // By handle index; a handle without one is a free point.
+  cursors?: readonly HandleCursor[];
 }
 
 export interface ToolDefinition {
@@ -616,6 +622,30 @@ const positionHandles: ToolHandles = {
     if (handle === 2) return [entry, target, { ...stop, price: point.price }];
     return [entry, { ...target, time: point.time }, { ...stop, time: point.time }];
   },
+  cursors: ['default', 'ns-resize', 'ns-resize', 'ew-resize'],
+};
+
+// TradingView's rectangle: its two corners, the other two, then the middle of each side, which
+// moves only that side.
+const boxHandles: ToolHandles = {
+  at: ([a, b]) => {
+    const time = (a.time + b.time) / 2;
+    const price = (a.price + b.price) / 2;
+    return [a, b, { time: a.time, price: b.price }, { time: b.time, price: a.price }, { time: a.time, price }, { time: b.time, price }, { time, price: a.price }, { time, price: b.price }];
+  },
+  drag: ([a, b], handle, point) => {
+    switch (handle) {
+      case 0: return [point, b];
+      case 1: return [a, point];
+      case 2: return [{ time: point.time, price: a.price }, { time: b.time, price: point.price }];
+      case 3: return [{ time: a.time, price: point.price }, { time: point.time, price: b.price }];
+      case 4: return [{ ...a, time: point.time }, b];
+      case 5: return [a, { ...b, time: point.time }];
+      case 6: return [{ ...a, price: point.price }, b];
+      default: return [a, { ...b, price: point.price }];
+    }
+  },
+  cursors: ['diagonal', 'diagonal', 'diagonal', 'diagonal', 'ew-resize', 'ew-resize', 'ns-resize', 'ns-resize'],
 };
 
 // Deterministic noise in [0, 1) for the ghost feed, so a drawing looks the same on every paint.
@@ -1602,7 +1632,7 @@ const definitions: ToolDefinition[] = [
     g.rect(a, right, stroke(env));
     if (o.bool('showMiddleLine')) g.line({ x: a.x, y: (a.y + b.y) / 2 }, { x: right.x, y: (a.y + b.y) / 2 }, stroke(env, { width: 1, dash: [4, 4], opacity: 1 }));
     textInBox(g, env, o, a, right);
-  }, { ...lineText, isFillable: true, fields: [checkbox('showMiddleLine', 'Middle line'), ...boxTextFields] }),
+  }, { ...lineText, isFillable: true, handles: boxHandles, fields: [checkbox('showMiddleLine', 'Middle line'), ...boxTextFields] }),
   three('rotated-rectangle', (g, env) => {
     const [a, b, c] = env.points;
     if (!b) return;

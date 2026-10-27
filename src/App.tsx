@@ -21,6 +21,7 @@ import { ChartWorkspace } from './components/ChartWorkspace';
 import { ContextMenuHost } from './components/ContextMenu';
 import { ChartPopouts } from './components/chart/ChartPopout';
 import { TimeframePromptHost } from './components/chart/TimeframePrompt';
+import { SymbolPromptHost } from './components/chart/SymbolPrompt';
 import { SurfacePortal } from './components/ui/Surface';
 import { focusedPopoutWindow } from './lib/popouts';
 import { Dock } from './components/Dock';
@@ -128,6 +129,7 @@ export function App() {
       <ChartPopouts />
       <ContextMenuHost />
       <TimeframePromptHost />
+      <SymbolPromptHost />
       <HintBubble />
     </div>
   );
