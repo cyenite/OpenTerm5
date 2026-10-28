@@ -1,25 +1,13 @@
 import type { BrokerServer, ResolvedServer, ServerSource } from '../shared/protocol';
 import { JsonStore } from './json-store';
 import { BotCheckError } from './bot-check';
-import { fetchTerminalPage, findTerminalFrame, parseServerMetadata } from './mt5-web-discovery';
+import { knownTerminals } from './known-terminals';
+import { fetchTerminalPage, findTerminalFrame, parseServerMetadata, registrableDomain } from './mt5-web-discovery';
 
 const catalogueUrl = 'https://metatraderweb.app/trade/servers?version=5';
 const catalogueAge = 7 * 86_400_000;
 const probeTimeout = 6_000;
 const probeLimit = 10;
-
-interface KnownTerminal {
-  readonly webUrl: string;
-  readonly prefixes: readonly string[];
-}
-
-// Verified by fetching each page and reading its __terminal_params (2026-10-14).
-export const knownTerminals: readonly KnownTerminal[] = [
-  { webUrl: 'https://web.metatrader.app/terminal', prefixes: ['MetaQuotes-'] },
-  { webUrl: 'https://mt5webterminal.ftmo.com/terminal', prefixes: ['FTMO-'] },
-  { webUrl: 'https://mt5-demo01.pepperstone.com/terminal', prefixes: ['Pepperstone-Demo'] },
-  { webUrl: 'https://mt5-1.pepperstone.com/terminal', prefixes: ['Pepperstone-MT5-Live'] },
-];
 
 // The web terminal is served by the broker's access servers, which follow a few naming habits
 // (mt5-demo01.pepperstone.com, mt5-1.pepperstone.com) besides dedicated web hosts.
@@ -98,23 +86,25 @@ export class BrokerDirectory {
     return rankServers([...new Set([...saved, ...servers])], query);
   }
 
-  // Only verified directory entries and servers that already logged in are trusted. A discovered or
-  // typed host is returned unsaved so the user must approve it, because anyone who owns a guessed
-  // domain can publish any server name in its page.
+  // Only verified directory entries, pages on a verified broker's own domain and servers that already
+  // logged in are trusted. A discovered or typed host is returned unsaved so the user must approve it,
+  // because anyone who owns a guessed domain can publish any server name in its page.
   async resolve(server: string): Promise<ResolvedServer> {
     const name = server.trim();
     if (!/^[\w .&()+-]{2,64}$/.test(name)) throw new Error('Enter the trade server name shown by your broker, for example FTMO-Server.');
     const resolved = await this.resolvedStore.load();
     const cached = resolved[name];
     if (cached) return this.result(name, cached.webUrl, cached.broker, cached.isListed, 'saved');
-    const known = knownTerminals.filter((terminal) => terminal.prefixes.some((prefix) => name.startsWith(prefix))).map((terminal) => terminal.webUrl);
-    const candidates = candidateTerminals(name).filter((url) => !known.includes(url));
+    const exact = knownTerminals.filter((terminal) => terminal.servers.some((entry) => entry.toLowerCase() === name.toLowerCase())).map((terminal) => terminal.webUrl);
+    const siblings = knownTerminals.filter((terminal) => !exact.includes(terminal.webUrl) && terminal.servers.some((entry) => serverPrefix(entry) === serverPrefix(name))).map((terminal) => terminal.webUrl);
+    const candidates = candidateTerminals(name).filter((url) => !exact.includes(url) && !siblings.includes(url));
     const blocked: string[] = [];
-    const trusted = new Set(known);
-    const found = await this.probe(name, known, trusted, blocked) ?? await this.probe(name, candidates, trusted, blocked);
+    const found = await this.probe(name, exact, new Set(exact), blocked) ?? await this.probe(name, [...siblings, ...candidates], new Set(), blocked);
     if (!found && blocked.length) throw new BotCheckError(blocked[0]);
     if (!found) throw new Error(`Could not find the address of ${name}. Ask your broker for its MT5 web trading address and enter it under Advanced.`);
-    return this.result(name, found.webUrl, found.broker, found.isListed, known.includes(found.webUrl) ? 'known' : 'discovered');
+    const verifiedDomains = new Set([...exact, ...siblings].map((url) => registrableDomain(new URL(url).hostname)));
+    const isKnown = exact.includes(found.webUrl) || verifiedDomains.has(registrableDomain(new URL(found.webUrl).hostname));
+    return this.result(name, found.webUrl, found.broker, found.isListed, isKnown ? 'known' : 'discovered');
   }
 
   async inspect(server: string, webUrl: string): Promise<ResolvedServer> {
