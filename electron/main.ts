@@ -10,6 +10,7 @@ import { Mt5WebLink } from './mt5-web-link';
 import { Mt5WebClient } from './mt5-web-client';
 import { BybitLink } from './bybit-link';
 import { BinanceLink } from './binance-link';
+import { HyperliquidFeed } from './hyperliquid-feed';
 import { UiLink } from './ui-link';
 import { BotCheckError } from './bot-check';
 import { browserFetch, openBrowserSocket, verifyBrokerAccess } from './browser-network';
@@ -45,6 +46,7 @@ const createExchangeLink = (platform: ExchangePlatform) => platform === 'binance
 const createPlatformLink = (platform: Platform) => isExchangePlatform(platform) ? createExchangeLink(platform) : createLink();
 const mt5 = createLink();
 const direct = new UiLink(mt5);
+const hyperliquid = new HyperliquidFeed();
 let automation: AutomationHost | undefined;
 let journaling: JournalingService | undefined;
 let updates: UpdateService | undefined;
@@ -440,6 +442,11 @@ ipcMain.handle('terminal:request', async (_event, method: TerminalMethod, params
       return true;
     }) };
     if (method.startsWith('tradingview.')) return { result: await handleTradingView(method, params, send, window) };
+    // Data feeds answer without an account, so they never wait for the broker connection.
+    if (method === 'feeds.symbols') return { result: await hyperliquid.symbols() };
+    if (method === 'feeds.bars') return { result: await hyperliquid.bars(params as TerminalMethods['feeds.bars'][0]) };
+    if (method === 'feeds.subscribe') return { result: await hyperliquid.subscribe(params as TerminalMethods['feeds.subscribe'][0]) };
+    if (method === 'feeds.unsubscribe') return { result: hyperliquid.unsubscribe(params as TerminalMethods['feeds.unsubscribe'][0]) };
     if (method === 'order.send' && isChanging) throw new Error('Account connection is changing. Send the order again after login completes.');
     await settledConnection();
     if (method === 'order.send') {
@@ -489,6 +496,9 @@ ipcMain.handle('settings:save', async (_event, next: ConnectionSettings) => chan
   await applySettings();
   return direct.state;
 }));
+
+hyperliquid.on('event', (event: TerminalEvent, data: unknown) => send(event, data));
+hyperliquid.on('journal', (message: string) => journal(message, 'Hyperliquid'));
 
 direct.on('event', (event: TerminalEvent, data: unknown) => {
   send(event, data);
@@ -595,6 +605,7 @@ app.on('before-quit', () => {
   void automation?.shutdown();
   journaling?.shutdown();
   pool.shutdown();
+  hyperliquid.stop();
   direct.disconnect();
   mt5.disconnect();
 });

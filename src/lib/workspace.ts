@@ -1,4 +1,5 @@
 import { markets, type Market, type OrderTypeKey } from '../../shared/protocol';
+import { canTradeSymbol } from '../../shared/feeds';
 import type { ChartTimeframe } from './mt5-timeframes';
 import { defaultThemeId } from '@meridian/charts/themes';
 import type { ChartSettings, InputValue } from '@meridian/charts';
@@ -559,8 +560,11 @@ export function isTradeDialog(dialog: Dialog): boolean {
 export function openDialog(dialog: Dialog): void {
   // Every trading entry point reaches the tickets through here, so this is the one gate that
   // keeps analysis mode from placing or changing trades, whatever menu or shortcut asked. A ticket
-  // opened from a replaying chart is refused too; the reason shows in the replay toolbar.
-  if (workspace.get().isAnalysisMode && isTradeDialog(dialog)) return;
+  // opened from a replaying chart is refused too; the reason shows in the replay toolbar. So is one for
+  // a data feed's market, or from a chart of one; the chart's own controls say why.
+  const state = workspace.get();
+  if (state.isAnalysisMode && isTradeDialog(dialog)) return;
+  if (dialog.kind === 'order' && [dialog.symbol, state.charts.find((chart) => chart.id === dialog.chartId)?.symbol].some((symbol) => symbol !== undefined && !canTradeSymbol(symbol))) return;
   if (dialog.kind === 'order' && isReplayingChart(replay.get().session, dialog.chartId)) {
     replay.set((state) => (state.session ? { session: { ...state.session, notice: `${replayTradingHint}.` } } : state));
     return;
