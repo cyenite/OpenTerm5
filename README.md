@@ -16,6 +16,7 @@
 
 <p align="center">
   <a href="#-a-quick-tour">Tour</a> ·
+  <a href="#-supported-brokers">Brokers</a> ·
   <a href="#-everything-in-the-box">Features</a> ·
   <a href="#-get-it-running">Install</a> ·
   <a href="#-documentation">Docs</a> ·
@@ -203,6 +204,101 @@ your system, give a single chart one of 7 chart themes, or import your saved Tra
     <td align="center"><sub>Meridian Light theme</sub></td>
   </tr>
 </table>
+
+---
+
+## 🏦 Supported brokers
+
+OpenTerm5 works with any MT5 broker that runs the MT5 web terminal, and with Bybit and Binance through
+their APIs. The brokers below were checked on 27 and 28 October 2026: OpenTerm5 finds their address
+from the server name alone and has completed the MT5 connection with each one. For another MT5 broker,
+enter its web trading address once under **Advanced** in the login dialog.
+
+| Account type | Platform | What you trade |
+| --- | --- | --- |
+| **CFD** | MT5 | Forex, metals, indices, energies, stock and crypto CFDs, as your broker lists them |
+| **Prop firm** | MT5 | The same CFDs on challenge and funded accounts, with [prop firm guards](#prop-firm-mode-guards-that-dont-blink) |
+| **Crypto** | Exchange API | USDT and USDC perpetual and futures contracts (Bybit), USDⓈ-M futures (Binance) |
+
+### CFD brokers (MT5)
+
+<table>
+  <tr>
+    <td align="center" width="16%"><img src="docs/images/brokers/admirals.png" width="40" height="40" alt="Admirals logo"><br><b>Admirals</b><br><sub>Demo, Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/axi.png" width="40" height="40" alt="Axi logo"><br><b>Axi</b><br><sub>Demo, Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/blackbull.png" width="40" height="40" alt="BlackBull Markets logo"><br><b>BlackBull Markets</b><br><sub>Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/blueberry.png" width="40" height="40" alt="Blueberry Markets logo"><br><b>Blueberry Markets</b><br><sub>Demo, Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/deriv.png" width="40" height="40" alt="Deriv logo"><br><b>Deriv</b><br><sub>Demo, Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/equiti.png" width="40" height="40" alt="Equiti logo"><br><b>Equiti</b><br><sub>Demo, Live</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="16%"><img src="docs/images/brokers/exness.png" width="40" height="40" alt="Exness logo"><br><b>Exness</b><br><sub>Trial, Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/fbs.png" width="40" height="40" alt="FBS logo"><br><b>FBS</b><br><sub>Demo, Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/fpmarkets.png" width="40" height="40" alt="FP Markets logo"><br><b>FP Markets</b><br><sub>Demo, Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/fusion.png" width="40" height="40" alt="Fusion Markets logo"><br><b>Fusion Markets</b><br><sub>Demo, Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/fxpro.png" width="40" height="40" alt="FxPro logo"><br><b>FxPro</b><br><sub>Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/hfm.png" width="40" height="40" alt="HFM logo"><br><b>HFM</b><br><sub>Demo, Live</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="16%"><img src="docs/images/brokers/icmarkets.png" width="40" height="40" alt="IC Markets logo"><br><b>IC Markets</b><br><sub>Demo, Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/ig.png" width="40" height="40" alt="IG logo"><br><b>IG</b><br><sub>Demo, Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/infinox.png" width="40" height="40" alt="Infinox logo"><br><b>Infinox</b><br><sub>Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/ingot.png" width="40" height="40" alt="INGOT Brokers logo"><br><b>INGOT Brokers</b><br><sub>Demo, Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/iux.png" width="40" height="40" alt="IUX logo"><br><b>IUX</b><br><sub>Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/justmarkets.png" width="40" height="40" alt="JustMarkets logo"><br><b>JustMarkets</b><br><sub>Demo, Live</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="16%"><img src="docs/images/brokers/metaquotes.png" width="40" height="40" alt="MetaQuotes logo"><br><b>MetaQuotes</b><br><sub>Demo</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/moneta.png" width="40" height="40" alt="Moneta Markets logo"><br><b>Moneta Markets</b><br><sub>Demo, Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/multibank.png" width="40" height="40" alt="MultiBank logo"><br><b>MultiBank</b><br><sub>Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/pepperstone.png" width="40" height="40" alt="Pepperstone logo"><br><b>Pepperstone</b><br><sub>Demo, Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/puprime.png" width="40" height="40" alt="PU Prime logo"><br><b>PU Prime</b><br><sub>Demo, Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/roboforex.png" width="40" height="40" alt="RoboForex logo"><br><b>RoboForex</b><br><sub>Live</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="16%"><img src="docs/images/brokers/scope.png" width="40" height="40" alt="Scope Markets logo"><br><b>Scope Markets</b><br><sub>Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/startrader.png" width="40" height="40" alt="Startrader logo"><br><b>Startrader</b><br><sub>Demo, Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/swissquote.png" width="40" height="40" alt="Swissquote logo"><br><b>Swissquote</b><br><sub>Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/tickmill.png" width="40" height="40" alt="Tickmill logo"><br><b>Tickmill</b><br><sub>Demo, Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/ultima.png" width="40" height="40" alt="Ultima Markets logo"><br><b>Ultima Markets</b><br><sub>Demo, Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/valetax.png" width="40" height="40" alt="Valetax logo"><br><b>Valetax</b><br><sub>Live</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="16%"><img src="docs/images/brokers/vantage.png" width="40" height="40" alt="Vantage logo"><br><b>Vantage</b><br><sub>Demo, Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/vtmarkets.png" width="40" height="40" alt="VT Markets logo"><br><b>VT Markets</b><br><sub>Live</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/xm.png" width="40" height="40" alt="XM logo"><br><b>XM</b><br><sub>Live</sub></td>
+  </tr>
+</table>
+
+### Prop firms (MT5)
+
+<table>
+  <tr>
+    <td align="center" width="16%"><img src="docs/images/brokers/ftmo.png" width="40" height="40" alt="FTMO logo"><br><b>FTMO</b><br><sub>Free trial, Challenge, Funded</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/fundednext.png" width="40" height="40" alt="FundedNext logo"><br><b>FundedNext</b><br><sub>Challenge, Funded</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/fundingpips.png" width="40" height="40" alt="FundingPips logo"><br><b>FundingPips</b><br><sub>Trial, Challenge, Funded</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/the5ers.png" width="40" height="40" alt="The5ers logo"><br><b>The5ers</b><br><sub>Challenge, Funded</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/oanda.png" width="40" height="40" alt="OANDA Prop Trader logo"><br><b>OANDA Prop Trader</b><br><sub>Challenge, Funded</sub></td>
+  </tr>
+</table>
+
+### Crypto exchanges
+
+<table>
+  <tr>
+    <td align="center" width="16%"><img src="docs/images/brokers/bybit.png" width="40" height="40" alt="Bybit logo"><br><b>Bybit</b><br><sub>Demo trading, Live, Testnet</sub></td>
+    <td align="center" width="16%"><img src="docs/images/brokers/binance.png" width="40" height="40" alt="Binance logo"><br><b>Binance</b><br><sub>Demo trading, Live</sub></td>
+  </tr>
+</table>
+
+Regional entities matter, because each one runs its own servers. Kenyan accounts are supported at
+IC Markets, HFM, XM, FP Markets and Scope Markets; XM South Africa, HFM Seychelles, Tickmill UK and
+EU, and Vantage Mauritius are covered too. A few servers have no working web terminal (for example
+ExnessKE, FXTM, Octa and FXPesa). The full server list, and the brokers we could not verify, are in
+[Accounts and brokers](docs/user-guide/accounts-and-brokers.md#brokers-with-verified-addresses).
+
+<sub>Broker and exchange names and logos are trademarks of their owners, shown only to say which
+services OpenTerm5 can connect to. OpenTerm5 is not affiliated with or endorsed by any of them.</sub>
 
 ---
 
