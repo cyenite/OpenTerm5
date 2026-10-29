@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { BrokerDirectory, brokerDomains, candidateTerminals, rankServers } from './broker-directory';
+import { knownTerminals } from './known-terminals';
 import { registrableDomain } from './mt5-web-discovery';
 
 const page = (broker: string, servers: string[]) => `<script>window.__terminal_params = {"broker":{"name":"${broker}"},"servers":[${servers.map((server) => `{"server":"${server}","type":"real"}`).join(',')}]};</script>`;
@@ -67,13 +68,48 @@ test('branded wrapper pages are followed to the framed terminal on the same doma
   assert.equal((await brokers.resolve('Acme-Demo')).webEndpoint, 'wss://trade.acme.com/terminal');
 });
 
-test('known directory entries accept unlisted servers of the same broker and say so', async () => {
-  const brokers = await directory({ 'https://mt5webterminal.ftmo.com/terminal': page('FTMO Global Markets Ltd', ['FTMO-Server']) });
-  const resolved = await brokers.resolve('FTMO-Server4');
+test('a known entry is accepted even when its page stops listing the server, and says so', async () => {
+  const brokers = await directory({ 'https://mt5webterminal.ftmo.com/terminal': page('FTMO Global Markets Ltd', ['FTMO-Renamed']) });
+  const resolved = await brokers.resolve('FTMO-Server');
   assert.equal(resolved.isListed, false);
   assert.equal(resolved.source, 'known');
   assert.equal(resolved.webEndpoint, 'wss://mt5webterminal.ftmo.com/terminal');
   await assert.rejects(brokers.resolve('bad/name'), /trade server name/);
+});
+
+test('a sibling server never borrows another server\'s terminal', async () => {
+  const brokers = await directory({
+    'https://mt5webterminal.ftmo.com/terminal': page('FTMO Global Markets Ltd', ['FTMO-Server']),
+    'https://mt5webterminal4.ftmo.com/terminal': page('FTMO Global Markets Ltd', ['FTMO-Server4']),
+    'https://webterminal.ftmo.com/terminal': page('FTMO Global Markets Ltd', ['FTMO-Server9']),
+  });
+  assert.equal((await brokers.resolve('FTMO-Server4')).webEndpoint, 'wss://mt5webterminal4.ftmo.com/terminal');
+  const unlisted = await brokers.resolve('FTMO-Server9');
+  assert.deepEqual([unlisted.webEndpoint, unlisted.source], ['wss://webterminal.ftmo.com/terminal', 'known']);
+  await assert.rejects(brokers.resolve('FTMO-Server8'), /Could not find/);
+});
+
+test('every directory entry is an HTTPS terminal page and names each server once', () => {
+  const servers = knownTerminals.flatMap((terminal) => terminal.servers.map((server) => server.toLowerCase()));
+  assert.equal(new Set(servers).size, servers.length);
+  assert.equal(new Set(knownTerminals.map((terminal) => terminal.webUrl)).size, knownTerminals.length);
+  for (const terminal of knownTerminals) {
+    const url = new URL(terminal.webUrl);
+    assert.deepEqual([url.protocol, url.pathname, url.search], ['https:', '/terminal', ''], terminal.webUrl);
+    assert.ok(terminal.servers.length > 0, terminal.webUrl);
+  }
+});
+
+test('terminals on a port or a domain other than the broker website resolve from the directory', async () => {
+  const calls: string[] = [];
+  const brokers = await directory({
+    'https://live10-webterminal.hfm-ke.com:1951/terminal': page('HFM Investments Ltd', ['HFMarketsKE-Live10']),
+    'https://mt5real8.exwebterm.com/terminal': page('Exness Technologies Ltd', ['Exness-MT5Real8']),
+  }, calls);
+  const hfm = await brokers.resolve('HFMarketsKE-Live10');
+  assert.deepEqual([hfm.webEndpoint, hfm.source], ['wss://live10-webterminal.hfm-ke.com:1951/terminal', 'known']);
+  assert.equal((await brokers.resolve('Exness-MT5Real8')).webEndpoint, 'wss://mt5real8.exwebterm.com/terminal');
+  assert.deepEqual(calls, ['https://live10-webterminal.hfm-ke.com:1951/terminal', 'https://mt5real8.exwebterm.com/terminal']);
 });
 
 test('a manually entered address is checked but needs approval and is not remembered by itself', async () => {
@@ -83,6 +119,14 @@ test('a manually entered address is checked but needs approval and is not rememb
   await assert.rejects(brokers.resolve('Acme-Live'), /Could not find/);
   await assert.rejects(brokers.inspect('Acme-Live', 'http://custom.example.org/terminal'), /HTTPS/);
   assert.deepEqual((await brokers.search('acme')).map((item) => item.server), ['Acme-Demo', 'Acme-Live']);
+});
+
+test('a server the broker routes to a shared host resolves there as known but unlisted', async () => {
+  const calls: string[] = [];
+  const brokers = await directory({ 'https://real-terminal.ctgl.app/terminal': page('FBS Markets Inc.', ['FBS-Real']) }, calls);
+  const resolved = await brokers.resolve('FBS-Real-5');
+  assert.deepEqual([resolved.webEndpoint, resolved.source, resolved.isListed], ['wss://real-terminal.ctgl.app/terminal', 'known', false]);
+  assert.deepEqual(calls, ['https://real-terminal.ctgl.app/terminal']);
 });
 
 test('when only bot-checked hosts answer, the failure names the bot check', async () => {

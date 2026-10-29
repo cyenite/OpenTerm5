@@ -36,6 +36,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "test": "tsx --test src/lib/*.test.ts src/lib/*/*.test.ts electron/*.test.ts shared/*.test.ts packages/meridian-charts/src/*.test.ts packages/meridian-charts/src/*/*.test.ts",
     "probe:mt5-web": "tsx scripts/mt5-web-probe.ts",
+    "verify:terminals": "tsx scripts/verify-known-terminals.ts",
     "dist": "npm run build && electron-builder",
     "dist:linux": "npm run build && electron-builder --linux",
     "dist:mac": "npm run build && electron-builder --mac",

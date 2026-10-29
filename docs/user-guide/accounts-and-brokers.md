@@ -55,11 +55,70 @@ the server name you choose:
 
 1. **Search.** The server list comes from MetaQuotes' public directory of about 2,800 MT5 servers. It
    is downloaded once and refreshed weekly.
-2. **Known addresses.** OpenTerm5 ships with a small list of verified broker addresses, such as
-   MetaQuotes, FTMO and Pepperstone.
+2. **Known addresses.** OpenTerm5 ships with verified addresses for about 290 servers, listed below.
+   Each broker server has its own web address, so a server is only ever sent to the address that
+   serves it.
 3. **Previous logins.** An address that has logged in successfully for a server is remembered.
 4. **Discovery.** For other servers, OpenTerm5 checks the usual hosts on the broker's domain. An
-   address is used only if that host's page lists your exact server name.
+   address is used only if that host's page lists your exact server name. If that host is on the
+   same domain as a verified address of the same broker, it counts as verified too.
+
+### Brokers with verified addresses
+
+Checked on 27 and 28 October 2026: each address lists its server and completes the MT5 connection.
+
+| Broker | Servers |
+| --- | --- |
+| Admirals | AdmiralsGroup-Demo, AdmiralsGroup-Live |
+| Axi | Axi-US50-Demo, Axi-US50-Live to Axi-US54-Live, Axi-US88-Live, Axi-UK55-Live |
+| BlackBull Markets | BlackBullMarkets-Live |
+| Blueberry Markets | BlueberryMarkets-Demo, -Live, -Live02, BlueberryMarketsV-Live3 |
+| Deriv | Deriv-Demo, DerivSVG-Server, -02, -03, DerivBVI-Server, -02, -03 |
+| Equiti (EGMLabs) | EGMLabsLtd-Demo, -Live, -Live 2 |
+| Exness | Exness-MT5Real to Exness-MT5Real51 and Exness-MT5Trial to Exness-MT5Trial17 (the ones Exness offers on the web) |
+| FBS | FBS-Demo, FBS-Real, FBS-Real-1 to FBS-Real-18, FBSInc-Real-11 to -18 |
+| FP Markets | FPMarketsKE-Demo, FPMarketsKE-Live (Kenya), FPMarketsSC-Demo, FPMarketsSC-Live, FirstPrudentialMarketsCY-Live |
+| FTMO | FTMO-Demo, FTMO-Server, FTMO-Server2 to FTMO-Server5 |
+| FundedNext | FundedNext-Server |
+| FundingPips | FundingPips-Prime, -SIM1, -Trial |
+| Fusion Markets | FusionMarkets-Demo, -Live |
+| FxPro | FxPro-MT5 |
+| HFM | HFMarketsKE-Demo2, -Live2, -Live10, -Live11, -Live15, -Live20; HFMarketsSC-Demo2, -Live1 to -Live5, -Live7 to -Live11, -Live20 |
+| IC Markets | ICMarketsSC-Demo, -Demo02, -MT5, -MT5-2, -MT5-3, -MT5-4, -MT5-6; ICMarketsKE-Demo, ICMarketsKE-MT5-7 |
+| IG | IG-DEMO, IG-LIVE |
+| Infinox | InfinoxLimited-MT5Live, InfinoxCapitalLimited-MT5Live |
+| INGOT Brokers | INGOTSC-Demo2, INGOTSC-Server |
+| IUX | IUXMarkets-Live to -Live5 |
+| JustMarkets | JustMarkets-Demo, -Demo2, -Demo3, -Demo6, -Live, -Live2, -Live3, -Live6, -Live7 |
+| MetaQuotes | MetaQuotes-Demo |
+| Moneta Markets | MonetaMarkets-Demo, MonetaMarkets-Live |
+| MultiBank (MEX) | MEXIntGroup-Real, MEXMarkets-Real-3 |
+| OANDA | OANDA-Prop Trader |
+| Pepperstone | Pepperstone-Demo, Pepperstone-MT5-Live01, PepperstoneUK-Demo, PepperstoneUK-Live |
+| PU Prime | PUPrime-Demo, PUPrime-Live, -Live2, -Live 4 to -Live 7, PUPrimeTrading-Live |
+| RoboForex | RoboForex-ECN, RoboForex-Pro |
+| Scope Markets | ScopeMarkets-Live, SCFMLimited-Live2 (Kenya) |
+| Startrader | STARTRADERFinancial-Demo, -Live, -Live 3 to -Live 6, -Live7, -Live8, STARTRADERPrimeGlobal-Live |
+| Swissquote | Swissquote-Server |
+| The5ers | FivePercentOnline-Real |
+| Tickmill | Tickmill-Demo, Tickmill-Live, TickmillUK-Demo, TickmillUK-Live, TickmillEU-Demo, TickmillEU-Live |
+| Ultima Markets | UltimaMarkets-Demo, -Live 1, -Live 2, UltimaMarketsUK-Live |
+| Valetax | ValetaxIntl-Live2 |
+| Vantage | VantageMarkets-Demo, -Live, -Live 3 to -Live 8, -Live 10, -Live 11, -Live 13, -Live 14, -Live 15, -Live 19, -Live 21; VantageGlobalPrimeAU-Demo, -Live; VantageMarketsMU-Demo, -Live; VantageMarketsFutures-Demo, -Live |
+| VT Markets | VTMarkets-Live, -Live 2, -Live 3, -Live 5 to -Live 9, VTMarketsLtd-Live 4 |
+| XM | XM.COM-MT5, XMMena-MT5; XMGlobal-MT5, XMGlobal-MT5 2, XMGlobal-MT5 4 to 20; XMGlobalKE-MT5 2, 4, 16 (Kenya); XMZA-MT5 2, 4 to 16 |
+
+The5ers, FxPro and JustMarkets put a Cloudflare check in front of their terminals, so the first login
+may open a window where you confirm you are not a robot. FBS's own web page sends all of its
+FBS-Real servers to one address that names only FBS-Real, so the login dialog says the address does
+not list your server; the login itself confirms it.
+
+Some servers have no MT5 web terminal that OpenTerm5 could find, because the broker offers MT5 on
+desktop and mobile only, only its own web platform, or a terminal whose certificate has expired: for
+example ExnessKE, FXTM, Octa, Eightcap, FXPesa (EGM Securities), AvaTrade, Alpari, ThinkMarkets,
+TMGM, Doo Prime, ACY, Windsor, Pepperstone's regional servers other than the ones above, and a few
+numbered servers of the brokers listed (Vantage Live 2, 9, 12 and 17, for instance). If your broker
+gives you an MT5 web address for one of these, enter it under **Advanced**.
 
 ### Approving an unverified address
 
@@ -83,7 +142,7 @@ terminal on the same domain.
 If you find the address for a broker that OpenTerm5 does not detect, please open a
 [broker compatibility report](https://github.com/cyenite/OpenTerm5/issues/new?template=broker_report.yml)
 with the server name and address. Never include your login or password. Verified addresses are added
-to `electron/broker-directory.ts`.
+to `electron/known-terminals.ts`, and `npm run verify:terminals` checks every entry again.
 
 ## Connection status
 
