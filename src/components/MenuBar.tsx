@@ -43,6 +43,7 @@ import {
 } from '../lib/workspace';
 import { timeframeMenuItems } from '../lib/timeframe-favorites';
 import { useIsReplayingChart } from '../lib/replay-session';
+import { canTradeSymbol } from '../../shared/feeds';
 import { chooseMode, modeOf, useIsBacktestingChart } from '../lib/backtest/runtime';
 import { requestUpdate } from '../lib/updates';
 import { Icon } from './ui/Icon';
@@ -70,6 +71,7 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
   const hasChart = chart !== undefined;
   const isReplaying = useIsReplayingChart(chart?.id);
   const isBacktesting = useIsBacktestingChart(chart?.id);
+  const isDataOnly = !!chart && !canTradeSymbol(chart.symbol);
   const symbolObjectCount = useStore(symbolDrawings, (current) => (chart ? drawingsForSymbol(current, chart.symbol).length : 0));
   const tab = activeTab(state);
   const isMultiChart = !!tab && visibleChartIds(tab).length > 1;
@@ -140,7 +142,7 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
         {
           label: 'Objects',
           isDisabled: !hasChart,
-          items: tools.filter((tool) => tool.key !== 'cursor' && tool.key !== 'crosshair' && !(isAnalysis && tool.key === 'riskOrder')).map((tool) => ({ label: tool.label, action: () => workspace.set({ tool: tool.key }) })),
+          items: tools.filter((tool) => tool.key !== 'cursor' && tool.key !== 'crosshair' && !(isAnalysis && tool.key === 'riskOrder')).map((tool) => ({ label: tool.label, isDisabled: isDataOnly && tool.key === 'riskOrder', action: () => workspace.set({ tool: tool.key }) })),
         },
       ],
     },
@@ -178,7 +180,7 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
     {
       label: 'Tools',
       items: [
-        ...(isBacktesting ? [{ label: 'Place Backtest Order', shortcut: 'F9', action: () => newOrder() }] : unlessAnalysis([{ label: 'New Order', shortcut: 'F9', isDisabled: isReplaying, action: () => newOrder() }])),
+        ...(isBacktesting ? [{ label: 'Place Backtest Order', shortcut: 'F9', action: () => newOrder() }] : unlessAnalysis([{ label: 'New Order', shortcut: 'F9', isDisabled: isReplaying || isDataOnly, action: () => newOrder() }])),
         { label: 'Backtest Sessions...', action: () => openDialog({ kind: 'backtests' }) },
         { label: 'Price Alerts...', action: () => openDialog({ kind: 'alerts' }) },
         ...unlessAnalysis([{ label: 'One Click Trading', isChecked: state.isOneClickEnabled, action: toggleOneClick }]),

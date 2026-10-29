@@ -4,6 +4,7 @@ import { decidePlan, validateDrag, type PlanLines } from '../../../shared/order-
 import { marketOfMode, orderType, type Order, type Position } from '../../../shared/protocol';
 import { formatMoney, formatPrice, formatVolume } from '../../lib/format';
 import { replayTradingHint } from '../../lib/replay-session';
+import { canTradeSymbol, dataOnlyHint } from '../../../shared/feeds';
 import { riskPreferences, setRiskPreferences } from '../../lib/risk-preferences';
 import { log, session, signingIn, signInName } from '../../lib/session';
 import { useBacktestMoneyPerUnit } from '../../lib/backtest/runtime';
@@ -91,8 +92,10 @@ export function TradeOverlay({ chart: controller, symbol, digits, isReplaying, i
   // In analysis mode, and on a replaying chart, the overlay only shows positions and orders: no
   // dragging, closing or planning.
   const isAnalysisMode = useStore(workspace, (state) => state.isAnalysisMode);
-  // A backtest trades a simulated account, so its charts trade in replay and in analysis mode.
-  const isReadOnly = !isBacktesting && (isAnalysisMode || isReplaying);
+  // A backtest trades a simulated account, so its charts trade in replay and in analysis mode. A data
+  // feed's chart never trades: the broker may not list its market.
+  const isDataOnly = !canTradeSymbol(symbol);
+  const isReadOnly = isDataOnly || !isBacktesting && (isAnalysisMode || isReplaying);
   const canTrade = venue.canTrade && !isReadOnly;
   const signIn = useStore(session, signingIn);
   const { positions, orders } = venue;
@@ -397,7 +400,7 @@ export function TradeOverlay({ chart: controller, symbol, digits, isReplaying, i
         const focus = !focused ? undefined : line.group === focused ? 'focused' : 'dimmed';
         return <LineHandle key={line.id} line={line} y={y} left={line.isPlan ? planLeft : 0} width={geometry.width} labelOffset={labelOffsets.get(line.id) ?? 0} focus={focus} digits={digits} currency={currency} edit={edit?.id === line.id && !drag.current ? edit : undefined} onStartDrag={startDrag} onApply={() => { const current = edit!; setEdit(null); void current.apply(current.price); }} onDiscard={() => setEdit(null)} />;
       })}
-      {isReplaying && tool === 'riskOrder' && <span className="overlay-prompt" role="status">{replayTradingHint}</span>}
+      {tool === 'riskOrder' && (isDataOnly || isReplaying) && <span className="overlay-prompt" role="status">{isDataOnly ? dataOnlyHint(symbol) : replayTradingHint}</span>}
       {hasPlan && plan.stop !== undefined && (
         <PlannerPanel symbol={symbol} lines={plan as PlanLines} digits={digits} error={panelError} title={title} preview={preview} currency={currency} balance={venue.account?.balance ?? 0} isBusy={isBusy} isMarketForced={isMarketForced} onMarket={setIsMarketForced} onPlace={() => void submit()} onCancel={() => { setPlan({}); setIsMarketForced(false); if (workspace.get().tool === 'riskOrder') workspace.set({ tool: 'cursor' }); }} />
       )}
