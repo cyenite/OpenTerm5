@@ -7,12 +7,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-02
+
 ### Added
 
 - Hyperliquid charts: search any Hyperliquid perpetual or spot market from a chart's symbol search,
   logged in or not. Prices, history and live bars come straight from Hyperliquid. The charts are data
   only: every trading control is off on them, and orders for them are refused, because your broker
   may not offer the market.
+- Verified web terminals for about 290 broker servers across 40 brokers, prop firms included, so
+  typing a server name such as `FTMO-Server3`, Exness, Vantage, XM, Axi or Tickmill connects to the
+  right terminal even when it lives on a domain unlike the broker's.
+
+### Fixed
+
+- Numbered sibling servers (`FTMO-Server2` to `FTMO-Server5`, say) no longer connect to the first
+  server's terminal; each server now goes to the host that serves it.
 
 ## [0.9.0] - 2026-10-27
 
@@ -508,7 +518,8 @@ First public release of OpenTerm5 (previously developed as Terminal5), under the
 - **Project files:** documentation under `docs/`, a contributing guide, code of conduct, security
   policy, issue and pull request templates, and CI on Linux, macOS and Windows.
 
-[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/cyenite/OpenTerm5/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/cyenite/OpenTerm5/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/cyenite/OpenTerm5/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/cyenite/OpenTerm5/compare/v0.6.0...v0.7.0
