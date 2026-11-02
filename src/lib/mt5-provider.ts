@@ -87,6 +87,14 @@ export const mt5Provider: DataProvider = {
     };
   },
 
+  // MetaTrader charts follow the bid; exchange klines follow trades, so the last price leads when
+  // the link has one.
+  subscribeQuotes(ticker, onPrice) {
+    return terminal.on('tick', (tick) => {
+      if (tick.symbol === ticker) onPrice(tick.last > 0 ? tick.last : tick.bid, tick.time);
+    });
+  },
+
   async getSymbolInfo(ticker) {
     const spec = session.get().symbols[ticker];
     if (!spec) return undefined;

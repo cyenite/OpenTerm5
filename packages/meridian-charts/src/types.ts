@@ -30,6 +30,8 @@ export interface DataProvider {
   getBars(symbol: string, timeframe: string, range: BarRange): Promise<Bar[]>;
   // Streams the bar in progress (and each new bar) for the symbol and timeframe.
   subscribe?(symbol: string, timeframe: string, onBar: (bar: Bar) => void): () => void;
+  // Streams quotes (epoch ms, in the bars' time base) that move the bar in progress between bars.
+  subscribeQuotes?(symbol: string, onPrice: (price: number, time: number) => void): () => void;
   getSymbolInfo?(symbol: string): Promise<SymbolInfo | undefined>;
 }
 

@@ -692,3 +692,33 @@ test('a chart subscription stays until the last chart showing that symbol and ti
   await link.request('ticks.subscribe', { symbols: ['EURUSD'] });
   assert.ok(!client.subscriptions.at(-1)!.includes('GBPJPY'));
 });
+
+// Why charts must move the bar in progress from quotes: the link only sends bars from its poll,
+// which waits in the general queue, while quotes are published the moment they arrive.
+test('quotes keep flowing while a slow broker read holds back the chart bar poll', async (t) => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const { link, clients } = fixture();
+  t.after(() => { release(); link.disconnect(); });
+  await loggedIn(link);
+  const client = clients.at(-1)!;
+  const original = client.transport.request;
+  client.transport.request = async (command, payload) => {
+    if (command === 5) await gate;
+    return original(command, payload);
+  };
+  const events: string[] = [];
+  link.on('event', (event: string) => { if (event === 'tick' || event === 'bar') events.push(event); });
+  await link.request('rates.subscribe', { symbol: 'EURUSD', timeframe: 'M1' });
+  link.setPollInterval(250);
+  const history = link.request('history.get', { from: 0, to: 1 });
+  for (let index = 0; index < 5; index++) {
+    client.emit('tick', { symbol: 'EURUSD', timeMs: Date.now(), bid: 1.1 + index / 10000, ask: 1.1002 + index / 10000 });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  assert.equal(events.filter((event) => event === 'tick').length, 5);
+  assert.equal(events.filter((event) => event === 'bar').length, 0, 'no bar reached the chart while the read was outstanding');
+  release();
+  await history;
+  await until(() => events.includes('bar'));
+});

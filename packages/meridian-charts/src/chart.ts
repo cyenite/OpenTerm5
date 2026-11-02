@@ -23,6 +23,7 @@ import { ReplayBar } from './ui/replay-bar';
 import { StyleBar } from './ui/stylebar';
 import { ensureStyles, element, isTag } from './ui/styles';
 import { candleWidths } from './core/candles';
+import { foldPrice, mergeLiveBar, type LivePrice } from './core/live';
 import { DrawingToolbar, type CursorMode, type MagnetMode } from './ui/toolbar';
 
 export interface MeridianChartOptions {
@@ -437,6 +438,8 @@ export class MeridianChart {
   private isPaging = false;
   private isHistoryExhausted = false;
   private unsubscribe: (() => void) | null = null;
+  private liveFrame = 0;
+  private livePrice: LivePrice | null = null;
   private countdownTimer: ReturnType<typeof setInterval>;
   private readyPromise: Promise<void>;
   private closeDialog: (() => void) | null = null;
@@ -568,6 +571,7 @@ export class MeridianChart {
     this.generation++;
     for (const study of this.studies) study.controller?.abort();
     this.view.cancelAnimationFrame(this.frame);
+    this.view.cancelAnimationFrame(this.liveFrame);
     clearInterval(this.countdownTimer);
     this.unsubscribe?.();
     this.closeDialog?.();
@@ -592,6 +596,7 @@ export class MeridianChart {
 
   setMarket(symbol: string, timeframe: string, title?: string): Promise<void> {
     if (this.replay) this.endReplay();
+    const isNewSymbol = symbol !== this.symbol;
     this.symbol = symbol;
     this.timeframe = timeframe;
     this.interval = timeframeMs(timeframe);
@@ -602,6 +607,8 @@ export class MeridianChart {
     this.barList = [];
     this.displayBars = [];
     this.timeScale.setTimes([], this.interval);
+    // A manual price range or zoom made for the previous market would frame the new one off screen.
+    if (isNewSymbol) this.resetView();
     this.readyPromise = this.load();
     return this.readyPromise;
   }
@@ -1252,6 +1259,7 @@ export class MeridianChart {
     const generation = ++this.generation;
     this.unsubscribe?.();
     this.unsubscribe = null;
+    this.livePrice = null;
     this.recomputeStudies();
     this.invalidate();
     try {
@@ -1263,7 +1271,9 @@ export class MeridianChart {
       if (generation !== this.generation) return;
       this.isHistoryExhausted = true;
     }
-    this.unsubscribe = this.provider.subscribe?.(this.symbol, this.timeframe, (bar) => { if (generation === this.generation) this.onLiveBar(bar); }) ?? null;
+    const offBars = this.provider.subscribe?.(this.symbol, this.timeframe, (bar) => { if (generation === this.generation) this.onLiveBar(bar); });
+    const offQuotes = this.provider.subscribeQuotes?.(this.symbol, (price, time) => { if (generation === this.generation) this.onLivePrice({ price, time }); });
+    this.unsubscribe = () => { offBars?.(); offQuotes?.(); };
     if (this.digits === null && this.provider.getSymbolInfo) {
       const info = await this.provider.getSymbolInfo(this.symbol).catch(() => undefined);
       if (generation === this.generation && info?.tickSize && this.digits === null) {
@@ -1301,26 +1311,36 @@ export class MeridianChart {
   private onLiveBar(bar: Bar): void {
     if (this.replay && this.replay.time !== null) {
       // Live bars wait in the full series until the replay ends.
-      const bars = this.replay.bars;
-      const last = bars[bars.length - 1];
-      if (last && bar.time === last.time) bars[bars.length - 1] = bar;
-      else if (!last || bar.time > last.time) bars.push(bar);
+      mergeLiveBar(this.replay.bars, bar, null, this.interval);
       return;
     }
-    const last = this.barList[this.barList.length - 1];
-    if (!last) {
-      this.replaceBars([bar]);
+    if (!this.barList.length) {
+      this.replaceBars([foldPrice(bar, this.livePrice, this.interval) ?? bar]);
       return;
     }
-    if (bar.time < last.time) return;
-    if (bar.time === last.time) this.barList[this.barList.length - 1] = bar;
-    else {
-      this.barList.push(bar);
-      this.timeScale.append(bar.time);
-    }
+    const change = mergeLiveBar(this.barList, bar, this.livePrice, this.interval);
+    if (!change) return;
+    if (change === 'appended') this.timeScale.append(bar.time);
     this.updateDisplayBars();
     this.recomputeStudies();
     this.invalidate();
+  }
+
+  // Quotes can come many times a second; the bar in progress takes the latest one per frame.
+  private onLivePrice(quote: LivePrice): void {
+    this.livePrice = quote;
+    if (this.liveFrame) return;
+    this.liveFrame = this.view.requestAnimationFrame(() => {
+      this.liveFrame = 0;
+      if (this.replay && this.replay.time !== null) return;
+      const index = this.barList.length - 1;
+      const bar = index < 0 ? null : foldPrice(this.barList[index], this.livePrice, this.interval);
+      if (!bar) return;
+      this.barList[index] = bar;
+      this.updateDisplayBars();
+      this.recomputeStudies();
+      this.invalidate();
+    });
   }
 
   // Fetches older bars once the oldest loaded bar is on screen. A page that brings nothing

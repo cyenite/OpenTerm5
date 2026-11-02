@@ -65,6 +65,12 @@ function build(type: string, anchors: DrawingPoint[], props: Record<string, unkn
   return shapes.shapes;
 }
 
+function buildOn(series: Bar[], type: string, anchors: DrawingPoint[]): Shape[] {
+  const shapes = new ShapeList();
+  toolDefinitions.get(type)!.build(shapes, { ...envFor(type, anchors), bars: series });
+  return shapes.shapes;
+}
+
 function numbersOf(shape: Shape): number[] {
   switch (shape.kind) {
     case 'line': return [shape.a.x, shape.a.y, shape.b.x, shape.b.y];
@@ -215,6 +221,43 @@ test('position labels show the quantity from account size, risk and lot size', (
   assert.ok(custom.some((text) => text.includes('Qty: 5')), custom.join(' | '));
   const short = texts(build('short-position', [at(10, 110), at(30, 100), at(30, 115)], full));
   assert.ok(short.some((text) => text.includes('Qty: 2')), short.join(' | '));
+});
+
+// The darker block of a position: the trade so far, from the entry to where it stands.
+const progressOf = (shapes: readonly Shape[]) => shapes.filter((shape) => shape.kind === 'rect' && shape.style.fillOpacity === 0.4);
+
+test('an open position shades the trade so far up to the latest bar and tracks its close', () => {
+  const shapes = build('long-position', [at(10, 105), at(80, 200), at(80, 50)]);
+  const [progress] = progressOf(shapes);
+  const last = bars[bars.length - 1];
+  assert.ok(progress?.kind === 'rect');
+  assert.equal(progress.x, timeToX(at(10, 0).time));
+  assert.equal(progress.x + progress.w, timeToX(last.time));
+  assert.equal(progress.y, priceToY(last.close));
+  assert.equal(progress.y + progress.h, priceToY(105));
+  assert.equal(progress.style.fill, '#089981', 'price above a long entry is shaded in the target color');
+  const trace = shapes.find((shape) => shape.kind === 'line' && shape.style.dash?.length);
+  assert.ok(trace?.kind === 'line');
+  assert.deepEqual(trace.b, { x: timeToX(last.time), y: priceToY(last.close) });
+  const moved = bars.slice();
+  moved[moved.length - 1] = { ...last, close: last.close + 0.5, high: last.high + 0.5 };
+  const [live] = progressOf(buildOn(moved, 'long-position', [at(10, 105), at(80, 200), at(80, 50)]));
+  assert.ok(live?.kind === 'rect');
+  assert.equal(live.y, priceToY(last.close + 0.5), 'the shading follows the bar in progress');
+});
+
+test('a position stops at the bar that hits its target or stop', () => {
+  const target = 112;
+  const hit = bars.findIndex((bar, index) => index >= 10 && bar.high >= target);
+  const [won] = progressOf(build('long-position', [at(10, 105), at(50, target), at(50, 50)]));
+  assert.ok(won?.kind === 'rect');
+  assert.equal(won.x + won.w, timeToX(bars[hit].time));
+  assert.equal(won.y, priceToY(target));
+  const [lost] = progressOf(build('short-position', [at(10, 105), at(50, 50), at(50, target)]));
+  assert.ok(lost?.kind === 'rect');
+  assert.equal(lost.x + lost.w, timeToX(bars[hit].time));
+  assert.equal(lost.style.fill, '#f23645', 'a short stopped out is shaded in the stop color');
+  assert.equal(progressOf(build('long-position', [at(70, 105), at(90, 200), at(90, 50)])).length, 0, 'no bars after the entry, nothing to shade');
 });
 
 test('line tools append price, bars and angle info on request', () => {
