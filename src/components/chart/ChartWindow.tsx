@@ -8,7 +8,10 @@ import { replayTradingHint, useIsReplayingChart } from '../../lib/replay-session
 import type { IndicatorConfig } from '../../lib/chart-model';
 import { priceAlerts } from '../../lib/price-alerts';
 import { cursor } from '../../lib/cursor';
-import { mt5Provider, tickBars } from '../../lib/mt5-provider';
+import { tickBars } from '../../lib/mt5-provider';
+import { chartProvider } from '../../lib/feed-provider';
+import { feedSymbols, loadFeedSymbols } from '../../lib/feed-symbols';
+import { canTradeSymbol, dataOnlyHint, feedSymbol, isBrokerSymbol } from '../../../shared/feeds';
 import { isSecondsTimeframe, timeframeSeconds, toChartTimeframe } from '../../lib/mt5-timeframes';
 import { log, requireSymbols, session, signingIn } from '../../lib/session';
 import { useStore } from '../../lib/store';
@@ -60,7 +63,11 @@ function useCollectingTicks(chart: ChartConfig): boolean {
   return isCollecting;
 }
 
-const chartTitle = (chart: ChartConfig, description?: string) => [chart.symbol, chart.timeframe, description].filter(Boolean).join(' · ');
+const chartTitle = (chart: ChartConfig, description?: string) => [feedSymbol(chart.symbol), chart.timeframe, description].filter(Boolean).join(' · ');
+
+// The broker's symbol, or a data feed's market (HYPERLIQUID:BTC) once its list has loaded.
+const descriptionOf = (symbol: string) => session.get().symbols[symbol]?.description ?? feedSymbols.get().symbols[symbol]?.description;
+const digitsOf = (symbol: string) => session.get().symbols[symbol]?.digits ?? feedSymbols.get().symbols[symbol]?.digits ?? 5;
 
 const sameSettings = (left: ChartSettings | undefined, right: ChartSettings | undefined) => JSON.stringify(left ?? defaultSettings) === JSON.stringify(right ?? defaultSettings);
 
@@ -81,9 +88,14 @@ export function ChartWindow({ chart, isActive, isLite = false }: ChartWindowProp
   const isLinked = useStore(session, (state) => state.link.state === 'open' && (state.status?.mode !== 'mt5-web' || !!state.account));
   const signIn = useStore(session, signingIn);
   const profileId = useStore(session, (state) => state.profileId);
+  const isBroker = isBrokerSymbol(chart.symbol);
   const spec = useStore(session, (state) => state.symbols[chart.symbol]);
-  const ask = useStore(session, (state) => state.ticks[chart.symbol]?.ask ?? 0);
-  const digits = spec?.digits ?? 5;
+  const listing = useStore(feedSymbols, (state) => state.symbols[chart.symbol]);
+  const brokerAsk = useStore(session, (state) => state.ticks[chart.symbol]?.ask ?? 0);
+  const feedAsk = useStore(feedSymbols, (state) => state.quotes[chart.symbol]?.ask ?? 0);
+  const ask = isBroker ? brokerAsk : feedAsk;
+  const digits = spec?.digits ?? listing?.digits ?? 5;
+  const description = spec?.description ?? listing?.description;
   const activeRef = useRef(isActive);
   activeRef.current = isActive;
   const liteRef = useRef(isLite);
@@ -124,15 +136,15 @@ export function ChartWindow({ chart, isActive, isLite = false }: ChartWindowProp
     const meridian = new MeridianChart(container.current!, {
       symbol: current.symbol,
       timeframe: toChartTimeframe(current.timeframe),
-      provider: mt5Provider,
-      title: chartTitle(current, session.get().symbols[current.symbol]?.description),
+      provider: chartProvider,
+      title: chartTitle(current, descriptionOf(current.symbol)),
       theme: chartTheme(current.theme, themeStore.get().theme),
       priceStyle: current.type,
       isGridShown: current.isGridShown,
       isVolumeShown: current.isVolumeShown,
       // The layout's one rail (`DrawingRail`) drives every chart; charts show none of their own.
       isDrawingToolbarShown: false,
-      digits: session.get().symbols[current.symbol]?.digits ?? 5,
+      digits: digitsOf(current.symbol),
       settings: current.settings,
       drawingTemplates: drawingTemplateStore,
     });
@@ -262,14 +274,15 @@ export function ChartWindow({ chart, isActive, isLite = false }: ChartWindowProp
     if (!instance || market.current === key) return;
     market.current = key;
     const id = chart.id;
-    void instance.setMarket(chart.symbol, toChartTimeframe(chart.timeframe), chartTitle(chart, session.get().symbols[chart.symbol]?.description)).then(() => followReplay(id));
+    void instance.setMarket(chart.symbol, toChartTimeframe(chart.timeframe), chartTitle(chart, descriptionOf(chart.symbol))).then(() => followReplay(id));
     followDateRange(id);
   }, [instance, chart.symbol, chart.timeframe]);
 
-  // Another account serves other prices; reload once its connection is up.
+  // Another account serves other prices; reload once its connection is up. A data feed's chart
+  // does not depend on the account.
   const loadedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!instance || !isLinked) return;
+    if (!instance || !isLinked || !isBrokerSymbol(chartRef.current.symbol)) return;
     const account = profileId ?? '';
     if (loadedFor.current !== null && loadedFor.current !== account) {
       const id = chartRef.current.id;
@@ -279,7 +292,8 @@ export function ChartWindow({ chart, isActive, isLite = false }: ChartWindowProp
     loadedFor.current = account;
   }, [instance, isLinked, profileId]);
 
-  useEffect(() => instance?.setTitle(chartTitle(chart, spec?.description)), [instance, chart, spec?.description]);
+  useEffect(() => instance?.setTitle(chartTitle(chart, description)), [instance, chart, description]);
+  useEffect(() => { if (!isBroker) void loadFeedSymbols(); }, [isBroker]);
   useEffect(() => instance?.setTheme(theme), [instance, theme]);
   useEffect(() => instance?.setPriceStyle(chart.type), [instance, chart.type]);
   useEffect(() => instance?.setGrid(chart.isGridShown), [instance, chart.isGridShown]);
@@ -347,11 +361,13 @@ export function ChartWindow({ chart, isActive, isLite = false }: ChartWindowProp
     >
       <div className="chart-canvas" ref={container} data-tool={tool} />
       {(isTradeOverlayShown || isBacktesting) && <TradeOverlay chart={instance} symbol={chart.symbol} digits={digits} isReplaying={isReplaying} isBacktesting={isBacktesting} />}
-      {isOneClickEnabled && (!isReplaying || isBacktesting) && <OneClickPanel symbol={chart.symbol} digits={digits} isBacktesting={isBacktesting} />}
-      {isOneClickEnabled && isReplaying && !isBacktesting && <div className="one-click-off" role="status">{replayTradingHint}</div>}
-      {signIn && <div className="chart-status"><SigningIn signIn={signIn} /></div>}
-      {!signIn && !isLinked && <div className="chart-status">Waiting for connection</div>}
-      {!signIn && isLinked && isCollectingTicks && <div className="chart-status">Building {chart.timeframe} bars from live quotes. Seconds charts start when OpenTerm5 receives the symbol's first quotes.</div>}
+      {isOneClickEnabled && canTradeSymbol(chart.symbol) && (!isReplaying || isBacktesting) && <OneClickPanel symbol={chart.symbol} digits={digits} isBacktesting={isBacktesting} />}
+      {isOneClickEnabled && canTradeSymbol(chart.symbol) && isReplaying && !isBacktesting && <div className="one-click-off" role="status">{replayTradingHint}</div>}
+      {isOneClickEnabled && !canTradeSymbol(chart.symbol) && <div className="one-click-off" role="status">{dataOnlyHint(chart.symbol)}</div>}
+      {isBroker && signIn && <div className="chart-status"><SigningIn signIn={signIn} /></div>}
+      {isBroker && !signIn && !isLinked && <div className="chart-status">Waiting for connection</div>}
+      {!isBroker && isSecondsTimeframe(chart.timeframe) && <div className="chart-status">Hyperliquid charts start at one minute.</div>}
+      {isBroker && !signIn && isLinked && isCollectingTicks && <div className="chart-status">Building {chart.timeframe} bars from live quotes. Seconds charts start when OpenTerm5 receives the symbol's first quotes.</div>}
     </div>
   );
 }

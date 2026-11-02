@@ -1,4 +1,6 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { chartSymbols, feedSymbols, loadFeedSymbols } from '../../lib/feed-symbols';
+import { SymbolName } from '../SymbolName';
 import { session, signingIn } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { closeSymbolPrompt, symbolPrompt, type SymbolPromptState } from '../../lib/symbol-prompt';
@@ -18,12 +20,16 @@ interface SymbolPromptBoxProps {
 function SymbolPromptBox({ prompt }: SymbolPromptBoxProps) {
   const list = useRef<HTMLUListElement>(null);
   const input = useRef<HTMLInputElement>(null);
-  const symbols = useStore(session, (state) => state.symbols);
+  const brokerSymbols = useStore(session, (state) => state.symbols);
+  const feeds = useStore(feedSymbols, (state) => state.symbols);
+  const symbols = chartSymbols(brokerSymbols, feeds);
   const signIn = useStore(session, signingIn);
   const [text, setText] = useState(prompt.text);
   const [active, setActive] = useState(0);
   const results = useMemo(() => text.trim() ? searchSymbols(symbols, text, { limit: RESULT_LIMIT }) : [], [symbols, text]);
   const hasSymbols = Object.keys(symbols).length > 0;
+
+  useEffect(() => void loadFeedSymbols(), []);
 
   useLayoutEffect(() => {
     const field = input.current;
@@ -80,7 +86,7 @@ function SymbolPromptBox({ prompt }: SymbolPromptBoxProps) {
               onClick={() => pick(spec.name)}
             >
               <span aria-hidden />
-              <b>{spec.name}</b>
+              <SymbolName symbol={spec.name} />
               <span className="symbol-search-description">{spec.description}</span>
               <span className="symbol-search-category">{symbolCategory(spec.path)}</span>
             </li>

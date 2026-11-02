@@ -1,5 +1,6 @@
 import { defineIndicator, timeframeMs, type Bar, type StudyOutput, type StudyRequest } from '@meridian/charts';
-import { mt5Provider } from '../mt5-provider';
+import { isBrokerSymbol } from '../../../shared/feeds';
+import { chartProvider } from '../feed-provider';
 import { removeFavoriteIndicators } from '../indicator-favorites';
 import { log, session } from '../session';
 import { Store } from '../store';
@@ -169,15 +170,16 @@ export function byRank(left: PineScript, right: PineScript): number {
   return rankOf(left) - rankOf(right) || left.name.localeCompare(right.name);
 }
 
-// The broker's bars for request.security(), from the symbol the script names (an exchange prefix
-// such as OANDA: is dropped) or the broker's own name for the same instrument.
+// The bars for request.security(): a data feed's symbol as named (HYPERLIQUID:BTC), else the broker's,
+// from the symbol the script names (an exchange prefix such as OANDA: is dropped) or the broker's own
+// name for the same instrument.
 async function securityBars(symbol: string, pineTimeframe: string, limit?: number, from?: number, to?: number): Promise<Bar[]> {
   const timeframe = chartTimeframeOf(pineTimeframe);
   const { symbols } = session.get();
-  const name = resolverFor(symbols)(symbol);
+  const name = isBrokerSymbol(symbol) ? resolverFor(symbols)(symbol) : symbol;
   if (!name) throw new Error(`${symbol} is not available on this account.`);
   const span = from && to ? Math.ceil((to - from) / timeframeMs(timeframe)) + 2 : 0;
-  const bars = await mt5Provider.getBars(name, timeframe, { limit: Math.min(SECURITY_BARS, Math.max(limit ?? 0, span, 500)), ...(to ? { to: to + 1 } : {}) });
+  const bars = await chartProvider.getBars(name, timeframe, { limit: Math.min(SECURITY_BARS, Math.max(limit ?? 0, span, 500)), ...(to ? { to: to + 1 } : {}) });
   return from ? bars.filter((bar) => bar.time >= from) : bars;
 }
 

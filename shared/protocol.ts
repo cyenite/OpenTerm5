@@ -1,4 +1,5 @@
 import type { TradingViewAccount, TradingViewChanges, TradingViewChartSettingsScan, TradingViewDrawings, TradingViewDrawingTemplate, TradingViewPush, TradingViewScan, TradingViewScript, TradingViewScriptPage, TradingViewStreamStatus, TradingViewSymbol, TradingViewWatchedLayout } from './tradingview';
+import type { FeedQuote, FeedSymbol } from './feeds';
 import type { Valuation } from './valuation';
 import type { ZoomStep } from './zoom';
 
@@ -410,6 +411,12 @@ export interface TerminalMethods {
   'exchange.login': [ExchangeLogin, Account];
   'symbols.leverage': [{ symbol: string }, LeverageState];
   'symbols.setLeverage': [{ symbol: string; leverage: number }, LeverageState];
+  // Data feeds other than the broker (shared/feeds.ts) need no account and never trade.
+  'feeds.symbols': [Record<string, never>, FeedSymbol[]];
+  // `count` bars before `to` (epoch seconds, exclusive), or the latest when it is missing.
+  'feeds.bars': [{ symbol: string; timeframe: Timeframe; count: number; to?: number }, Bar[]];
+  'feeds.subscribe': [{ symbol: string; timeframe: Timeframe }, boolean];
+  'feeds.unsubscribe': [{ symbol: string; timeframe: Timeframe }, boolean];
 }
 
 export type TerminalMethod = keyof TerminalMethods;
@@ -421,6 +428,8 @@ export interface TerminalEvents {
   status: TerminalStatus;
   symbols: SymbolSpec[];
   bar: { symbol: string; timeframe: Timeframe; bar: Bar };
+  feedBar: { symbol: string; timeframe: Timeframe; bar: Bar };
+  feedQuote: FeedQuote;
   book: Book;
   tick: Tick;
   trade: TradeSnapshot;

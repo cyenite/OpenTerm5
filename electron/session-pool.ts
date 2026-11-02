@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { Account, ExchangeCredentials, JournalEntry, LinkState, Platform, TerminalEvent, TerminalMethod, TerminalMethods, Tick, TradeRequest, TradeSnapshot } from '../shared/protocol';
 import type { CopierLinkState } from '../shared/automation';
+import { canTradeSymbol, feedSymbol } from '../shared/feeds';
 
 // Returns why a trade request must not be sent, or null to send it.
 export type TradeGate = (request: TradeRequest) => string | null;
@@ -21,6 +22,12 @@ export type SessionCredentials =
 
 const DEFAULT_POLL = 2_000;
 
+// Charts of a data feed's market (HYPERLIQUID:BTC) never trade, whichever window, engine or signal
+// sends the order: the broker may not list it, and a bare name could reach a different instrument.
+export function dataOnlyRefusal(request: TradeRequest): string | null {
+  return request.symbol && !canTradeSymbol(request.symbol) ? `${feedSymbol(request.symbol)} is market data from another feed and cannot be traded on this account` : null;
+}
+
 // One broker session per account: the UI's link serves its active account, and
 // every other account an engine needs gets its own background link. A second
 // session on the same login would invalidate the first.
@@ -39,7 +46,7 @@ export class SessionPool extends EventEmitter {
     private readonly create: (platform: Platform) => TradingLink,
   ) {
     super();
-    ui.setTradeGate((request) => this.uiAccount ? this.admit?.(this.uiAccount, request) ?? null : null);
+    ui.setTradeGate((request) => dataOnlyRefusal(request) ?? (this.uiAccount ? this.admit?.(this.uiAccount, request) ?? null : null));
   }
 
   // One gate sees every trade request on every session, whichever engine or window sent it.
@@ -160,7 +167,7 @@ export class SessionPool extends EventEmitter {
     }
     this.close(accountId);
     const link = this.create(credentials.platform);
-    link.setTradeGate((request) => this.admit?.(accountId, request) ?? null);
+    link.setTradeGate((request) => dataOnlyRefusal(request) ?? this.admit?.(accountId, request) ?? null);
     this.background.set(accountId, link);
     link.on('event', (event: TerminalEvent, data: unknown) => {
       if (this.background.get(accountId) !== link) return;

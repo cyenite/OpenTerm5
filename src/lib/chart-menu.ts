@@ -23,6 +23,8 @@ import {
   type ChartConfig,
 } from './workspace';
 import { isReplayingChart, replay, replayTradingHint } from './replay-session';
+import { canTradeSymbol, dataOnlyHint } from '../../shared/feeds';
+import { feedSymbols } from './feed-symbols';
 import { activeBacktest, backtest, closeBacktestPositions, isBacktestingChart, reportBacktest } from './backtest/runtime';
 
 const separator: MenuItem = { label: '', isSeparator: true };
@@ -110,7 +112,7 @@ export function chartMenu(chartId: string, price?: number): MenuItem[] {
   const chart = state.charts.find((candidate) => candidate.id === chartId);
   if (!chart) return [];
   const instance = chartInstance(chartId);
-  const digits = session.get().symbols[chart.symbol]?.digits ?? 5;
+  const digits = session.get().symbols[chart.symbol]?.digits ?? feedSymbols.get().symbols[chart.symbol]?.digits ?? 5;
   const level = price === undefined ? undefined : formatPrice(Number(price.toFixed(digits)), digits);
   const tab = tabOfChart(state, chartId);
   const others = tab ? tab.chartIds.filter((id) => id !== chartId) : [];
@@ -121,15 +123,18 @@ export function chartMenu(chartId: string, price?: number): MenuItem[] {
     ...(level === undefined ? [] : [{ label: `Copy Price ${level}`, action: () => void navigator.clipboard.writeText(level).catch(() => undefined) }]),
     ...(instance?.canPaste() ? [{ label: 'Paste', shortcut: 'Ctrl+V', action: () => instance.paste() }] : []),
   ];
-  const alert: MenuItem[] = price !== undefined && session.get().profileId ? [{ label: `Add Alert at ${level}`, action: () => addAlert(chart.symbol, price, digits) }] : [];
+  // Alerts are checked against the broker's quotes, which a data feed's market does not have.
+  const alert: MenuItem[] = price !== undefined && session.get().profileId && canTradeSymbol(chart.symbol) ? [{ label: `Add Alert at ${level}`, action: () => addAlert(chart.symbol, price, digits) }] : [];
   // A replaying chart keeps the submenu's place, disabled, so the reason is where trading was; in a
   // running backtest it trades the backtest instead, in either mode.
   const trading: MenuItem[] = isBacktestingChart(chartId)
     ? [{ label: 'Backtest', items: backtestItems(chart.symbol) }]
     : state.isAnalysisMode ? [] : [
-      isReplayingChart(replay.get().session, chartId)
-        ? { label: replayTradingHint, isDisabled: true }
-        : { label: 'Trading', items: tradingItems(chartId, chart.symbol, price, digits) },
+      !canTradeSymbol(chart.symbol)
+        ? { label: dataOnlyHint(chart.symbol), isDisabled: true }
+        : isReplayingChart(replay.get().session, chartId)
+          ? { label: replayTradingHint, isDisabled: true }
+          : { label: 'Trading', items: tradingItems(chartId, chart.symbol, price, digits) },
     ];
   const layout: MenuItem[] = isMultiChart ? [{
     label: 'Layout',

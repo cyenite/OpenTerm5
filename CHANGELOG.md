@@ -7,6 +7,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Hyperliquid charts: search any Hyperliquid perpetual or spot market from a chart's symbol search,
+  logged in or not. Prices, history and live bars come straight from Hyperliquid. The charts are data
+  only: every trading control is off on them, and orders for them are refused, because your broker
+  may not offer the market.
+
 ## [0.9.0] - 2026-10-27
 
 ### Added

@@ -1,4 +1,5 @@
 import type { ChartTimeframe } from './mt5-timeframes';
+import { canTradeSymbol } from '../../shared/feeds';
 import { defaultSymbol } from './broker-symbols';
 import { cancelReplaySelection, replay, stepReplay, toggleReplayPlay } from './replay';
 import { chooseMode, isBacktestingChart, modeOf } from './backtest/runtime';
@@ -46,11 +47,13 @@ export function zoom(factor: number): void {
   window.dispatchEvent(new CustomEvent('openterm:zoom', { detail: factor }));
 }
 
+// Depth of Market trades from its ladder, so a data feed's chart does not open it.
 export function toggleDepth(symbol?: string): void {
   if (workspace.get().isAnalysisMode) return;
-  workspace.set((state) => ({
-    depthSymbol: state.depthSymbol && !symbol ? null : symbol ?? activeChart(state)?.symbol ?? null,
-  }));
+  workspace.set((state) => {
+    const next = state.depthSymbol && !symbol ? null : symbol ?? activeChart(state)?.symbol ?? null;
+    return { depthSymbol: next !== null && canTradeSymbol(next) ? next : null };
+  });
 }
 
 export function toggleOneClick(): void {

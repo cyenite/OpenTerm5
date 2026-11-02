@@ -6,6 +6,7 @@ import { defaultSymbol } from '../lib/broker-symbols';
 import { togglePanel } from '../lib/commands';
 import { formatMoney, formatPrice, formatVolume } from '../lib/format';
 import { replayTradingHint, useIsReplayingChart } from '../lib/replay-session';
+import { canTradeSymbol, dataOnlyHint } from '../../shared/feeds';
 import { useRiskPreview, type RiskPreviewer } from '../lib/risk-preview';
 import { riskPreferences, setRiskPreferences } from '../lib/risk-preferences';
 import { session } from '../lib/session';
@@ -15,6 +16,7 @@ import { useStore } from '../lib/store';
 import { assistantEntry, assistantPlan, assistantPreferences, assistantRequest, assistantTabs, chartSides, closeScopes, entryKinds, partialVolume, type AssistantPlan, type AssistantPreferences } from '../lib/trade-assistant';
 import { activeChart, workspace } from '../lib/workspace';
 import { Panel } from './Panel';
+import { SymbolName } from './SymbolName';
 import { NumberField, Segmented, SelectField, Switch, TextField } from './ui/Controls';
 
 interface Outcome {
@@ -40,7 +42,7 @@ function Summary({ symbol, venue }: SummaryProps) {
   return (
     <div className="assistant-summary">
       <div>
-        <strong>{symbol}</strong>
+        <strong><SymbolName symbol={symbol} /></strong>
         <span>Spread {spread ?? '-'}</span>
         <span>{positions.length} open{positions.length ? `, net ${formatVolume(lots)}` : ''}</span>
         {positions.length > 0 && <span className={profit > 0 ? 'is-profit' : profit < 0 ? 'is-loss' : ''}>{formatMoney(profit)}</span>}
@@ -329,7 +331,8 @@ export function TradeAssistant() {
   // On a chart in the running backtest the assistant trades the backtest's simulated account.
   const isBacktesting = useIsBacktestingChart(chart?.id);
   const venue = useVenue(isBacktesting);
-  const canTrade = venue.canTrade && (!isReplaying || isBacktesting);
+  const isDataOnly = !canTradeSymbol(symbol);
+  const canTrade = venue.canTrade && !isDataOnly && (!isReplaying || isBacktesting);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   return (
     <Panel title="Trade Assistant" dock="tradeAssistant" onClose={() => togglePanel('isTradeAssistantShown')}>
@@ -344,9 +347,10 @@ export function TradeAssistant() {
         <div className="scroll">
           {isBacktesting && <p className="assistant-venue" role="status">{venue.label}</p>}
           <Summary symbol={symbol} venue={venue} />
-          {isReplaying && !isBacktesting && <p className="assistant-outcome is-bad">{replayTradingHint}.</p>}
-          {tab === 'trade' && <TradeSection symbol={symbol} venue={venue} canTrade={canTrade} onOutcome={setOutcome} />}
-          {tab === 'close' && <CloseSection symbol={symbol} venue={venue} canTrade={canTrade} onOutcome={setOutcome} />}
+          {isDataOnly && <p className="assistant-outcome is-bad">{dataOnlyHint(symbol)}.</p>}
+          {!isDataOnly && isReplaying && !isBacktesting && <p className="assistant-outcome is-bad">{replayTradingHint}.</p>}
+          {tab === 'trade' && !isDataOnly && <TradeSection symbol={symbol} venue={venue} canTrade={canTrade} onOutcome={setOutcome} />}
+          {tab === 'close' && !isDataOnly && <CloseSection symbol={symbol} venue={venue} canTrade={canTrade} onOutcome={setOutcome} />}
           {tab === 'manage' && <ManageSection venue={venue} />}
           {outcome && (
             <p className={`assistant-outcome${outcome.isGood === true ? ' is-good' : outcome.isGood === false ? ' is-bad' : ''}`} role="status">
