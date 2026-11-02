@@ -558,15 +558,15 @@ const positionFields: ToolField[] = [
 
 // Follows price from the entry bar to the end of the position: the trade closes at the first bar
 // that touches the stop (checked first) or the target, else it is still open at the last close.
-function positionOutcome(env: ToolEnv, isLong: boolean, entry: DrawingPoint, end: number, target: number, stop: number): { exit: number; isClosed: boolean } | null {
+function positionOutcome(env: ToolEnv, isLong: boolean, entry: DrawingPoint, end: number, target: number, stop: number): { exit: number; index: number; isClosed: boolean } | null {
   const range = barRange(env, entry.time, end);
   if (!range) return null;
   for (let index = range[0]; index <= range[1]; index++) {
     const bar = env.bars[index];
-    if (isLong ? bar.low <= stop : bar.high >= stop) return { exit: stop, isClosed: true };
-    if (isLong ? bar.high >= target : bar.low <= target) return { exit: target, isClosed: true };
+    if (isLong ? bar.low <= stop : bar.high >= stop) return { exit: stop, index, isClosed: true };
+    if (isLong ? bar.high >= target : bar.low <= target) return { exit: target, index, isClosed: true };
   }
-  return { exit: env.bars[range[1]].close, isClosed: false };
+  return { exit: env.bars[range[1]].close, index: range[1], isClosed: false };
 }
 
 function position(isLong: boolean): Build {
@@ -583,6 +583,16 @@ function position(isLong: boolean): Build {
     const opacity = o.num('areaOpacity') / 100;
     g.rect({ x: x0, y: entry.y }, { x: x1, y: target.y }, { width: 0, fill: profitColor, fillOpacity: opacity });
     g.rect({ x: x0, y: entry.y }, { x: x1, y: stop.y }, { width: 0, fill: stopColor, fillOpacity: opacity });
+    // As in TradingView, the trade so far is shaded darker: from the entry to the bar where it
+    // stands (the latest bar while open, the bar that hit the target or stop once closed), between
+    // the entry and that price, with a dashed line from the entry to it.
+    const outcome = targetPoint.time > entryPoint.time ? positionOutcome(env, isLong, entryPoint, targetPoint.time, targetPrice, stopPrice) : null;
+    if (outcome) {
+      const exit = { x: env.timeToX(env.bars[outcome.index].time), y: env.priceToY(outcome.exit) };
+      const isProfit = (outcome.exit - entryPrice) * (isLong ? 1 : -1) >= 0;
+      g.rect({ x: x0, y: entry.y }, exit, { width: 0, fill: isProfit ? profitColor : stopColor, fillOpacity: Math.min(1, opacity + 0.2) });
+      g.line({ x: x0, y: entry.y }, exit, { color: env.theme.muted, width: 1, dash: [4, 4] });
+    }
     g.line({ x: x0, y: entry.y }, { x: x1, y: entry.y }, { color: env.theme.muted, width: 1 });
     const reward = Math.abs(targetPrice - entryPrice);
     const risk = Math.abs(entryPrice - stopPrice);
@@ -604,7 +614,6 @@ function position(isLong: boolean): Build {
       label(g, { x: mid, y: stop.y + (isLong ? 10 : -10) }, stopText, env, { align: 'center', background: stopColor, color, size: isCompact ? 10 : 11 });
     }
     if (o.bool('showStats') || env.isSelected) {
-      const outcome = targetPoint.time > entryPoint.time ? positionOutcome(env, isLong, entryPoint, targetPoint.time, targetPrice, stopPrice) : null;
       const pnl = outcome ? `${outcome.isClosed ? 'Closed' : 'Open'} P&L: ${money((outcome.exit - entryPrice) * (isLong ? 1 : -1))}, ` : '';
       const text = isCompact ? `R:R ${ratio}` : `${isLong ? 'Long' : 'Short'} · ${pnl}Qty: ${amount(quantity)}\nRisk/Reward Ratio: ${ratio}`;
       label(g, { x: mid, y: entry.y }, text, env, { align: 'center', background: env.theme.muted, color, size: isCompact ? 10 : 11 });

@@ -7,6 +7,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Long and Short Position drawings show the trade so far, as TradingView does: a darker block from
+  the entry to the bar where the trade stands, at the latest price while open or at the target or
+  stop once hit, and a dashed line from the entry to it. They follow price as it moves.
+- Choosing a new symbol resets the chart view (latest bars, default zoom, automatic price scale), so
+  a market at another price level no longer opens off screen.
+
+### Fixed
+
+- Charts no longer lag behind price. The current candle now moves with every quote instead of
+  waiting for the next bar update, which on MetaTrader 5 could be held up for seconds behind other
+  broker requests until the timeframe was changed.
+
 ## [0.10.0] - 2026-11-02
 
 ### Added

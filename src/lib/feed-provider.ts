@@ -53,5 +53,6 @@ const providerOf = (ticker: string) => isBrokerSymbol(ticker) ? mt5Provider : hy
 export const chartProvider: DataProvider = {
   getBars: (ticker, timeframe, range) => providerOf(ticker).getBars(ticker, timeframe, range),
   subscribe: (ticker, timeframe, onBar) => providerOf(ticker).subscribe!(ticker, timeframe, onBar),
+  subscribeQuotes: (ticker, onPrice) => providerOf(ticker).subscribeQuotes?.(ticker, onPrice) ?? (() => {}),
   getSymbolInfo: (ticker) => providerOf(ticker).getSymbolInfo!(ticker),
 };
