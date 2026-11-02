@@ -20,6 +20,9 @@ import { activeChart, activeTab, chartTypes, openChart, openDialog, openTab, tog
 import { LayoutPicker } from './chart/LayoutPicker';
 import type { MenuItem } from './MenuBar';
 import { SymbolSearch } from './SymbolSearch';
+import { SymbolName } from './SymbolName';
+import { canTradeSymbol, dataOnlyHint } from '../../shared/feeds';
+import { chartSymbols, feedSymbols, loadFeedSymbols } from '../lib/feed-symbols';
 import { hintProps, type HintContent } from './ui/Hint';
 import { Icon, type IconName } from './ui/Icon';
 
@@ -128,13 +131,15 @@ const pickedChart = (state: WorkspaceState, chartId: string | undefined) => char
 export function SymbolPicker({ chartId }: ChartPickerProps) {
   const symbol = useStore(workspace, (state) => pickedChart(state, chartId)?.symbol);
   const signIn = useStore(session, signingIn);
-  const symbols = useStore(session, (state) => state.symbols);
+  const brokerSymbols = useStore(session, (state) => state.symbols);
+  const feeds = useStore(feedSymbols, (state) => state.symbols);
+  const symbols = chartSymbols(brokerSymbols, feeds);
   const watchedSpecs = useWatchedSpecs();
   const watched = useMemo(() => new Set(watchedSpecs.map((spec) => spec.name)), [watchedSpecs]);
   return (
     <div className="chart-symbol" title={symbol ? symbols[symbol]?.description : undefined}>
-      <strong>{symbol ?? 'No chart'}</strong>
-      <SymbolSearch symbols={symbols} watched={watched} signIn={signIn} onPick={showSymbol} label="Change symbol" placeholder="Symbol search" />
+      <strong>{symbol ? <SymbolName symbol={symbol} /> : 'No chart'}</strong>
+      <SymbolSearch symbols={symbols} watched={watched} signIn={signIn} onPick={showSymbol} onFocus={() => void loadFeedSymbols()} label="Change symbol" placeholder="Symbol search" />
     </div>
   );
 }
@@ -234,14 +239,17 @@ function DrawingSyncMenu() {
 function TradingActions() {
   const tool = useStore(workspace, (state) => state.tool);
   const chartId = useStore(workspace, (state) => activeChart(state)?.id);
+  const symbol = useStore(workspace, (state) => activeChart(state)?.symbol);
   const isOneClickEnabled = useStore(workspace, (state) => state.isOneClickEnabled);
   const isReplaying = useIsReplayingChart(chartId);
   const isBacktesting = useIsBacktestingChart(chartId);
+  const isDataOnly = symbol !== undefined && !canTradeSymbol(symbol);
+  const dataOnly = isDataOnly ? `${dataOnlyHint(symbol)}.` : '';
   return (
     <ToolGroup label="Trading">
-      <ToolButton icon="riskOrder" isActive={tool === 'riskOrder'} hint={{ title: 'Risk Order', description: 'Drag the entry, then the stop loss and take profit on the chart; the volume follows your risk setting.' }} onClick={() => workspace.set({ tool: tool === 'riskOrder' ? 'cursor' : 'riskOrder' })} />
+      <ToolButton icon="riskOrder" isActive={tool === 'riskOrder'} isDisabled={isDataOnly} hint={{ title: 'Risk Order', description: dataOnly || 'Drag the entry, then the stop loss and take profit on the chart; the volume follows your risk setting.' }} onClick={() => workspace.set({ tool: tool === 'riskOrder' ? 'cursor' : 'riskOrder' })} />
       <ToolButton icon="oneClick" text="One-Click" textLevel={1} isActive={isOneClickEnabled} hint={{ title: 'One-Click Trading', description: 'Buy and sell from the chart immediately, without a confirmation ticket.' }} onClick={toggleOneClick} />
-      <ToolButton text="New Order" isPrimary isDisabled={isReplaying && !isBacktesting} hint={{ title: 'New Order', shortcut: 'F9', description: isBacktesting ? 'Place a risk-sized order for the backtest with lines on the chart.' : isReplaying ? `${replayTradingHint}.` : 'Open the order ticket for the active symbol.' }} onClick={() => newOrder()} />
+      <ToolButton text="New Order" isPrimary isDisabled={isDataOnly || isReplaying && !isBacktesting} hint={{ title: 'New Order', shortcut: 'F9', description: dataOnly || (isBacktesting ? 'Place a risk-sized order for the backtest with lines on the chart.' : isReplaying ? `${replayTradingHint}.` : 'Open the order ticket for the active symbol.') }} onClick={() => newOrder()} />
     </ToolGroup>
   );
 }

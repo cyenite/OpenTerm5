@@ -14,6 +14,7 @@ import type {
   TradeResult,
 } from '../../shared/protocol';
 import { orderType } from '../../shared/protocol';
+import { isBrokerSymbol } from '../../shared/feeds';
 import { Store } from './store';
 import { checkPriceAlerts, priceAlerts } from './price-alerts';
 
@@ -118,7 +119,8 @@ async function resubscribeTicks(): Promise<void> {
 }
 
 export async function requireSymbols(names: string[]): Promise<void> {
-  const missing = names.filter((name) => !session.get().extraSymbols.includes(name));
+  // Other feeds' symbols are not the broker's to quote.
+  const missing = names.filter((name) => isBrokerSymbol(name) && !session.get().extraSymbols.includes(name));
   if (missing.length === 0) {
     return;
   }

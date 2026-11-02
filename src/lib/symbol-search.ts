@@ -1,8 +1,18 @@
-import type { SymbolSpec } from '../../shared/protocol';
+import { feedSymbol, isBrokerSymbol } from '../../shared/feeds';
 import { instrumentKey, symbolCore } from '../../shared/symbol-match';
 
+// What search reads of a symbol: the broker's specifications and the data feeds' markets both have it.
+export interface SearchableSymbol {
+  readonly name: string;
+  readonly path: string;
+  readonly description: string;
+}
+
+type SymbolList<T extends SearchableSymbol> = Readonly<Record<string, T>>;
+
 interface IndexedSymbol {
-  readonly spec: SymbolSpec;
+  readonly isFeed: boolean;
+  readonly spec: SearchableSymbol;
   readonly core: string;
   readonly upper: string;
   readonly compact: string;
@@ -17,8 +27,11 @@ export interface SearchOptions {
   readonly category?: string | null;
 }
 
-const indexes = new WeakMap<Record<string, SymbolSpec>, IndexedSymbol[]>();
-const categoryLists = new WeakMap<Record<string, SymbolSpec>, string[]>();
+const indexes = new WeakMap<SymbolList<SearchableSymbol>, IndexedSymbol[]>();
+const categoryLists = new WeakMap<SymbolList<SearchableSymbol>, string[]>();
+
+// Ranks up to here match the name itself; higher ones only its middle or description.
+const NAME_RANK = 4;
 
 const compactOf = (text: string) => text.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
@@ -28,19 +41,22 @@ export function symbolCategory(path: string): string {
   return folders.length > 1 ? folders[0] : 'Other';
 }
 
-function indexOf(symbols: Record<string, SymbolSpec>): IndexedSymbol[] {
+// A data feed's market is matched by its own name (BTC for HYPERLIQUID:BTC).
+function indexOf(symbols: SymbolList<SearchableSymbol>): IndexedSymbol[] {
   let found = indexes.get(symbols);
   if (found) return found;
   found = Object.values(symbols).map((spec) => {
+    const name = feedSymbol(spec.name);
     const description = spec.description.toLowerCase();
     return {
+      isFeed: !isBrokerSymbol(spec.name),
       spec,
-      core: symbolCore(spec.name),
-      upper: spec.name.toUpperCase(),
-      compact: compactOf(spec.name),
+      core: symbolCore(name),
+      upper: name.toUpperCase(),
+      compact: compactOf(name),
       category: symbolCategory(spec.path),
-      haystack: `${spec.name} ${description} ${spec.path}`.toLowerCase(),
-      instrument: instrumentKey(spec.name),
+      haystack: `${name} ${description} ${spec.path}`.toLowerCase(),
+      instrument: instrumentKey(name),
       words: description.split(/[^a-z0-9]+/).filter(Boolean),
     };
   });
@@ -48,12 +64,15 @@ function indexOf(symbols: Record<string, SymbolSpec>): IndexedSymbol[] {
   return found;
 }
 
-export function symbolCategories(symbols: Record<string, SymbolSpec>): string[] {
+// The broker's markets by size, then the data feeds'.
+export function symbolCategories(symbols: SymbolList<SearchableSymbol>): string[] {
   let found = categoryLists.get(symbols);
   if (found) return found;
-  const counts = new Map<string, number>();
-  for (const item of indexOf(symbols)) counts.set(item.category, (counts.get(item.category) ?? 0) + 1);
-  found = [...counts].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0])).map(([name]) => name);
+  const counts = new Map<string, { count: number; isFeed: boolean }>();
+  for (const item of indexOf(symbols)) counts.set(item.category, { count: (counts.get(item.category)?.count ?? 0) + 1, isFeed: item.isFeed });
+  found = [...counts]
+    .sort(([leftName, left], [rightName, right]) => Number(left.isFeed) - Number(right.isFeed) || right.count - left.count || leftName.localeCompare(rightName))
+    .map(([name]) => name);
   categoryLists.set(symbols, found);
   return found;
 }
@@ -72,20 +91,27 @@ function score(item: IndexedSymbol, upper: string, compact: string, instrument: 
   return item.words.some((word) => word.startsWith(tokens[0])) ? 6 : 7;
 }
 
-export function searchSymbols(symbols: Record<string, SymbolSpec>, query: string, options: SearchOptions = {}): SymbolSpec[] {
+// Name matches come before description matches, and within each the broker's symbols come before
+// the data feeds' markets, so Enter after a plain name still picks a symbol the account trades.
+export function searchSymbols<T extends SearchableSymbol>(symbols: SymbolList<T>, query: string, options: SearchOptions = {}): T[] {
   const { limit = 100, category = null } = options;
   const text = query.trim();
   const pool = indexOf(symbols).filter((item) => !category || item.category === category);
-  if (!text) return pool.map((item) => item.spec).sort((left, right) => left.name.localeCompare(right.name)).slice(0, limit);
+  if (!text) return pool.sort((left, right) => Number(left.isFeed) - Number(right.isFeed) || left.spec.name.localeCompare(right.spec.name)).slice(0, limit).map((item) => item.spec as T);
   const upper = text.toUpperCase();
   const compact = compactOf(text);
   const instrument = compact ? instrumentKey(compact) : '';
   const tokens = text.toLowerCase().split(/\s+/).filter(Boolean);
-  const hits: { spec: SymbolSpec; rank: number }[] = [];
+  const hits: { item: IndexedSymbol; rank: number }[] = [];
   for (const item of pool) {
     const rank = score(item, upper, compact, instrument, tokens);
-    if (rank !== null) hits.push({ rank, spec: item.spec });
+    if (rank !== null) hits.push({ item, rank });
   }
-  hits.sort((left, right) => left.rank - right.rank || left.spec.name.length - right.spec.name.length || left.spec.name.localeCompare(right.spec.name));
-  return hits.slice(0, limit).map((hit) => hit.spec);
+  const tier = (rank: number) => rank <= NAME_RANK ? 0 : 1;
+  hits.sort((left, right) => tier(left.rank) - tier(right.rank)
+    || Number(left.item.isFeed) - Number(right.item.isFeed)
+    || left.rank - right.rank
+    || left.item.spec.name.length - right.item.spec.name.length
+    || left.item.spec.name.localeCompare(right.item.spec.name));
+  return hits.slice(0, limit).map((hit) => hit.item.spec as T);
 }

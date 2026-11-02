@@ -55,3 +55,10 @@ test('another name for the same instrument is used only when its own name is mis
   assert.equal(matchSymbol('GOLD.m', ['XAUUSD.pro', 'XAUUSD.m', 'EURUSD.m']), 'XAUUSD.m');
   assert.equal(isListedSymbol('XAUUSD', 'GOLD'), false);
 });
+
+test('a data feed symbol is its own instrument and never matches a broker name', () => {
+  assert.equal(symbolCore('HYPERLIQUID:BTC'), 'HYPERLIQUID:BTC');
+  assert.equal(instrumentKey('HYPERLIQUID:HYPE/USDC'), 'HYPERLIQUID:HYPE/USDC');
+  assert.notEqual(instrumentKey('HYPERLIQUID:BTC'), instrumentKey('HYPERLIQUID:ETH'));
+  assert.equal(matchSymbol('HYPERLIQUID:BTC', ['BTCUSD', 'HYPERLIQUID']), null);
+});

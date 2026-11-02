@@ -1,3 +1,4 @@
+import { feedSymbol } from '../../shared/feeds';
 import type { MenuItem } from '../components/MenuBar';
 import { drawingSyncs, layoutGroups, layoutSyncs, linkGroups } from './chart-layouts';
 import { hasSync, tabActiveChartId, visibleChartIds, type ChartTab } from './chart-tabs';
@@ -5,7 +6,7 @@ import { setDrawingSync, setLinkGroup, setTabLayout, toggleLayoutSync, workspace
 
 export function tabTitle(tab: ChartTab, charts: readonly ChartConfig[]): string {
   const chart = charts.find((candidate) => candidate.id === tabActiveChartId(tab));
-  return chart ? `${chart.symbol},${chart.timeframe}` : 'Empty';
+  return chart ? `${feedSymbol(chart.symbol)},${chart.timeframe}` : 'Empty';
 }
 
 export function layoutMenuItems(tab: ChartTab): MenuItem[] {

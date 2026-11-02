@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { canTradeSymbol } from '../../shared/feeds';
 import { session, terminal } from './session';
 import { useStore } from './store';
 
@@ -10,7 +11,7 @@ export function useMoneyPerUnit(symbol: string): number | null {
   useEffect(() => {
     let isCurrent = true;
     setMoneyPerUnit(null);
-    if (!canTrade || !symbol) return;
+    if (!canTrade || !symbol || !canTradeSymbol(symbol)) return;
     terminal.request('symbols.valuation', { symbol }).then((valuation) => { if (isCurrent) setMoneyPerUnit(valuation.moneyPerUnit); }).catch(() => undefined);
     return () => { isCurrent = false; };
   }, [symbol, canTrade]);

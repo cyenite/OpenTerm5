@@ -34,3 +34,19 @@ test('categories come from the first path folder, largest first', () => {
   assert.deepEqual(find('', 'Metals'), ['XAUUSDm']);
   assert.deepEqual(find('eur', 'Metals'), []);
 });
+
+test('data feed markets match by their own name, after the broker name matches and before description matches', () => {
+  const feed = (name: string, description: string, path: string) => ({ name: `HYPERLIQUID:${name}`, description, path: `Hyperliquid\\${path}\\${name}` });
+  const mixed = Object.fromEntries([
+    ...Object.values(symbols),
+    spec('BTCUSD', 'Bitcoin vs US Dollar', 'Crypto'),
+    spec('USDCHF', 'US Dollar vs Swiss Franc, BTC hedge', 'Forex\\Majors'),
+    feed('BTC', 'BTC-USD perpetual, Hyperliquid', 'Perpetuals'),
+    feed('EUR/USDC', 'EUR/USDC spot, Hyperliquid', 'Spot'),
+  ].map((item) => [item.name, item]));
+  const names = (query: string, category?: string) => searchSymbols(mixed, query, { category }).map((item) => item.name);
+  assert.deepEqual(names('btc'), ['BTCUSD', 'HYPERLIQUID:BTC', 'USDCHF']);
+  assert.deepEqual(names('eurusd').slice(0, 3), ['EURUSDm', 'XEURUSD', 'HYPERLIQUID:EUR/USDC']);
+  assert.deepEqual(names('btc', 'Hyperliquid'), ['HYPERLIQUID:BTC']);
+  assert.equal(symbolCategories(mixed).at(-1), 'Hyperliquid');
+});

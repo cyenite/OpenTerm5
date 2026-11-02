@@ -1,5 +1,6 @@
 import { Component } from 'react';
 import type { Book, OrderTypeKey } from '../../shared/protocol';
+import { canTradeSymbol } from '../../shared/feeds';
 import { formatPrice } from '../lib/format';
 import { session, signingIn, terminal, type SessionState } from '../lib/session';
 import { openDialog, workspace } from '../lib/workspace';
@@ -92,7 +93,7 @@ export class DepthOfMarket extends Component<DepthOfMarketProps, DepthOfMarketSt
     const signIn = signingIn(snapshot);
     const digits = spec?.digits ?? 5;
     const step = spec?.tickSize || spec?.point || 10 ** -digits;
-    const canTrade = snapshot.status?.isTradeAllowed === true && snapshot.link.state === 'open';
+    const canTrade = snapshot.status?.isTradeAllowed === true && snapshot.link.state === 'open' && canTradeSymbol(symbol);
     const levels = this.state.book?.levels ?? [];
     const hasDepth = levels.length > 0;
     const largest = Math.max(1, ...levels.map((level) => level.volume));

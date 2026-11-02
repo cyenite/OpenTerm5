@@ -1,6 +1,7 @@
 import { PureComponent, createRef } from 'react';
-import type { AccountSignIn, SymbolSpec } from '../../shared/protocol';
-import { searchSymbols, symbolCategories, symbolCategory } from '../lib/symbol-search';
+import type { AccountSignIn } from '../../shared/protocol';
+import { searchSymbols, symbolCategories, symbolCategory, type SearchableSymbol } from '../lib/symbol-search';
+import { SymbolName } from './SymbolName';
 import { SigningIn } from './ui/SigningIn';
 
 const RESULT_LIMIT = 60;
@@ -8,9 +9,11 @@ const CATEGORY_LIMIT = 8;
 const DROPDOWN_HEIGHT = 340;
 
 interface SymbolSearchProps {
-  symbols: Record<string, SymbolSpec>;
+  symbols: Readonly<Record<string, SearchableSymbol>>;
   watched: ReadonlySet<string>;
   onPick: (name: string) => void;
+  // The chart's search loads the data feeds' markets the first time it is used.
+  onFocus?: () => void;
   label?: string;
   signIn?: AccountSignIn | null;
   placeholder?: string;
@@ -52,7 +55,7 @@ export class SymbolSearch extends PureComponent<SymbolSearchProps, SymbolSearchS
 
   private close = () => this.setState({ query: '', active: 0, place: null });
 
-  private results(): SymbolSpec[] {
+  private results(): SearchableSymbol[] {
     const { query, category } = this.state;
     return query.trim() ? searchSymbols(this.props.symbols, query, { category, limit: RESULT_LIMIT }) : [];
   }
@@ -116,6 +119,7 @@ export class SymbolSearch extends PureComponent<SymbolSearchProps, SymbolSearchS
           spellCheck={false}
           autoComplete="off"
           onChange={(event) => this.change(event.target.value)}
+          onFocus={this.props.onFocus}
           onKeyDown={this.onKeyDown}
           onBlur={this.close}
         />
@@ -148,7 +152,7 @@ export class SymbolSearch extends PureComponent<SymbolSearchProps, SymbolSearchS
                     onClick={() => this.pick(spec.name)}
                   >
                     <span className="symbol-search-mark" aria-hidden>{watched.has(spec.name) ? '✓' : '+'}</span>
-                    <b>{spec.name}</b>
+                    <SymbolName symbol={spec.name} />
                     <span className="symbol-search-description">{spec.description}</span>
                     <span className="symbol-search-category">{symbolCategory(spec.path)}</span>
                   </li>

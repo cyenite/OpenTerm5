@@ -1,3 +1,5 @@
+import { isBrokerSymbol } from './feeds';
+
 const currencies = new Set([
   'USD', 'EUR', 'GBP', 'JPY', 'CHF', 'CAD', 'AUD', 'NZD', 'SGD', 'HKD', 'NOK', 'SEK', 'DKK', 'ZAR', 'TRY', 'MXN',
   'PLN', 'CNH', 'CNY', 'HUF', 'CZK', 'RUB', 'INR', 'THB', 'ILS', 'KRW', 'BRL', 'XAU', 'XAG', 'XPT', 'XPD',
@@ -43,7 +45,9 @@ const indexes = new WeakMap<readonly string[], SymbolIndex>();
 // The instrument a broker symbol names, without the account-type decoration brokers add:
 // EURUSD.m, EURUSDm, mEURUSD, #EURUSD, EURUSD-STD and FXEURUSD are all EURUSD; US30.cash is US30.
 // A single capital after a short ticker is a share class, not decoration: BRK.B and BRK-B stay BRK.B.
+// Another data feed's symbol (HYPERLIQUID:BTC) is its own instrument and keeps its whole name.
 export function symbolCore(name: string): string {
+  if (!isBrokerSymbol(name)) return name;
   let core = name.trim().replace(/^[^A-Za-z0-9]+/, '');
   const shareClass = /^([A-Z]{1,5})[.\-/]([A-Z])(?:$|[^A-Za-z0-9])/.exec(core);
   if (shareClass) return `${shareClass[1]}.${shareClass[2]}`;

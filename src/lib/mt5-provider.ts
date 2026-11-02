@@ -16,7 +16,7 @@ export function startTickBars(): void {
   terminal.on('accountChanged', () => tickBars.clear());
 }
 
-const toChartBar = (bar: Bar): ChartBar => ({ time: bar.time * 1000, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume });
+export const toChartBar = (bar: Bar): ChartBar => ({ time: bar.time * 1000, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume });
 
 const isLinked = () => {
   const state = session.get();

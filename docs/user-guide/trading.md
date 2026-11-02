@@ -202,6 +202,23 @@ or **View → Show Positions in Analysis**, to draw them on the charts. They are
 drag or close them until you return to trading. Ctrl+Shift+A, or **Trading** in the top bar,
 switches back. The terminal reopens in whichever mode you left it in.
 
+### Hyperliquid charts
+
+You can chart any Hyperliquid perpetual or spot market, whichever broker you are logged in to, and
+also while logged out. Type its name in the chart's **Symbol search** (or type a letter on the chart):
+Hyperliquid markets are listed after your broker's matching symbols, under the **Hyperliquid**
+category, with a **Data only** tag. Spot pairs show their tokens' names, such as HYPE/USDC.
+
+These charts are for analysis only and never trade, because your broker may not offer the market.
+On a Hyperliquid chart, New Order, F9, the Risk Order tool, One-Click trading, Depth of Market, price
+alerts and the chart menu's Trading items are turned off, and the Trade Assistant says why. Orders sent
+any other way (the Signal API, copier or automation) are refused too. Indicators, drawings, layouts
+and sync work as on any chart.
+
+Hyperliquid keeps the latest 5,000 candles of each timeframe, so history ends there. Timeframes it does
+not offer (such as M2 or H6) are built from smaller candles and reach back less far. Seconds
+timeframes are not available.
+
 ## Chart layouts
 
 Each tab in the chart bar below the charts holds a layout of 1 to 16 charts, as in TradingView. Click
