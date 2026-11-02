@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-02
+
 ### Changed
 
 - Long and Short Position drawings show the trade so far, as TradingView does: a darker block from
@@ -532,7 +534,8 @@ First public release of OpenTerm5 (previously developed as Terminal5), under the
 - **Project files:** documentation under `docs/`, a contributing guide, code of conduct, security
   policy, issue and pull request templates, and CI on Linux, macOS and Windows.
 
-[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/cyenite/OpenTerm5/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/cyenite/OpenTerm5/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/cyenite/OpenTerm5/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/cyenite/OpenTerm5/compare/v0.7.0...v0.8.0
