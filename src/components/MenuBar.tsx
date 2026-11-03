@@ -18,7 +18,7 @@ import { appZoom, stepAppZoom } from '../lib/app-zoom';
 import { zoomSteps } from '../../shared/zoom';
 import { useWatchedSpecs } from '../lib/watchlists';
 import { drawingsForSymbol, replaceChartObjects, symbolDrawings } from '../lib/symbol-drawings';
-import { drawingSyncMenuItems, layoutMenuItems, syncMenuItems, tabTitle } from '../lib/layout-menu';
+import { drawingSyncMenuItems, layoutLabel, layoutMenuItems, newLayoutMenuItems, syncMenuItems } from '../lib/layout-menu';
 import { visibleChartIds } from '../lib/chart-tabs';
 import {
   activeChart,
@@ -26,7 +26,6 @@ import {
   closeTab,
   focusTab,
   layoutDrawings,
-  openTab,
   stepChart,
   toggleMaximized,
   chartTypes,
@@ -191,10 +190,10 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
     {
       label: 'Window',
       items: [
-        { label: 'New Tab', isDisabled: !hasChart, action: openTab },
-        { label: 'Close Tab', isDisabled: !tab, action: () => tab && closeTab(tab.id) },
+        { label: 'New Layout', isDisabled: !hasChart, items: newLayoutMenuItems(state) },
+        { label: 'Close Layout', isDisabled: !tab, action: () => tab && closeTab(tab.id) },
         separator,
-        { label: 'Layout', isDisabled: !tab, items: tab ? layoutMenuItems(tab) : [] },
+        { label: 'Layout Setup', isDisabled: !tab, items: tab ? layoutMenuItems(tab) : [] },
         { label: 'Sync in Layout', isDisabled: !tab, items: tab ? syncMenuItems(tab) : [] },
         { label: 'Sync Drawings', items: drawingSyncMenuItems() },
         separator,
@@ -203,7 +202,7 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
         { label: 'Maximize Chart', shortcut: 'Alt+Enter', isChecked: state.isChartMaximized, isDisabled: !isMultiChart, action: toggleMaximized },
         separator,
         ...marketTabs(state).map((candidate, index) => ({
-          label: `${index + 1} ${tabTitle(candidate, state.charts)}${visibleChartIds(candidate).length > 1 ? ` (${visibleChartIds(candidate).length} charts)` : ''}`,
+          label: `${index + 1} ${layoutLabel(candidate, state.charts)}`,
           isChecked: candidate.id === tab?.id,
           action: () => focusTab(candidate.id),
         })),

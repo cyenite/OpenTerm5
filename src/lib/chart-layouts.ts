@@ -129,8 +129,8 @@ export type LinkGroup = (typeof linkGroups)[number]['key'];
 
 export const drawingSyncs = [
   { key: 'off', label: 'Off', description: 'New drawings stay on the chart they were drawn on.' },
-  { key: 'layout', label: 'This Layout', description: 'New drawings appear on every chart of the same symbol in this tab.' },
-  { key: 'global', label: 'All Layouts', description: 'New drawings appear on every chart of the same symbol in every tab.' },
+  { key: 'layout', label: 'This Layout', description: 'New drawings appear on every chart of the same symbol in this layout.' },
+  { key: 'global', label: 'All Layouts', description: 'New drawings appear on every chart of the same symbol in every layout.' },
 ] as const;
 
 export type DrawingSync = (typeof drawingSyncs)[number]['key'];

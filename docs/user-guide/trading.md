@@ -10,7 +10,7 @@ Market Watch lists live bid and ask prices, the spread and the time of the last 
 - **Add a symbol:** type its name in the **+ click to add** row and press Enter, or open
   **Symbols…** (Ctrl+U) to browse every symbol your broker offers.
 - **Open an order:** double-click a symbol.
-- **Open a chart:** right-click a symbol and choose **Chart in New Tab**, or drag it onto a chart to
+- **Open a chart:** right-click a symbol and choose **Chart in New Layout**, or drag it onto a chart to
   show it there.
 - **Symbol details:** select a symbol and switch to the **Details** tab, or choose
   **Specification…** from its context menu. Both show contract size, volume limits, swaps and trading
@@ -150,8 +150,13 @@ high, low or close: always with the strong magnet, within 50px with the weak one
 hide and remove.
 
 Click to place each anchor, or press and drag for two-point tools. Polylines and paths end with a
-double-click. Shift-click anywhere to measure. Hover an object to see its handles and drag them straight away (a
-rectangle also has handles on its sides). Select an object to move it, or change its colour, width and
+double-click. Shift-click an empty part of the chart to measure. Hold **Shift** while you place or drag
+a point of a line to keep it level, upright or at 45 degrees to the point before it (the magnet is
+ignored while Shift is down), or while you drag a whole object to move it only sideways or only up and
+down. Hover an object to see its handles and drag them straight away (a
+rectangle also has handles on its sides). An object's background fill, such as the inside of a channel,
+rectangle or circle, does not pick it up: dragging there moves the chart, so a big zone drawn on a higher
+timeframe never gets in the way on a lower one. Grab its lines instead. Select an object to move it, or change its colour, width and
 style from the bar that appears above the chart; Ctrl+click adds objects to the selection and Ctrl+drag
 on the chart selects every object with a point in the box, so several move, copy and delete together; double-click it for all its
 settings. The settings come in tabs: **Style**, **Levels** (for Fibonacci, Gann and pitchfork tools,
@@ -221,14 +226,15 @@ timeframes are not available.
 
 ## Chart layouts
 
-Each tab in the chart bar below the charts holds a layout of 1 to 16 charts, as in TradingView. Click
-the layout button next to the symbol search to choose one: layouts are grouped by how many charts they
-show.
+Each layout in the layout bar below the charts holds 1 to 16 charts, with their drawings, indicators
+and settings, as in TradingView. Click the layout setup button next to the symbol search to choose how
+many charts it shows and how they are arranged.
 
 | Action | How |
 |---|---|
-| Switch tabs | Click a tab in the chart bar. **+** opens a new tab with a copy of the active chart |
-| Close a tab | The **×** on its tab, or middle-click it |
+| Switch layouts | Click a layout in the layout bar |
+| New layout | **+** in the layout bar or the toolbar, or **Window → New Layout**: **Blank Layout** opens the active chart's symbol on its own, **Copy of …** copies an open layout with all its charts, drawings, indicators and settings. Right-click a layout and choose **Duplicate Layout** to copy that one |
+| Close a layout | The **×** on it, or middle-click it |
 | Choose the active chart | Click it, or press **Tab** and **Shift+Tab** to move between charts in reading order |
 | Resize charts | Drag the line between two charts. **Shift**+drag moves the matching lines too; double-click resets |
 | Maximise a chart | **Alt+Enter**, or **Layout → Maximize Chart** in the chart menu. Press it again, or choose any layout, to restore |
@@ -259,11 +265,12 @@ with each other.
 ### Sync drawings
 
 The link button in the chart toolbar sets where new drawings go: **This Layout** (the default) shows
-them on every chart of the same symbol in the tab, **All Layouts** on every chart of the symbol in
-every tab, and **Off** keeps them on the chart they were drawn on.
+them on every chart of the same symbol in the layout, **All Layouts** on every chart of the symbol in
+every layout, and **Off** keeps them on the chart they were drawn on. A blank layout starts without the
+drawings of the other layouts (except **All Layouts** ones); copy a layout to take its drawings along.
 
-Tabs, layouts, sizes and sync settings are saved with your profile and restored when OpenTerm5 starts.
-Charts saved by earlier versions open as one tab each, or as one layout if they were floating windows.
+Layouts, their arrangements, sizes and sync settings are saved with your profile and restored when OpenTerm5 starts.
+Charts saved by earlier versions open as one layout each, or as one multi-chart layout if they were floating windows.
 
 ### Picture in picture
 

@@ -8,7 +8,7 @@ import type { Drawing, IndicatorConfig } from './chart-model';
 import { Store } from './store';
 import { instrumentKey } from '../../shared/symbol-match';
 import { drawingSyncs, type DrawingSync, type LayoutKey, type LayoutSync, type LinkGroup, type SplitSizes } from './chart-layouts';
-import { hasSync, makeTab, steppedChartId, syncPeers, tabActiveChartId, visibleChartIds, withChartMoved, withLayout, withoutChart, type ChartTab } from './chart-tabs';
+import { copiedTab, hasSync, makeTab, steppedChartId, syncPeers, tabActiveChartId, visibleChartIds, withChartMoved, withLayout, withoutChart, type ChartTab } from './chart-tabs';
 import { replayModes, replaySpeeds, type ReplayMode, type ReplaySpeed } from './replay-model';
 import { isReplayingChart, replay, replayTradingHint } from './replay-session';
 import { applyTemplate, captureProfile, captureTemplate, restoreProfiles, restoreTemplates, restoreWorkspaceCharts, type ChartProfile, type ChartTemplate } from './presets';
@@ -353,6 +353,16 @@ export function openTab(): void {
   const source = activeChart(workspace.get());
   if (!source) return;
   openChart(source.symbol, source.timeframe);
+}
+
+// A new tab that starts as a copy of another: its charts, drawings, studies and settings.
+export function openTabCopy(tabId: string): void {
+  workspace.set((state) => {
+    const tab = state.tabs.find((candidate) => candidate.id === tabId);
+    if (!tab) return {};
+    const copy = copiedTab(tab, state.charts, newId);
+    return { charts: [...state.charts, ...copy.charts], tabs: [...state.tabs, copy.tab], activeTabId: copy.tab.id, isChartMaximized: false };
+  });
 }
 
 // Chart Settings for every open chart, and optionally their chart type. With `isDefault`, charts

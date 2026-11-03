@@ -294,6 +294,18 @@ test('a horizontal line hides its price label on request and a rectangle places 
   assert.deepEqual([text.text, text.align, text.baseline], ['FVG', 'right', 'top']);
 });
 
+test('channel and shape fills are backgrounds, so the mouse pans through them', () => {
+  const channel = build('parallel-channel', [at(5, 100), at(25, 110), at(5, 90)]);
+  const fills = channel.filter((shape) => shape.kind !== 'text' && shape.style.fill);
+  assert.ok(fills.length > 0 && fills.every((shape) => shape.kind !== 'text' && shape.style.isBackground));
+  for (const type of ['rectangle', 'circle', 'ellipse']) {
+    const shapes = build(type, [at(5, 100), at(15, 110)]);
+    assert.ok(shapes.some((shape) => shape.kind !== 'text' && shape.style.fill && shape.style.isBackground), type);
+  }
+  const position = build('long-position', [at(10, 100), at(30, 110), at(30, 95)]);
+  assert.ok(position.some((shape) => shape.kind === 'rect' && shape.style.fill && !shape.style.isBackground), 'a position is still picked up by its body');
+});
+
 test('text tools stack multi-line text and honour bold', () => {
   const shapes = build('note', [at(10, 100)], { bold: true }, 'First\nSecond\nThird');
   const lines = shapes.filter((shape): shape is Extract<Shape, { kind: 'text' }> => shape.kind === 'text');

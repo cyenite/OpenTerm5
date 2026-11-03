@@ -15,8 +15,8 @@ import { exitReplay, replay, setReplayMode, startReplay } from '../lib/replay';
 import { replayModes } from '../lib/replay-model';
 import { replayTradingHint, useIsReplayingChart } from '../lib/replay-session';
 import { enterBacktestMode, exitBacktestMode, useIsBacktestingChart } from '../lib/backtest/runtime';
-import { drawingSyncMenuItems } from '../lib/layout-menu';
-import { activeChart, activeTab, chartTypes, openChart, openDialog, openTab, toggleAnalysisPositions, workspace, type ChartType, type WorkspaceState } from '../lib/workspace';
+import { drawingSyncMenuItems, newLayoutMenuItems } from '../lib/layout-menu';
+import { activeChart, activeTab, chartTypes, openChart, openDialog, toggleAnalysisPositions, workspace, type ChartType, type WorkspaceState } from '../lib/workspace';
 import { LayoutPicker } from './chart/LayoutPicker';
 import type { MenuItem } from './MenuBar';
 import { SymbolSearch } from './SymbolSearch';
@@ -185,7 +185,7 @@ function PanelsMenu({ isAnalysis }: PanelsMenuProps) {
       ]),
     { label: '', isSeparator: true },
     ...(isAnalysis ? [] : [{ label: 'Drawing Toolbar', isChecked: state.isTradeDrawingToolbarShown, action: () => togglePanel('isTradeDrawingToolbarShown') }]),
-    { label: 'Chart Tabs', isChecked: state.isChartBarShown, action: () => togglePanel('isChartBarShown') },
+    { label: 'Layout Bar', isChecked: state.isChartBarShown, action: () => togglePanel('isChartBarShown') },
     { label: 'Status Bar', isChecked: state.isStatusBarShown, action: () => togglePanel('isStatusBarShown') },
     { label: '', isSeparator: true },
     { label: 'Full Screen', shortcut: 'F11', action: toggleFullScreen },
@@ -269,7 +269,7 @@ export function Toolbar() {
   return (
     <div ref={toolbar} className="toolbar chart-toolbar" data-level={level} role="toolbar" aria-label="Chart">
       <SymbolPicker />
-      <ToolButton icon="plus" hint={{ title: 'New Tab', description: 'Open a tab with a copy of the active chart.' }} onClick={() => (chart ? openTab() : openChart(defaultSymbol()))} />
+      <ToolButton icon="plus" hint={{ title: 'New Layout', description: 'Open a blank layout, or a copy of an open one with its drawings and settings.' }} onClick={(event) => (chart ? menuBelow(event, newLayoutMenuItems(state)) : openChart(defaultSymbol()))} />
       <LayoutPicker />
       <span className="toolbar-divider" />
       <TimeframePicker />

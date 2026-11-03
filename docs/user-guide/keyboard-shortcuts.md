@@ -64,7 +64,7 @@ These work while a chart has the keyboard focus (click it first):
 | Alt+R | Reset the chart view |
 | Alt+I | Invert the price scale |
 | Alt+L and Alt+P | Logarithmic and percent price scale |
-| Shift-click | Measure |
+| Shift-click | Measure (on an empty part of the chart) |
 
 ## Mouse
 
@@ -75,10 +75,13 @@ These work while a chart has the keyboard focus (click it first):
 | Ctrl+click a drawing | Add it to the selection, or take it out |
 | Ctrl+drag on a chart | Select every drawing with a point inside the box |
 | Hold Ctrl while drawing | Turn the magnet the other way: off when it is on, strong when it is off |
+| Hold Shift while drawing or dragging a point | Keep the line level, upright or at 45 degrees, ignoring the magnet |
+| Hold Shift while dragging a drawing | Move it only sideways or only up and down |
+| Drag inside a drawing's background fill | Move the chart, not the drawing |
 | Double-click a Market Watch symbol | New order for that symbol |
 | Double-click a position or order | Modify it |
 | Double-click the line between charts | Make every chart in the layout the same size |
 | Shift-drag the line between charts | Move the matching lines of the layout together |
-| Middle-click a chart tab | Close the tab |
+| Middle-click a layout in the layout bar | Close the layout |
 | Drag a symbol onto a chart | Show the symbol on that chart |
 | Drag a trade line | Move the stop loss, take profit or pending price |

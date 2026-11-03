@@ -13,6 +13,9 @@ export interface ShapeStyle {
   fill?: string;
   fillOpacity?: number;
   opacity?: number;
+  // A drawing's background fill, as in TradingView: a mouse goes through it to the chart, so a
+  // drag inside a channel or box drawn on a higher timeframe pans instead of moving it.
+  isBackground?: boolean;
 }
 
 export type Shape =
@@ -95,6 +98,17 @@ export function extend(a: Pt, b: Pt, bounds: Bounds, left: boolean, right: boole
   return [left ? { x: a.x - ux * far, y: a.y - uy * far } : a, right ? { x: b.x + ux * far, y: b.y + uy * far } : b];
 }
 
+// TradingView's Shift: `to` moved onto the nearest 45° step from `from`, level, upright or diagonal.
+export function alignTo45(from: Pt, to: Pt): Pt {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const step = Math.abs(Math.round(Math.atan2(dy, dx) / (Math.PI / 4)));
+  if (step === 0 || step === 4) return { x: to.x, y: from.y };
+  if (step === 2) return { x: from.x, y: to.y };
+  const side = Math.hypot(dx, dy) / Math.SQRT2;
+  return { x: from.x + Math.sign(dx) * side, y: from.y + Math.sign(dy) * side };
+}
+
 export function quadratic(a: Pt, control: Pt, b: Pt, steps = 32): Pt[] {
   return Array.from({ length: steps + 1 }, (_, index) => {
     const t = index / steps;
@@ -127,18 +141,21 @@ function textBox(shape: Extract<Shape, { kind: 'text' }>, measure: (text: string
 export { textBox };
 
 export function hitShape(shape: Shape, p: Pt, tolerance: number, measure: (text: string, size: number, bold: boolean) => number): boolean {
+  const style: ShapeStyle = shape.kind === 'text' ? {} : shape.style;
+  if (style.isBackground && !style.width) return false;
+  const isSolid = !!style.fill && !style.isBackground;
   switch (shape.kind) {
     case 'line':
       return segmentDistance(p, shape.a, shape.b) <= tolerance + (shape.style.width ?? 1) / 2;
     case 'poly': {
       const points = shape.closed ? [...shape.points, shape.points[0]] : shape.points;
       for (let index = 1; index < points.length; index++) if (segmentDistance(p, points[index - 1], points[index]) <= tolerance + (shape.style.width ?? 1) / 2) return true;
-      return !!shape.style.fill && shape.closed && insidePolygon(p, shape.points);
+      return isSolid && shape.closed && insidePolygon(p, shape.points);
     }
     case 'rect': {
       const inside = p.x >= shape.x - tolerance && p.x <= shape.x + shape.w + tolerance && p.y >= shape.y - tolerance && p.y <= shape.y + shape.h + tolerance;
       if (!inside) return false;
-      if (shape.style.fill) return true;
+      if (isSolid) return true;
       return p.x <= shape.x + tolerance || p.x >= shape.x + shape.w - tolerance || p.y <= shape.y + tolerance || p.y >= shape.y + shape.h - tolerance;
     }
     case 'ellipse': {
@@ -154,7 +171,7 @@ export function hitShape(shape: Shape, p: Pt, tolerance: number, measure: (text:
       const isFull = shape.end - shape.start >= Math.PI * 2 - 1e-6;
       const inArc = isFull || angleBetween(angle, normalise(shape.start), normalise(shape.end));
       const edge = Math.abs(radial - 1) * Math.min(shape.rx, shape.ry) <= tolerance;
-      return inArc && (edge || !!shape.style.fill && radial < 1);
+      return inArc && (edge || isSolid && radial < 1);
     }
     case 'text': {
       const box = textBox(shape, measure);

@@ -337,7 +337,7 @@ export function MarketWatch() {
     const isListed = row.symbol !== null;
     openContextMenu(event, [
       ...(isAnalysis ? [] : [{ label: 'New Order', shortcut: 'F9', isDisabled: !isListed, action: () => newOrder(name) }]),
-      { label: 'Chart in New Tab', isDisabled: !isListed, action: () => openChart(name) },
+      { label: 'Chart in New Layout', isDisabled: !isListed, action: () => openChart(name) },
       { label: 'Show in Active Chart', isDisabled: !isListed || !hasCharts, action: () => showSymbol(name) },
       ...(isAnalysis ? [] : [{ label: 'Depth of Market', shortcut: 'Alt+B', isDisabled: !isListed, action: () => toggleDepth(name) }]),
       { label: 'Specification...', isDisabled: !isListed, action: () => openDialog({ kind: 'specification', symbol: name }) },

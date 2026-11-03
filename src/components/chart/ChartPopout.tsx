@@ -71,7 +71,7 @@ function PopoutWindow({ popout, title, children }: PopoutWindowProps) {
     const place = popout.at ? `,left=${Math.round(popout.at.x - 80)},top=${Math.round(popout.at.y - 20)}` : '';
     const view = window.open('', `openterm-pip-${tabId}-${++windowCount}`, `popup,width=${width},height=${height}${place}`);
     if (!view) {
-      log('The chart tab could not open in its own window.', 'Charts');
+      log('The layout could not open in its own window.', 'Charts');
       forgetPopout(tabId);
       return;
     }

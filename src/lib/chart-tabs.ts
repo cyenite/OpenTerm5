@@ -59,6 +59,27 @@ export function withLayout(tab: ChartTab, layout: LayoutKey, clone: () => ChartC
   return { tab: { ...next, activeChartId: tabActiveChartId(next) }, added };
 }
 
+// A new tab laid out as `tab`, with copies of all its charts (their drawings, studies and settings
+// too) and of the drawings shared across it. Copies get ids of their own, so the two tabs never
+// share a chart, a study or a drawing.
+export function copiedTab(tab: ChartTab, charts: readonly ChartConfig[], newId: () => string): { tab: ChartTab; charts: ChartConfig[] } {
+  const copyDrawings = (drawings: readonly Drawing[]) => drawings.map((drawing) => ({ ...structuredClone(drawing), id: `drawing-${newId()}` }));
+  const copies = new Map<string, ChartConfig>();
+  for (const chart of charts) {
+    if (!tab.chartIds.includes(chart.id)) continue;
+    copies.set(chart.id, {
+      ...structuredClone(chart),
+      id: newId(),
+      drawings: copyDrawings(chart.drawings),
+      indicators: chart.indicators.map((indicator) => ({ ...structuredClone(indicator), id: newId() })),
+    });
+  }
+  const chartIds = tab.chartIds.flatMap((id) => copies.get(id)?.id ?? []);
+  const drawings = Object.fromEntries(Object.entries(tab.drawings).map(([key, list]) => [key, copyDrawings(list)]));
+  const copy = { ...structuredClone(tab), id: newId(), chartIds, activeChartId: copies.get(tab.activeChartId)?.id ?? '', drawings };
+  return { tab: { ...copy, activeChartId: tabActiveChartId(copy) }, charts: [...copies.values()] };
+}
+
 // Removes a chart. When no hidden chart can take its slot, the layout steps down to one that fits.
 export function withoutChart(tab: ChartTab, chartId: string): ChartTab {
   const chartIds = tab.chartIds.filter((id) => id !== chartId);
