@@ -90,7 +90,10 @@ const dashes: Record<DrawingStyle['lineStyle'], readonly number[]> = { solid: []
 
 const stroke = (env: ToolEnv, overrides: ShapeStyle = {}): ShapeStyle => ({ color: env.style.lineColor, width: env.style.lineWidth, dash: dashes[env.style.lineStyle], ...(env.style.lineOpacity !== undefined ? { opacity: env.style.lineOpacity } : {}), ...overrides });
 
-const area = (env: ToolEnv, color = env.style.fillColor ?? env.style.lineColor, opacity = env.style.fillOpacity ?? 0.15): ShapeStyle => ({ width: 0, fill: color, fillOpacity: opacity });
+const area = (env: ToolEnv, color = env.style.fillColor ?? env.style.lineColor, opacity = env.style.fillOpacity ?? 0.15): ShapeStyle => ({ width: 0, fill: color, fillOpacity: opacity, isBackground: true });
+
+// An outline around a background fill: only the outline picks the drawing up.
+const outlined = (env: ToolEnv): ShapeStyle => ({ ...area(env), ...stroke(env) });
 
 // A thin line in a level's colour that still follows the drawing's line style.
 const levelStroke = (env: ToolEnv, color: string, overrides: ShapeStyle = {}): ShapeStyle => ({ color, width: env.style.lineWidth, dash: dashes[env.style.lineStyle], ...overrides });
@@ -1637,7 +1640,7 @@ const definitions: ToolDefinition[] = [
     if (!b) return;
     const right = env.style.extendRight ? { x: env.bounds.width, y: b.y } : b;
     // Fill and border apart, so a transparent border leaves the fill as it is.
-    g.rect(a, right, { width: 0, fill: env.style.fillColor ?? env.style.lineColor, fillOpacity: env.style.fillOpacity ?? 0.15 });
+    g.rect(a, right, area(env));
     g.rect(a, right, stroke(env));
     if (o.bool('showMiddleLine')) g.line({ x: a.x, y: (a.y + b.y) / 2 }, { x: right.x, y: (a.y + b.y) / 2 }, stroke(env, { width: 1, dash: [4, 4], opacity: 1 }));
     textInBox(g, env, o, a, right);
@@ -1649,7 +1652,7 @@ const definitions: ToolDefinition[] = [
     const length = distance(a, b) || 1;
     const normal = { x: -(b.y - a.y) / length, y: (b.x - a.x) / length };
     const offset = (c.x - a.x) * normal.x + (c.y - a.y) * normal.y;
-    g.poly([a, b, add(b, scale(normal, offset)), add(a, scale(normal, offset))], true, { ...stroke(env), fill: env.style.fillColor ?? env.style.lineColor, fillOpacity: env.style.fillOpacity ?? 0.15 });
+    g.poly([a, b, add(b, scale(normal, offset)), add(a, scale(normal, offset))], true, outlined(env));
   }, { isFillable: true }),
   define('path', 'multi', (g, env) => {
     g.poly(env.points, false, stroke(env));
@@ -1660,17 +1663,17 @@ const definitions: ToolDefinition[] = [
     const [a, b] = env.points;
     if (!b) return;
     const radius = distance(a, b);
-    g.ellipse(a.x, a.y, radius, radius, { ...stroke(env), fill: env.style.fillColor ?? env.style.lineColor, fillOpacity: env.style.fillOpacity ?? 0.15 });
+    g.ellipse(a.x, a.y, radius, radius, outlined(env));
   }, { isFillable: true }),
   two('ellipse', (g, env) => {
     const [a, b] = env.points;
     if (!b) return;
-    g.ellipse((a.x + b.x) / 2, (a.y + b.y) / 2, Math.abs(b.x - a.x) / 2, Math.abs(b.y - a.y) / 2, { ...stroke(env), fill: env.style.fillColor ?? env.style.lineColor, fillOpacity: env.style.fillOpacity ?? 0.15 });
+    g.ellipse((a.x + b.x) / 2, (a.y + b.y) / 2, Math.abs(b.x - a.x) / 2, Math.abs(b.y - a.y) / 2, outlined(env));
   }, { isFillable: true }),
   define('polyline', 'multi', (g, env) => g.poly(env.points, false, stroke(env)), { isFillable: true }),
   three('triangle', (g, env) => {
     if (env.points.length < 3) { g.poly(env.points, false, stroke(env)); return; }
-    g.poly(env.points, true, { ...stroke(env), fill: env.style.fillColor ?? env.style.lineColor, fillOpacity: env.style.fillOpacity ?? 0.15 });
+    g.poly(env.points, true, outlined(env));
   }, { isFillable: true }),
   three('arc', (g, env) => {
     const [a, b, c] = env.points;
@@ -1678,7 +1681,7 @@ const definitions: ToolDefinition[] = [
     if (!c) { g.line(a, b, stroke(env, { dash: [3, 3] })); return; }
     // The arc passes through the third point: its control point is placed accordingly.
     const control = { x: 2 * c.x - (a.x + b.x) / 2, y: 2 * c.y - (a.y + b.y) / 2 };
-    g.poly(quadratic(a, control, b), true, { ...stroke(env), fill: env.style.fillColor ?? env.style.lineColor, fillOpacity: env.style.fillOpacity ?? 0.15 });
+    g.poly(quadratic(a, control, b), true, outlined(env));
   }, { isFillable: true }),
   three('curve', (g, env) => {
     const [a, b, c] = env.points;

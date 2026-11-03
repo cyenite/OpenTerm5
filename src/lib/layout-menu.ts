@@ -2,11 +2,26 @@ import { feedSymbol } from '../../shared/feeds';
 import type { MenuItem } from '../components/MenuBar';
 import { drawingSyncs, layoutGroups, layoutSyncs, linkGroups } from './chart-layouts';
 import { hasSync, tabActiveChartId, visibleChartIds, type ChartTab } from './chart-tabs';
-import { setDrawingSync, setLinkGroup, setTabLayout, toggleLayoutSync, workspace, type ChartConfig } from './workspace';
+import { activeChart, marketTabs, openTab, openTabCopy, setDrawingSync, setLinkGroup, setTabLayout, toggleLayoutSync, workspace, type ChartConfig, type WorkspaceState } from './workspace';
 
 export function tabTitle(tab: ChartTab, charts: readonly ChartConfig[]): string {
   const chart = charts.find((candidate) => candidate.id === tabActiveChartId(tab));
   return chart ? `${feedSymbol(chart.symbol)},${chart.timeframe}` : 'Empty';
+}
+
+export function layoutLabel(tab: ChartTab, charts: readonly ChartConfig[]): string {
+  const count = visibleChartIds(tab).length;
+  return `${tabTitle(tab, charts)}${count > 1 ? ` (${count} charts)` : ''}`;
+}
+
+// A new layout starts blank, on the active chart's symbol alone, or as a copy of an open one with
+// its charts, drawings and settings.
+export function newLayoutMenuItems(state: WorkspaceState): MenuItem[] {
+  return [
+    { label: 'Blank Layout', isDisabled: !activeChart(state), action: openTab },
+    { label: '', isSeparator: true },
+    ...marketTabs(state).map((tab) => ({ label: `Copy of ${layoutLabel(tab, state.charts)}`, action: () => openTabCopy(tab.id) })),
+  ];
 }
 
 export function layoutMenuItems(tab: ChartTab): MenuItem[] {

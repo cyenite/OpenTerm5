@@ -7,6 +7,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Hold Shift while drawing or dragging a point of a line to keep it level, upright or at 45 degrees,
+  as in TradingView; the magnet is ignored while Shift is held. Shift while dragging a whole drawing
+  moves it only sideways or only up and down.
+- A new layout can start as a copy of an open one, with all its charts, drawings, indicators and
+  settings: the **+** buttons and **Window → New Layout** offer **Blank Layout** or **Copy of …**,
+  and right-clicking a layout offers **Duplicate Layout**.
+
+### Changed
+
+- Chart tabs are now called layouts throughout the app.
+- A drawing's background fill (the inside of a channel, rectangle, circle and similar) no longer
+  picks the drawing up, as in TradingView; grab it by its lines.
+
+### Fixed
+
+- Panning a lower-timeframe chart over a channel or zone drawn on a higher timeframe moved the
+  drawing instead of the chart.
+
 ## [0.10.1] - 2026-11-02
 
 ### Changed

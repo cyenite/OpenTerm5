@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { isEquivalentDivider, layoutCells, layoutDividers, layoutOf, linkGroups, resizeLayout, type CellRect, type LayoutDivider, type SplitSizes } from '../lib/chart-layouts';
 import { tabActiveChartId, tabSizes, visibleChartIds, type ChartTab } from '../lib/chart-tabs';
 import { openContextMenu, openMenuAt } from '../lib/context-menu';
-import { isLinkGroupShown, linkGroupMenuItems, tabTitle } from '../lib/layout-menu';
+import { isLinkGroupShown, linkGroupMenuItems, newLayoutMenuItems, tabTitle } from '../lib/layout-menu';
 import { dockedTabId, dockTab, isPoppedOut, popOutTab, popoutMenuItems, popoutModeOf, popouts, tabDragType, type Popout } from '../lib/popouts';
 import { setLayoutResizing } from '../lib/layout-sync';
 import { replay } from '../lib/replay';
 import { useStore } from '../lib/store';
-import { activeTab, closeTab, marketTabs, focusChart, focusTab, openChart, openTab, resetTabSizes, setChartSymbol, setTabSizes, workspace, type ChartConfig } from '../lib/workspace';
+import { activeTab, closeTab, marketTabs, focusChart, focusTab, openChart, openTabCopy, resetTabSizes, setChartSymbol, setTabSizes, workspace, type ChartConfig } from '../lib/workspace';
+import type { MenuItem } from './MenuBar';
 import { ChartWindow } from './chart/ChartWindow';
 import { DrawingRail } from './chart/DrawingRail';
 import { LayoutIcon } from './chart/LayoutIcon';
@@ -22,6 +23,11 @@ const gap = 4;
 const whole: CellRect = { top: 0, left: 0, width: 1, height: 1 };
 
 const hasSymbol = (event: DragEvent) => event.dataTransfer.types.includes(symbolType);
+
+const menuBelow = (event: ReactMouseEvent<HTMLElement>, items: readonly MenuItem[]) => {
+  const box = event.currentTarget.getBoundingClientRect();
+  openMenuAt(box.left, box.bottom + 4, items, event.currentTarget.ownerDocument.defaultView ?? window);
+};
 
 // Edges inside the layout give up half the gap each; edges on the workspace border stay flush.
 function cellStyle(rect: CellRect): CSSProperties {
@@ -231,13 +237,14 @@ function TabLabel({ tab, charts, popout, isActive, isDropBefore, onDragDone }: T
   const title = tabTitle(tab, charts);
   const count = visibleChartIds(tab).length;
   const menu = () => [
-    { label: 'New Tab', action: openTab },
-    { label: 'Close Tab', action: () => closeTab(tab.id) },
+    { label: 'New Layout', items: newLayoutMenuItems(workspace.get()) },
+    { label: 'Duplicate Layout', action: () => openTabCopy(tab.id) },
+    { label: 'Close Layout', action: () => closeTab(tab.id) },
     { label: '', isSeparator: true },
     ...popoutMenuItems(tab.id),
   ];
   const classes = ['chart-tab', isActive && 'is-active', popout && 'is-popped-out', isDropBefore && 'is-drop-before'].filter(Boolean).join(' ');
-  const hint = popout ? `${title}: in its own window (${popoutModeOf(popout.mode).label}). Click to show it, or drag it back onto the tab bar.` : `${title}. Drag it out of the tab bar to open it in its own window.`;
+  const hint = popout ? `${title}: in its own window (${popoutModeOf(popout.mode).label}). Click to show it, or drag it back onto the layout bar.` : `${title}. Drag it out of the layout bar to open it in its own window.`;
   return (
     <div
       role="tab"
@@ -269,7 +276,7 @@ function TabLabel({ tab, charts, popout, isActive, isDropBefore, onDragDone }: T
       {popout && <Icon name="popout" size={12} />}
       {count > 1 && <LayoutIcon layout={tab.layout} />}
       <span>{title}</span>
-      <button className="chart-tab-close" title="Close tab" aria-label={`Close ${title}`} draggable={false} onMouseDown={(event) => event.stopPropagation()} onClick={() => closeTab(tab.id)}>×</button>
+      <button className="chart-tab-close" title="Close layout" aria-label={`Close ${title}`} draggable={false} onMouseDown={(event) => event.stopPropagation()} onClick={() => closeTab(tab.id)}>×</button>
     </div>
   );
 }
@@ -311,7 +318,7 @@ function TabBar({ tabs, shownTabId }: TabBarProps) {
     <nav
       className={`chart-bar${dropBefore !== undefined ? ' is-drop-target' : ''}`}
       role="tablist"
-      aria-label="Chart tabs"
+      aria-label="Chart layouts"
       onDragOver={(event) => {
         if (!hasTab(event)) return;
         event.preventDefault();
@@ -338,7 +345,7 @@ function TabBar({ tabs, shownTabId }: TabBarProps) {
           onDragDone={() => setDropBefore(undefined)}
         />
       ))}
-      {tabs.length > 0 && <button className={`chart-bar-add${dropBefore === null ? ' is-drop-before' : ''}`} title="New tab with a copy of the active chart" aria-label="New tab" onClick={openTab}>+</button>}
+      {tabs.length > 0 && <button className={`chart-bar-add${dropBefore === null ? ' is-drop-before' : ''}`} title="New layout: blank, or a copy of an open one with its drawings and settings" aria-label="New layout" onClick={(event) => menuBelow(event, newLayoutMenuItems(workspace.get()))}>+</button>}
     </nav>
   );
 }
@@ -372,7 +379,7 @@ export function ChartWorkspace() {
         {isRailShown && docked.length > 0 && <DrawingRail overlay={body} />}
         <ChartLayout tabs={docked} tab={tab}>
           {!tabs.length && <p className="empty">Drag a symbol from Market Watch here, or use File &gt; New Chart</p>}
-          {tabs.length > 0 && !docked.length && <p className="empty">Every tab is in its own window. Drag one back onto the tab bar, or right-click it and choose Return to Main Window.</p>}
+          {tabs.length > 0 && !docked.length && <p className="empty">Every layout is in its own window. Drag one back onto the layout bar, or right-click it and choose Return to Main Window.</p>}
         </ChartLayout>
         {isBacktestMode && (replayPurpose === undefined || replayPurpose === 'backtest' && replayTabId === tab?.id) && <BacktestTransport />}
       </div>

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { inferMarket, makeTab, steppedChartId, syncPeers, tabActiveChartId, visibleChartIds, withChartMoved, withLayout, withoutChart } from './chart-tabs';
+import { copiedTab, inferMarket, makeTab, steppedChartId, syncPeers, tabActiveChartId, visibleChartIds, withChartMoved, withLayout, withoutChart } from './chart-tabs';
 import { makeChart, type ChartConfig } from './workspace';
 
 const chart = (id: string, linkGroup?: ChartConfig['linkGroup']): ChartConfig => ({ ...makeChart('EURUSD'), id, ...(linkGroup ? { linkGroup } : {}) });
@@ -49,4 +49,30 @@ test('exchange contracts read as crypto, broker CFDs and forex as forex', () => 
   for (const symbol of ['BTCUSDT', 'ETHUSDC', 'BTCPERP', 'BTCUSDT-26DEC25', 'BTCUSDT_251226', 'BTC-26DEC25', '1000PEPEUSDT']) assert.equal(inferMarket([symbol]), 'crypto', symbol);
   for (const symbol of ['EURUSD', 'BTCUSD', 'XAUUSD', 'US30', 'EURUSD.m']) assert.equal(inferMarket([symbol]), 'fx', symbol);
   assert.equal(inferMarket([]), 'fx');
+});
+
+test('a copied layout gets its own charts, studies and drawings, laid out and set up the same', () => {
+  let ids = 0;
+  const newId = () => `n${++ids}`;
+  const drawing = (id: string): ChartConfig['drawings'][number] => ({ id, type: 'trend-line', paneId: 'price', anchors: [{ time: 1, price: 2 }, { time: 3, price: 4 }], style: { lineColor: '#2962ff', lineWidth: 2, lineStyle: 'solid' }, locked: false, visible: true, zIndex: 1, createdAt: 0 });
+  const a = { ...chart('a'), timeframe: 'H4' as const, drawings: [drawing('own')], indicators: [{ id: 'rsi1', kind: 'rsi', params: { length: 14 } }], theme: 'meridian-light', isVolumeShown: true };
+  const b = { ...chart('b'), symbol: 'GBPUSD' };
+  const tab = { ...makeTab('tab', ['a', 'b'], '2h', ['crosshair', 'symbol']), activeChartId: 'b', sizes: { '2h': [0.3, 0.7] }, drawings: { EURUSD: [drawing('shared')] } };
+  const copy = copiedTab(tab, [a, b, chart('elsewhere')], newId);
+  assert.deepEqual(copy.charts.map((candidate) => candidate.symbol), ['EURUSD', 'GBPUSD']);
+  assert.ok(copy.charts.every((candidate) => !['a', 'b'].includes(candidate.id)));
+  assert.deepEqual(copy.tab.chartIds, copy.charts.map((candidate) => candidate.id));
+  assert.equal(copy.tab.activeChartId, copy.charts[1].id, 'the same chart stays active');
+  assert.notEqual(copy.tab.id, 'tab');
+  assert.deepEqual([copy.tab.layout, copy.tab.syncs, copy.tab.sizes], ['2h', ['crosshair', 'symbol'], { '2h': [0.3, 0.7] }]);
+  const [first] = copy.charts;
+  assert.deepEqual([first.timeframe, first.theme, first.isVolumeShown], ['H4', 'meridian-light', true]);
+  assert.deepEqual(first.drawings.map((candidate) => candidate.type), ['trend-line']);
+  assert.notEqual(first.drawings[0].id, 'own');
+  assert.deepEqual(first.indicators.map((indicator) => [indicator.kind, indicator.params]), [['rsi', { length: 14 }]]);
+  assert.notEqual(first.indicators[0].id, 'rsi1');
+  assert.equal(copy.tab.drawings.EURUSD.length, 1);
+  assert.notEqual(copy.tab.drawings.EURUSD[0].id, 'shared');
+  first.drawings[0].anchors[0].price = 99;
+  assert.equal(a.drawings[0].anchors[0].price, 2, 'editing the copy leaves the original alone');
 });

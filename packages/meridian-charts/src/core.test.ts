@@ -7,7 +7,7 @@ import { TimeScale } from './core/time-scale';
 import { timeTicks } from './core/time-ticks';
 import { isTimeframe, timeframeMs } from './core/timeframes';
 import { cursorTools, toolGroups } from './drawings/catalogue';
-import { extend, hitShape, ShapeList } from './drawings/shapes';
+import { alignTo45, extend, hitShape, ShapeList } from './drawings/shapes';
 import { styleFor, toolDefinitions } from './drawings/tools';
 import { icons } from './ui/icons';
 
@@ -170,6 +170,29 @@ test('shapes are hit along their outline, and inside when filled', () => {
   const [a, b] = extend({ x: 0, y: 0 }, { x: 10, y: 0 }, { left: 0, top: 0, width: 800, height: 400 }, false, true);
   assert.equal(a.x, 0);
   assert.ok(b.x > 800);
+});
+
+test('a background fill lets the mouse through to the chart; only its outline picks it up', () => {
+  const measure = (text: string) => text.length * 7;
+  const [fill, outline] = new ShapeList()
+    .poly([{ x: 0, y: 0 }, { x: 400, y: 0 }, { x: 400, y: 200 }, { x: 0, y: 200 }], true, { width: 0, fill: '#2962ff', isBackground: true })
+    .ellipse(100, 100, 50, 50, { width: 2, fill: '#2962ff', isBackground: true }).shapes;
+  assert.equal(hitShape(fill, { x: 200, y: 100 }, 5, measure), false, 'inside');
+  assert.equal(hitShape(fill, { x: 200, y: 1 }, 5, measure), false, 'on its edge, which is not drawn');
+  assert.equal(hitShape(outline, { x: 100, y: 100 }, 5, measure), false, 'inside the circle');
+  assert.equal(hitShape(outline, { x: 150, y: 100 }, 5, measure), true, 'on the circle');
+});
+
+test('Shift aligns a point level, upright or at 45 degrees, whichever is nearest', () => {
+  const from = { x: 100, y: 100 };
+  assert.deepEqual(alignTo45(from, { x: 200, y: 120 }), { x: 200, y: 100 });
+  assert.deepEqual(alignTo45(from, { x: 20, y: 90 }), { x: 20, y: 100 });
+  assert.deepEqual(alignTo45(from, { x: 110, y: 10 }), { x: 100, y: 10 });
+  const diagonal = alignTo45(from, { x: 200, y: 180 });
+  assert.ok(Math.abs((diagonal.x - from.x) - (diagonal.y - from.y)) < 1e-9, 'down and right at 45 degrees');
+  assert.ok(Math.abs(Math.hypot(diagonal.x - from.x, diagonal.y - from.y) - Math.hypot(100, 80)) < 1e-9, 'as far from the start as the pointer');
+  const upLeft = alignTo45(from, { x: 40, y: 50 });
+  assert.ok(upLeft.x < from.x && upLeft.y < from.y && Math.abs((from.x - upLeft.x) - (from.y - upLeft.y)) < 1e-9, 'up and left at 45 degrees');
 });
 
 test('candle widths fill the spacing when zoomed out and keep the wick centred', () => {

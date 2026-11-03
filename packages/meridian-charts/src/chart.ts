@@ -7,7 +7,7 @@ import { isTimeframe, timeframeMs, timeUnits } from './core/timeframes';
 import { drawingToolInfo } from './drawings/catalogue';
 import { rebaseDrawings } from './drawings/history';
 import { applyDrawingFields, drawingFields, isShownOn, lookOf, templateOf, visibilityForInterval, withTemplate, type IntervalChoice } from './drawings/settings';
-import { hitShape, paintShapes, ShapeList, type Pt } from './drawings/shapes';
+import { alignTo45, hitShape, paintShapes, ShapeList, type Pt } from './drawings/shapes';
 import { styleFor, toolDefinitions, type CreateEnv, type ToolDefinition, type ToolEnv } from './drawings/tools';
 import { applySettingsFields, backgroundGradientOf, defaultSettings, restoreSettings, settingsFields, themeSettings, type ChartSettings } from './settings';
 import { shiftOutput } from './studies/output';
@@ -280,7 +280,7 @@ type Drag =
   | { kind: 'price-axis'; pane: Pane; startY: number; span: number }
   | { kind: 'time-axis'; startX: number; spacing: number }
   | { kind: 'separator'; upper: Pane; lower: Pane; lastY: number }
-  | { kind: 'move'; id: string; origin: { index: number; price: number }; items: { id: string; anchors: DrawingPoint[] }[]; hasMoved: boolean }
+  | { kind: 'move'; id: string; start: Pt; origin: { index: number; price: number }; items: { id: string; anchors: DrawingPoint[] }[]; hasMoved: boolean }
   | { kind: 'select-box'; start: Pt; current: Pt }
   | { kind: 'anchor'; id: string; index: number }
   | { kind: 'place'; startX: number; startY: number; hasMoved: boolean }
@@ -427,6 +427,7 @@ export class MeridianChart {
   private hover: Pt | null = null;
   private wheel = { x: 0, y: 0, time: 0 };
   private isCtrlDown = false;
+  private isShiftDown = false;
   private width = 0;
   private height = 0;
   private plotWidth = 0;
@@ -1719,6 +1720,7 @@ export class MeridianChart {
     if (event.button !== 0) return;
     const p = this.point(event);
     this.isCtrlDown = event.ctrlKey || event.metaKey;
+    this.isShiftDown = event.shiftKey;
     this.canvas.setPointerCapture(event.pointerId);
     this.removeTransient();
     const timeAxisTop = this.height - TIME_AXIS_HEIGHT;
@@ -1742,8 +1744,8 @@ export class MeridianChart {
       return;
     }
     if (this.tool === ZOOM) { this.drag = { kind: 'zoom', start: p, current: p }; return; }
-    // Shift-click measures, as in the measure tool.
-    if (!this.tool && event.shiftKey && pane === this.panes[0]) this.applyTool(MEASURE, true);
+    // Shift-click on the chart measures, as in the measure tool; on a drawing Shift aligns its drag.
+    if (!this.tool && event.shiftKey && pane === this.panes[0] && !this.hoverTarget(p)) this.applyTool(MEASURE, true);
     if (this.tool) {
       if (pane !== this.panes[0]) return;
       this.startPlacing(p);
@@ -1773,7 +1775,7 @@ export class MeridianChart {
       const items = this.selectedDrawings().filter((drawing) => !drawing.locked).map((drawing) => ({ id: drawing.id, anchors: structuredClone(drawing.anchors) }));
       if (items.length && !this.isLocked) {
         this.dragBefore = this.snapshot();
-        this.drag = { kind: 'move', id: hit.id, origin: { index: this.timeScale.xToIndex(p.x), price: this.panes[0].scale.yToPrice(p.y) }, items, hasMoved: false };
+        this.drag = { kind: 'move', id: hit.id, start: p, origin: { index: this.timeScale.xToIndex(p.x), price: this.panes[0].scale.yToPrice(p.y) }, items, hasMoved: false };
         this.canvas.style.cursor = 'grabbing';
       }
       return;
@@ -1790,6 +1792,7 @@ export class MeridianChart {
   private onPointerMove = (event: PointerEvent): void => {
     const p = this.point(event);
     this.isCtrlDown = event.ctrlKey || event.metaKey;
+    this.isShiftDown = event.shiftKey;
     this.hover = p;
     const drag = this.drag;
     if (drag) this.continueDrag(drag, p);
@@ -2067,7 +2070,10 @@ export class MeridianChart {
     } else if (event.key === 'End') {
       this.scrollToEnd();
     } else if (event.key === 'Control' || event.key === 'Meta') {
-      this.setCtrlDown(true);
+      this.setModifier('isCtrlDown', true);
+      return;
+    } else if (event.key === 'Shift') {
+      this.setModifier('isShiftDown', true);
       return;
     } else return;
     event.preventDefault();
@@ -2076,14 +2082,18 @@ export class MeridianChart {
   };
 
   private onKeyUp = (event: KeyboardEvent): void => {
-    if (event.key === 'Control' || event.key === 'Meta') this.setCtrlDown(false);
+    if (event.key === 'Control' || event.key === 'Meta') this.setModifier('isCtrlDown', false);
+    if (event.key === 'Shift') this.setModifier('isShiftDown', false);
   };
 
-  // Ctrl turns the magnet round and changes the pointer over drawings, so both follow it at once.
-  private setCtrlDown(isDown: boolean): void {
-    if (this.isCtrlDown === isDown) return;
-    this.isCtrlDown = isDown;
-    if (this.hover && !this.drag) this.updateHoverCursor(this.hover);
+  // Ctrl turns the magnet round and changes the pointer over drawings, and Shift aligns the point
+  // being placed or dragged, so all of it follows the key at once, without waiting for the mouse.
+  private setModifier(key: 'isCtrlDown' | 'isShiftDown', isDown: boolean): void {
+    if (this[key] === isDown) return;
+    this[key] = isDown;
+    if (this.hover && this.drag) this.continueDrag(this.drag, this.hover);
+    else if (this.hover && this.draft && this.tool) this.moveDraftAnchor(this.hover);
+    else if (this.hover) this.updateHoverCursor(this.hover);
     this.invalidate();
   }
 
@@ -2193,9 +2203,13 @@ export class MeridianChart {
         break;
       }
       case 'move': {
-        const deltaIndex = this.timeScale.xToIndex(p.x) - drag.origin.index;
+        // Shift keeps the move level or upright once it is 10px long, as TradingView does.
+        const dx = Math.abs(p.x - drag.start.x);
+        const dy = Math.abs(p.y - drag.start.y);
+        const to = !this.isShiftDown || Math.max(dx, dy) < 10 ? p : dx >= dy ? { x: p.x, y: drag.start.y } : { x: drag.start.x, y: p.y };
+        const deltaIndex = this.timeScale.xToIndex(to.x) - drag.origin.index;
         const shift = Math.round(deltaIndex);
-        const deltaPrice = this.panes[0].scale.yToPrice(p.y) - drag.origin.price;
+        const deltaPrice = this.panes[0].scale.yToPrice(to.y) - drag.origin.price;
         for (const item of drag.items) {
           const drawing = this.drawingList.find((candidate) => candidate.id === item.id);
           if (drawing) drawing.anchors = item.anchors.map((anchor) => ({ time: this.timeScale.timeAt(this.timeScale.indexOf(anchor.time) + shift), price: anchor.price + deltaPrice }));
@@ -2210,7 +2224,7 @@ export class MeridianChart {
         const drawing = this.drawingList.find((candidate) => candidate.id === drag.id);
         const definition = drawing && toolDefinitions.get(drawing.type);
         if (!drawing || !definition) break;
-        const point = this.dataPoint(p, definition.anchors !== 'free');
+        const point = this.anchorPoint(p, definition, drawing.anchors, drag.index);
         if (definition.handles) {
           drawing.anchors = definition.handles.drag(drawing.anchors, drag.index, point);
           break;
@@ -2251,10 +2265,11 @@ export class MeridianChart {
   }
 
   // TradingView's magnet works only while a drawing is placed or edited, and Ctrl turns it the
-  // other way round for as long as it is held: off when it is on, strong when it is off.
+  // other way round for as long as it is held: off when it is on, strong when it is off. Shift
+  // aligns the point instead, so it turns the magnet off.
   private activeMagnet(): MagnetMode {
     const isEditing = (!!this.tool && this.tool !== ZOOM) || !!this.draft || this.drag?.kind === 'anchor';
-    if (!isEditing) return 'off';
+    if (!isEditing || this.isShiftDown) return 'off';
     if (this.isCtrlDown) return this.magnet === 'off' ? 'strong' : 'off';
     return this.magnet;
   }
@@ -2276,6 +2291,27 @@ export class MeridianChart {
     if (!this.barList.length || hover.x >= this.plotWidth) return hover.y;
     const price = this.magnetPrice(this.timeScale.barAt(hover.x), hover.y);
     return price === null ? hover.y : this.panes[0].scale.priceToY(price);
+  }
+
+  // Anchor `index` of `anchors` under the pointer. With Shift it sits at a 45° step from its
+  // neighbour, as TradingView aligns lines; tools with handles of their own are left free.
+  private anchorPoint(p: Pt, definition: ToolDefinition, anchors: readonly DrawingPoint[], index: number): DrawingPoint {
+    const neighbour = anchors[index === 0 ? 1 : index - 1];
+    const canAlign = this.isShiftDown && definition.anchors !== 'free' && !definition.handles && this.tool !== MEASURE;
+    return canAlign && neighbour ? this.alignedPoint(p, neighbour) : this.dataPoint(p, definition.anchors !== 'free');
+  }
+
+  // Level and upright points copy the neighbour's price or time exactly, so the line stays straight
+  // on every timeframe; a diagonal lands on a bar and keeps its 45° on screen.
+  private alignedPoint(p: Pt, from: DrawingPoint): DrawingPoint {
+    const scale = this.panes[0].scale;
+    const origin = { x: this.timeScale.timeToX(from.time), y: scale.priceToY(from.price) };
+    const aligned = alignTo45(origin, p);
+    const index = Math.round(this.timeScale.xToIndex(aligned.x));
+    if (aligned.y === origin.y) return { time: this.timeScale.timeAt(index), price: from.price };
+    if (aligned.x === origin.x) return { time: from.time, price: scale.yToPrice(aligned.y) };
+    const side = Math.abs(this.timeScale.indexToX(index) - origin.x);
+    return { time: this.timeScale.timeAt(index), price: scale.yToPrice(origin.y + Math.sign(aligned.y - origin.y) * side) };
   }
 
   private startPlacing(p: Pt): void {
@@ -2306,15 +2342,16 @@ export class MeridianChart {
   }
 
   private moveDraftAnchor(p: Pt): void {
-    if (!this.draft || this.draft.definition.anchors === 'free') return;
-    this.draft.anchors[this.draft.anchors.length - 1] = this.dataPoint(p, true);
+    const draft = this.draft;
+    if (!draft || draft.definition.anchors === 'free') return;
+    draft.anchors[draft.anchors.length - 1] = this.anchorPoint(p, draft.definition, draft.anchors, draft.anchors.length - 1);
   }
 
   // Fixes the anchor following the pointer; the drawing is complete once it has all its anchors.
   private fixDraftAnchor(p: Pt): void {
     const draft = this.draft;
     if (!draft) return;
-    draft.anchors[draft.anchors.length - 1] = this.dataPoint(p, true);
+    draft.anchors[draft.anchors.length - 1] = this.anchorPoint(p, draft.definition, draft.anchors, draft.anchors.length - 1);
     const needed = draft.definition.anchors;
     if (typeof needed === 'number' && draft.anchors.length >= needed) {
       this.draft = null;
