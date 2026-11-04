@@ -6,7 +6,10 @@ import { test } from 'node:test';
 import type { SyncView } from '../shared/sync';
 import type { PasswordCipher } from './account-registry';
 import { FakeGitHub } from './github-fixtures';
+import { GitHubApi, GitHubRemote } from './github-remote';
+import { newRootKey } from './sync-crypto';
 import { FakeTimers } from './sync-engine-fixtures';
+import { inspectRepository, updateKeyring, withDeviceWrap } from './sync-keyring';
 import { SyncService } from './sync-service';
 
 const REPO = 42;
@@ -245,11 +248,62 @@ test('a new computer joins by approval from a linked one, after comparing six wo
   await first.service.handle('sync.answerPairing', { deviceId: request.deviceId, isApproved: true });
   assert.deepEqual(first.view().pairingRequests, []);
 
+  const confirmation = first.view().pairingConfirmation;
+  assert.equal(confirmation.length, 3);
+
   await second.timers.advance(5000);
-  await until(() => second.view().phase === 'on');
+  await until(() => second.view().isPairingApproved);
+  assert.equal(second.view().phase, 'pairing', 'a received key is not trusted until confirmed');
+  await assert.rejects(second.service.handle('sync.confirmPairing', { words: 'apple apple apple' }), /do not match/);
+  await second.service.handle('sync.confirmPairing', { words: ` ${confirmation.join('  ').toUpperCase()} ` });
+  assert.equal(second.view().phase, 'on');
   await second.tick();
   assert.equal(second.view().status, 'idle');
   assert.deepEqual(second.view().pairingWords, []);
+  await first.service.handle('sync.dismissConfirmation', {});
+  assert.deepEqual(first.view().pairingConfirmation, []);
+});
+
+// What someone holding the GitHub token can do while a computer waits: wrap a key of their own to it.
+async function plantKey(github: FakeGitHub, isManifestDeleted: boolean) {
+  const repository = { id: REPO, fullName: 'octotrader/openterm5-sync', branch: 'main', isPrivate: true };
+  const remote = new GitHubRemote(new GitHubApi(github.fetch, async () => 'ghu_attacker'), repository);
+  const setup = await inspectRepository(remote, REPO);
+  const [request] = setup.kind === 'sync' ? setup.pairing : [];
+  await updateKeyring(remote, REPO, (keyring) => withDeviceWrap(keyring, newRootKey(), REPO, { id: request.deviceId, publicKey: request.publicKey }));
+  if (isManifestDeleted) await remote.commit(await remote.head(), new Map([['manifest', null]]));
+}
+
+test('a key planted for a waiting computer that does not open the synced data is refused', async () => {
+  const github = fakeGitHub();
+  await setUpFirst(github);
+  const second = await computer(github, 'Laptop');
+  await signIn(second);
+  await second.service.handle('sync.chooseRepository', { id: REPO });
+  await second.service.handle('sync.requestPairing', {});
+  await plantKey(github, false);
+  await second.timers.advance(5000);
+  await until(() => second.view().error !== null);
+  assert.match(second.view().error!, /does not open the synced data/);
+  assert.equal(second.view().isPairingApproved, false);
+  assert.notEqual(second.view().phase, 'on');
+});
+
+test('a planted key that passes the data check still needs the words, and three misses refuse it', async () => {
+  const github = fakeGitHub();
+  await setUpFirst(github);
+  const second = await computer(github, 'Laptop');
+  await signIn(second);
+  await second.service.handle('sync.chooseRepository', { id: REPO });
+  await second.service.handle('sync.requestPairing', {});
+  await plantKey(github, true);
+  await second.timers.advance(5000);
+  await until(() => second.view().isPairingApproved);
+  for (const guess of ['apple banana cherry', 'tiger zebra whale']) await assert.rejects(second.service.handle('sync.confirmPairing', { words: guess }), /do not match/);
+  await assert.rejects(second.service.handle('sync.confirmPairing', { words: 'owl fox swan' }), /refused/);
+  assert.deepEqual([second.view().phase, second.view().isPairingApproved], ['joining', false]);
+  const stored = JSON.parse(await fs.readFile(path.join(second.dir, 'sync-credentials.json'), 'utf8')) as { target: unknown };
+  assert.equal(stored.target, null, 'nothing about the planted key was kept');
 });
 
 test('a declined or cancelled pairing request goes away', async () => {

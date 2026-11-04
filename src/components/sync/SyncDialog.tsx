@@ -164,6 +164,28 @@ function PairingWords({ words }: PairingWordsProps) {
 
 function PairingStep({ view }: SyncStepProps) {
   const { error, isBusy, run } = useAction();
+  const [words, setWords] = useState('');
+  if (view.isPairingApproved) {
+    const submit = (event: FormEvent) => {
+      event.preventDefault();
+      if (words.trim()) void run('sync.confirmPairing', { words });
+    };
+    return (
+      <Section title="Confirm the approval" detail="The other computer approved this one and now shows three words. Type them here: they prove the sync key really came from your computer.">
+        <form className="stack" onSubmit={submit}>
+          <label className="form-field is-wide">
+            <span>Three words from the other computer</span>
+            <input value={words} autoComplete="off" spellCheck={false} onChange={(event) => setWords(event.target.value)} />
+          </label>
+          <div className="button-row">
+            <button type="submit" className="is-primary" aria-disabled={isBusy || !words.trim()}>Confirm</button>
+            <button type="button" aria-disabled={isBusy} onClick={() => void run('sync.cancelPairing', {})}>Cancel</button>
+          </div>
+        </form>
+        <ErrorBanner error={error} />
+      </Section>
+    );
+  }
   return (
     <Section title="Waiting for approval" detail="On a computer that already syncs, open File > Sync Across Computers. Approve the request there only if it shows exactly these six words.">
       <PairingWords words={view.pairingWords} />
@@ -178,6 +200,23 @@ function PairingStep({ view }: SyncStepProps) {
 
 interface PairingRequestsProps {
   requests: readonly SyncPairingRequest[];
+}
+
+interface PairingConfirmationProps {
+  words: readonly string[];
+}
+
+function PairingConfirmation({ words }: PairingConfirmationProps) {
+  if (!words.length) return null;
+  return (
+    <div className="banner is-good" role="status">
+      <p>Approved. Type these three words on the new computer to finish:</p>
+      <PairingWords words={words} />
+      <div className="button-row">
+        <button type="button" onClick={() => void requestSync('sync.dismissConfirmation', {})}>Done</button>
+      </div>
+    </div>
+  );
 }
 
 // Approving wraps the sync key to that computer, so the words must match what it shows.
@@ -304,6 +343,7 @@ function OnPanel({ view }: SyncStepProps) {
   return (
     <Section title={view.backend === 'file' ? 'Syncing through a sync file' : `Syncing with ${view.repository}`} detail={`${status}. Last synced ${formatWhen(view.lastSyncedAt)}. ${view.backend === 'file' ? `File: ${view.repository}.` : `GitHub account: ${view.login ?? 'not connected'}.`}`}>
       {view.userCode && <DeviceCode view={view} />}
+      <PairingConfirmation words={view.pairingConfirmation} />
       <PairingRequests requests={view.pairingRequests} />
       {view.attention && <AttentionBanner attention={view.attention} />}
       {!view.isRecoveryConfirmed && <p className="banner is-warn">The recovery code for this sync was never confirmed. Make a new one and save it.</p>}

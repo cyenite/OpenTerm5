@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, hkdfSync } from 'node:crypto';
 import {
   newRecoveryCode, newRootKey, unwrapForDevice, unwrapWithPassphrase, unwrapWithRecovery, wrapForDevice, wrapWithPassphrase, wrapWithRecovery,
   type DeviceKeyPair, type KeyWrap,
@@ -105,6 +105,14 @@ export function pairingWords(publicKey: string): string[] {
   return [...createHash('sha256').update(`openterm5-pair|${publicKey}`).digest().subarray(0, 6)].map((byte) => pairingWordList[byte]);
 }
 
+// Three words only the real sync key yields for this request. The approving computer shows them
+// and the new computer must type them before it trusts the key it was sent: someone holding the
+// GitHub token can wrap a key of their own to the new computer, but cannot know these words.
+export function pairingConfirmation(rootKey: Buffer, repoId: number, request: { deviceId: string; publicKey: string }): string[] {
+  const key = Buffer.from(hkdfSync('sha256', rootKey, 'openterm5-sync/v1', 'pairing-confirmation', 32));
+  return [...createHmac('sha256', key).update(`${repoId}|${request.deviceId}|${request.publicKey}`).digest().subarray(0, 3)].map((byte) => pairingWordList[byte]);
+}
+
 const encode = (value: unknown) => Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
 
 export function newKeyring(repoId: number, device: { id: string; publicKey: string }, passphrase?: string, cost?: { N: number; r: number; p: number }) {
@@ -187,13 +195,20 @@ export async function requestPairing(remote: SyncRemote, repoId: number, device:
   });
 }
 
-// Approving wraps the key to the requesting computer and removes its request in the same commit.
-export async function answerPairing(remote: SyncRemote, repoId: number, deviceId: string, approval: { rootKey: Buffer } | null, now: number): Promise<void> {
+// Approving wraps the key to the requesting computer and removes its request in the same commit,
+// and returns the request so its confirmation words can be shown.
+// Approval names the public key whose words the user checked, so a request swapped in afterwards
+// for the same computer is refused rather than approved.
+export async function answerPairing(remote: SyncRemote, repoId: number, deviceId: string, approval: { rootKey: Buffer; publicKey: string } | null, now: number): Promise<PairingRequest | null> {
+  let answered: PairingRequest | null = null;
   await updateSetup(remote, repoId, (keyring, pairing) => {
     const request = freshRequests(pairing, now).find((item) => item.deviceId === deviceId);
+    answered = request ?? null;
     const rest = pairing.filter((item) => item.deviceId !== deviceId && now - item.createdAt < PAIRING_LIFETIME_MS);
     if (!approval) return { pairing: rest };
     if (!request) throw new SyncSetupError('That request to join has expired. Ask the other computer to try again.');
+    if (request.publicKey !== approval.publicKey) throw new SyncSetupError('That request changed after its words were shown. Nothing was approved. Check the words again.');
     return { keyring: withDeviceWrap(keyring, approval.rootKey, repoId, { id: request.deviceId, publicKey: request.publicKey }), pairing: rest };
   });
+  return answered;
 }

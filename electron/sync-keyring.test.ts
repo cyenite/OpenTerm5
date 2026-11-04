@@ -7,7 +7,7 @@ import type { PasswordCipher } from './account-registry';
 import { deriveKeys, newDeviceKeyPair } from './sync-crypto';
 import { FakeRemote } from './sync-engine-fixtures';
 import {
-  answerPairing, FORMAT_PATH, inspectRepository, KEYRING_PATH, newKeyring, PAIRING_LIFETIME_MS, pairingWords, parseFormat, parseKeyring, parsePairing, requestPairing,
+  answerPairing, FORMAT_PATH, inspectRepository, KEYRING_PATH, newKeyring, PAIRING_LIFETIME_MS, pairingConfirmation, pairingWords, parseFormat, parseKeyring, parsePairing, requestPairing,
   unlockKeyring, updateKeyring, withDeviceWrap, withNewRecovery,
 } from './sync-keyring';
 import { pairingWordList } from './sync-words';
@@ -141,7 +141,7 @@ test('approving a pairing request wraps the key to that computer and removes the
   assert.deepEqual(setup.kind === 'sync' && setup.pairing.map((request) => request.deviceId), ['desktop', 'tablet']);
   assert.ok(!(await remote.read(remote.current!, ['pairing.json'])).get('pairing.json')!.toString().includes('Office'), 'no names in the clear');
 
-  await answerPairing(remote, repoId, 'desktop', { rootKey }, 2000);
+  await answerPairing(remote, repoId, 'desktop', { rootKey, publicKey: desktop.publicKey }, 2000);
   await answerPairing(remote, repoId, 'tablet', null, 2000);
   setup = await inspectRepository(remote, repoId);
   assert.equal(setup.kind === 'sync' && setup.pairing.length, 0);
@@ -154,7 +154,32 @@ test('an expired pairing request cannot be approved, and damaged requests are re
   const remote = new FakeRemote();
   const { files, rootKey } = newKeyring(repoId, laptop);
   await remote.commit(null, files);
-  await requestPairing(remote, repoId, { id: 'desktop', publicKey: newDeviceKeyPair().publicKey }, 0);
-  await assert.rejects(answerPairing(remote, repoId, 'desktop', { rootKey }, PAIRING_LIFETIME_MS + 1), /expired/);
+  const publicKey = newDeviceKeyPair().publicKey;
+  await requestPairing(remote, repoId, { id: 'desktop', publicKey }, 0);
+  await assert.rejects(answerPairing(remote, repoId, 'desktop', { rootKey, publicKey }, PAIRING_LIFETIME_MS + 1), /expired/);
   for (const text of ['{"requests":{}}', '{"requests":[{"deviceId":"Bad Id","publicKey":"x","createdAt":1}]}']) assert.throws(() => parsePairing(Buffer.from(text)), /damaged/);
 });
+
+test('approval is refused when the request was swapped after its words were shown', async () => {
+  const remote = new FakeRemote();
+  const { files, rootKey } = newKeyring(repoId, laptop);
+  await remote.commit(null, files);
+  const genuine = newDeviceKeyPair();
+  const planted = newDeviceKeyPair();
+  await requestPairing(remote, repoId, { id: 'desktop', publicKey: genuine.publicKey }, 1000);
+  await requestPairing(remote, repoId, { id: 'desktop', publicKey: planted.publicKey }, 1001);
+  await assert.rejects(answerPairing(remote, repoId, 'desktop', { rootKey, publicKey: genuine.publicKey }, 2000), /changed after its words were shown/);
+  const setup = await inspectRepository(remote, repoId);
+  assert.throws(() => setup.kind === 'sync' && unlockKeyring(setup.keyring, repoId, { deviceId: 'desktop', deviceKeys: { ...planted } }), /no key/);
+});
+
+test('confirmation words come only from the real key and the exact request', () => {
+  const { rootKey } = newKeyring(repoId, laptop);
+  const request = { deviceId: 'desktop', publicKey: newDeviceKeyPair().publicKey };
+  const words = pairingConfirmation(rootKey, repoId, request);
+  assert.equal(words.length, 3);
+  assert.deepEqual(pairingConfirmation(rootKey, repoId, request), words);
+  assert.notDeepEqual(pairingConfirmation(newKeyring(repoId, laptop).rootKey, repoId, request), words);
+  assert.notDeepEqual(pairingConfirmation(rootKey, repoId, { ...request, publicKey: newDeviceKeyPair().publicKey }), words);
+});
+

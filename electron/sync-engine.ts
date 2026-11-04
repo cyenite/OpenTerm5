@@ -183,8 +183,9 @@ export class SyncEngine {
       return { head, manifest: emptyManifest(epoch, repoId), records: {}, invalid: new Set() };
     }
     const manifest = openManifest(keys, envelope, { epoch, repoId, highWater: options.isHistoryAccepted ? 0 : state.highWater });
-    // A removed computer still holds the key until the key is replaced, so its writes are refused
-    // here, and no manifest may bring it back.
+    // Best effort until removal replaces the key (Phase 6): `writer` is set by whoever writes, so a
+    // removed computer still holding the key could claim another id. This only stops honest builds
+    // on a removed computer, and keeps a removal from being undone.
     const removed = new Set(state.manifest?.devices.filter((item) => item.isRevoked).map((item) => item.id));
     if (removed.has(manifest.writer)) throw new SyncIntegrityError('tampered', 'The sync data was changed by a computer that was removed from sync.');
     if (manifest.devices.some((item) => removed.has(item.id) && !item.isRevoked) || [...removed].some((id) => !manifest.devices.some((item) => item.id === id))) {

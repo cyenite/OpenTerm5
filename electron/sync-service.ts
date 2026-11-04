@@ -8,18 +8,19 @@ import type { PasswordCipher } from './account-registry';
 import { FileRemote, SyncFileDamagedError, SyncFileUnavailableError } from './file-remote';
 import { GITHUB_APP_SLUG, GITHUB_WEB, GitHubAuth, GitHubAuthError, type DeviceCode, type Fetch } from './github-auth';
 import { GitHubApi, GitHubNetworkError, GitHubRateLimitError, GitHubRemote, GitHubRequestError } from './github-remote';
-import { deriveKeys, newDeviceKeyPair } from './sync-crypto';
+import { deriveKeys, newDeviceKeyPair, SyncCryptoError } from './sync-crypto';
 import { SyncEngine, type SyncOptions, type SyncRemote, type SyncSource } from './sync-engine';
 import {
-  answerPairing, FORMAT_PATH, inspectRepository, newKeyring, PAIRING_LIFETIME_MS, pairingWords, requestPairing, SyncSetupError, unlockKeyring, updateKeyring, withDeviceWrap,
+  answerPairing, FORMAT_PATH, inspectRepository, newKeyring, PAIRING_LIFETIME_MS, pairingConfirmation, pairingWords, requestPairing, SyncSetupError, unlockKeyring, updateKeyring, withDeviceWrap,
   withNewRecovery, type RepositorySetup,
 } from './sync-keyring';
-import { SyncIntegrityError } from './sync-manifest';
+import { MANIFEST_PATH, openManifest, SyncIntegrityError } from './sync-manifest';
 import { realTimers, SyncScheduler, type RunResult, type Timers } from './sync-scheduler';
 import { CredentialStore, EncryptedStateStore, type SyncTarget } from './sync-storage';
 
 const REPOSITORY_CHECK_MS = 3_600_000;
 const PAIRING_POLL_MS = 5000;
+const PAIRING_ATTEMPTS = 3;
 const CODE_GROUPS = 7;
 // A sync file has no repository id, so it gets a random one that binds its data the same way.
 const MAX_GROUP_ID = 2 ** 47;
@@ -69,6 +70,12 @@ export class SyncService {
   private devices: SyncDeviceView[] = [];
   private pairingWords: string[] = [];
   private pairingRequests: SyncPairingRequest[] = [];
+  private pairingConfirmation: string[] = [];
+  private pairingAttempts = 0;
+  // A key that arrived for this computer, held until the confirmation words prove it is the real one.
+  private pairedKey: { readonly rootKey: Buffer; readonly epoch: number } | null = null;
+  // The public key behind each request whose words were shown, so approval binds to what was checked.
+  private shownRequests = new Map<string, string>();
   private repositories: SyncRepositoryChoice[] = [];
   private pairingTimer: unknown = null;
   private signIn: AbortController | null = null;
@@ -159,6 +166,8 @@ export class SyncService {
       else if (method === 'sync.requestPairing') await this.requestPairing();
       else if (method === 'sync.cancelPairing') await this.cancelPairing();
       else if (method === 'sync.answerPairing') await this.answerPairing(params as SyncMethods['sync.answerPairing'][0]);
+      else if (method === 'sync.confirmPairing') await this.confirmPairing((params as SyncMethods['sync.confirmPairing'][0]).words);
+      else if (method === 'sync.dismissConfirmation') this.pairingConfirmation = [];
       else if (method === 'sync.syncNow') this.syncNow();
       else if (method === 'sync.resolve') await this.resolve((params as SyncMethods['sync.resolve'][0]).choice);
       else if (method === 'sync.newRecoveryCode') await this.newRecoveryCode();
@@ -182,6 +191,7 @@ export class SyncService {
       login: credentials.login, userCode: this.userCode, repository: target ? labelOf(target) : null, attention: this.attention, recoveryCode: this.recoveryCode,
       recoveryCheck: this.recoveryCheck, conflicts: this.conflicts, nextRunAt: this.scheduler.nextRunAt, lastSyncedAt: this.lastSyncedAt, devices: this.devices,
       repositories: this.repositories, pairingWords: this.pairingWords, pairingRequests: this.pairingRequests, canKeepSecrets: this.credentials.canKeepSecrets,
+      isPairingApproved: !!this.pairedKey, pairingConfirmation: this.pairingConfirmation,
       isRecoveryConfirmed: credentials.isRecoveryConfirmed,
     };
   }
@@ -382,14 +392,47 @@ export class SyncService {
     this.schedulePairingPoll();
   }
 
+  // A key wrapped to this computer is not trusted yet: anyone holding the GitHub token can wrap a
+  // key of their own to it. It must open the existing manifest, and then the user types the
+  // confirmation words the approving computer shows, which only the real key yields.
   private async tryPairedUnlock(target: SyncTarget): Promise<boolean> {
     const { deviceId, deviceKeys } = this.credentials.get();
     const setup = await this.syncSetup(target);
     const isWrapped = setup.keyring.wraps.some((wrap) => wrap.kind === 'device' && wrap.deviceId === deviceId && wrap.epoch === setup.keyring.epoch);
     if (!isWrapped || !deviceKeys) return false;
+    let rootKey: Buffer;
+    try { rootKey = unlockKeyring(setup.keyring, groupIdOf(target), { deviceId, deviceKeys }); }
+    catch (error) {
+      // A wrap left from an earlier join, made for a key pair this computer no longer has.
+      if (error instanceof SyncCryptoError) return false;
+      throw error;
+    }
+    const manifest = (await this.remoteFor(target).read(setup.head, [MANIFEST_PATH])).get(MANIFEST_PATH);
+    if (manifest) {
+      try { openManifest(deriveKeys(rootKey), manifest, { epoch: setup.keyring.epoch, repoId: groupIdOf(target), highWater: 0 }); }
+      catch { throw new SyncSetupError('The key sent to this computer does not open the synced data, so it was refused. Someone other than your computers may have changed the repository.'); }
+    }
     this.stopPairingPoll();
-    await this.finishJoin(target, unlockKeyring(setup.keyring, groupIdOf(target), { deviceId, deviceKeys }), setup.keyring.epoch);
+    [this.pairedKey, this.pairingAttempts] = [{ rootKey, epoch: setup.keyring.epoch }, 0];
     return true;
+  }
+
+  private async confirmPairing(words: string): Promise<void> {
+    const target = this.choice;
+    const { deviceId, deviceKeys } = this.credentials.get();
+    if (!this.pairedKey || !target || !deviceKeys) throw new Error('Nothing is waiting for confirmation.');
+    const expected = pairingConfirmation(this.pairedKey.rootKey, groupIdOf(target), { deviceId, publicKey: deviceKeys.publicKey }).join(' ');
+    if (words.trim().toLowerCase().split(/\s+/).join(' ') === expected) {
+      const { rootKey, epoch } = this.pairedKey;
+      this.pairedKey = null;
+      await this.finishJoin(target, rootKey, epoch);
+      return;
+    }
+    this.pairingAttempts += 1;
+    if (this.pairingAttempts < PAIRING_ATTEMPTS) throw new Error('Those words do not match what the other computer shows. Check them and try again.');
+    this.pairedKey = null;
+    await this.cancelPairing();
+    throw new Error('The words did not match three times, so the key sent to this computer was refused. Use the recovery code, or ask to join again.');
   }
 
   private schedulePairingPoll(): void {
@@ -404,7 +447,7 @@ export class SyncService {
 
   private async pollPairing(): Promise<void> {
     this.pairingTimer = null;
-    if (this.phase !== 'pairing' || !this.choice) return;
+    if (this.phase !== 'pairing' || !this.choice || this.pairedKey) return;
     try {
       if (await this.tryPairedUnlock(this.choice)) return;
       if (this.now() - this.pairingSince > PAIRING_LIFETIME_MS) {
@@ -414,7 +457,8 @@ export class SyncService {
     } catch (error) {
       if (!(error instanceof SyncFileUnavailableError || error instanceof GitHubNetworkError)) this.error = (error as Error).message;
     } finally {
-      if (this.phase === 'pairing') this.schedulePairingPoll();
+      // Once a key is held the poll stops, or each poll would reset the three tries.
+      if (this.phase === 'pairing' && !this.pairedKey) this.schedulePairingPoll();
       this.emit();
     }
   }
@@ -422,7 +466,7 @@ export class SyncService {
   private async cancelPairing(): Promise<void> {
     this.stopPairingPoll();
     const target = this.choice;
-    [this.phase, this.pairingWords] = ['joining', []];
+    [this.phase, this.pairingWords, this.pairedKey] = ['joining', [], null];
     if (target) await answerPairing(this.remoteFor(target), groupIdOf(target), this.credentials.get().deviceId, null, this.now()).catch(() => undefined);
   }
 
@@ -430,17 +474,21 @@ export class SyncService {
   private async answerPairing({ deviceId, isApproved }: SyncMethods['sync.answerPairing'][0]): Promise<void> {
     const { target, rootKey } = this.credentials.get();
     if (!target || !rootKey) throw new Error('Sync is not set up on this computer.');
-    await answerPairing(this.remoteFor(target), groupIdOf(target), deviceId, isApproved ? { rootKey } : null, this.now());
+    const publicKey = this.shownRequests.get(deviceId);
+    if (isApproved && !publicKey) throw new Error('That request is no longer shown. Sync again and check its words.');
+    const request = await answerPairing(this.remoteFor(target), groupIdOf(target), deviceId, isApproved ? { rootKey, publicKey: publicKey! } : null, this.now());
     await this.refreshPairing(target);
-    if (isApproved) this.deps.journal('Another computer was allowed to join sync.');
+    if (!isApproved || !request) return;
+    this.pairingConfirmation = pairingConfirmation(rootKey, groupIdOf(target), request);
+    this.deps.journal('Another computer was allowed to join sync.');
   }
 
   private async refreshPairing(target: SyncTarget): Promise<void> {
     const setup = await inspectRepository(this.remoteFor(target), groupIdOf(target));
     const { deviceId } = this.credentials.get();
-    this.pairingRequests = setup.kind !== 'sync' ? [] : setup.pairing
-      .filter((request) => request.deviceId !== deviceId && this.now() - request.createdAt < PAIRING_LIFETIME_MS)
-      .map((request) => ({ deviceId: request.deviceId, createdAt: request.createdAt, words: pairingWords(request.publicKey) }));
+    const requests = setup.kind !== 'sync' ? [] : setup.pairing.filter((request) => request.deviceId !== deviceId && this.now() - request.createdAt < PAIRING_LIFETIME_MS);
+    this.shownRequests = new Map(requests.map((request) => [request.deviceId, request.publicKey]));
+    this.pairingRequests = requests.map((request) => ({ deviceId: request.deviceId, createdAt: request.createdAt, words: pairingWords(request.publicKey) }));
   }
 
   private async newRecoveryCode(): Promise<void> {
@@ -485,7 +533,8 @@ export class SyncService {
     await this.credentials.clear();
     [this.engine, this.stateStore, this.choice, this.attention, this.userCode, this.recoveryCode] = [null, null, null, null, null, null];
     [this.phase, this.status, this.devices, this.repositories, this.recoveryCheck, this.lastSyncedAt, this.conflicts] = ['off', 'idle', [], [], [], null, 0];
-    [this.pairingWords, this.pairingRequests] = [[], []];
+    [this.pairingWords, this.pairingRequests, this.pairingConfirmation, this.pairedKey] = [[], [], [], null];
+    this.shownRequests.clear();
   }
 
   private startEngine(target: SyncTarget): void {

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { canonicalJson } from '../shared/sync';
@@ -46,9 +46,11 @@ export class FileRemote implements SyncRemote {
     }
     const head = createHash('sha256').update(canonicalJson(files)).digest('hex');
     const next: SyncFile = { format: FORMAT, version: 1, head, files };
-    const temporary = `${this.file}.${process.pid}.tmp`;
+    // A random name created exclusively: in a shared folder someone could plant a link at a
+    // predictable name, and writing would follow it onto another file.
+    const temporary = `${this.file}.${randomBytes(8).toString('hex')}.tmp`;
     try {
-      await fs.writeFile(temporary, JSON.stringify(next), { mode: 0o600 });
+      await fs.writeFile(temporary, JSON.stringify(next), { mode: 0o600, flag: 'wx' });
       await fs.rename(temporary, this.file);
     } catch (error) {
       await fs.rm(temporary, { force: true }).catch(() => undefined);

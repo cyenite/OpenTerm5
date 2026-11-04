@@ -153,6 +153,10 @@ export interface SyncView {
   // This computer's six words while it waits for approval, and other computers asking to join.
   readonly pairingWords: readonly string[];
   readonly pairingRequests: readonly SyncPairingRequest[];
+  // On the new computer once a key arrived: it waits for the confirmation words to be typed. On the
+  // approving computer: the words to read out to the new one.
+  readonly isPairingApproved: boolean;
+  readonly pairingConfirmation: readonly string[];
   readonly canKeepSecrets: boolean;
   readonly isRecoveryConfirmed: boolean;
 }
@@ -175,6 +179,8 @@ export interface SyncMethods {
   'sync.requestPairing': [Record<string, never>, SyncView];
   'sync.cancelPairing': [Record<string, never>, SyncView];
   'sync.answerPairing': [{ deviceId: string; isApproved: boolean }, SyncView];
+  'sync.confirmPairing': [{ words: string }, SyncView];
+  'sync.dismissConfirmation': [Record<string, never>, SyncView];
   'sync.syncNow': [Record<string, never>, SyncView];
   'sync.resolve': [{ choice: SyncResolution }, SyncView];
   'sync.newRecoveryCode': [Record<string, never>, SyncView];
