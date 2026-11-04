@@ -30,7 +30,8 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-      # Builds are unsigned until signing certificates are configured as repository secrets.
+      # No signing certificates are configured as repository secrets yet: Windows is unsigned and macOS
+      # is ad-hoc signed (electron-builder.yml `mac.identity`), so no keychain search is wanted.
       - run: npx electron-builder ${{ matrix.target }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'

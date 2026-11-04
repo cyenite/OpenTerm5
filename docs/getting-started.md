@@ -28,11 +28,16 @@ Download the installer for your platform from the
 | Linux | `OpenTerm5-<version>.AppImage` | `chmod +x` the file and run it |
 | Debian, Ubuntu | `openterm5_<version>_amd64.deb` | `sudo apt install ./openterm5_<version>_amd64.deb` |
 
-Release builds are not yet code-signed. Windows SmartScreen and macOS Gatekeeper may warn on first
-launch:
+Release builds are not yet signed with a publisher certificate. Windows SmartScreen and macOS
+Gatekeeper ask once on first launch:
 
 - **Windows:** choose **More info → Run anyway**.
-- **macOS:** right-click the app, choose **Open**, then confirm.
+- **macOS 15 (Sequoia) and later:** open OpenTerm5 once and close the warning. Then open **System
+  Settings → Privacy & Security**, scroll to the message about OpenTerm5, and choose **Open Anyway**.
+- **macOS 14 and earlier:** right-click the app in Applications, choose **Open**, then confirm.
+- **If macOS says OpenTerm5 is damaged** (versions up to 0.11.0 did this): drag it to Applications,
+  then run `xattr -dr com.apple.quarantine /Applications/OpenTerm5.app` in Terminal and open it again.
+  Or install a newer version, which no longer has this problem.
 
 ### Updates
 
