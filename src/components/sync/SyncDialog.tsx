@@ -281,6 +281,7 @@ function RecoveryStep({ view }: SyncStepProps) {
 
 const resolutionLabels: Partial<Record<SyncAttention['reason'], { choice: SyncMethods['sync.resolve'][0]['choice']; label: string }[]>> = {
   held: [{ choice: 'useSynced', label: 'Restore from sync' }, { choice: 'allowDeletions', label: 'Delete everywhere' }],
+  join: [{ choice: 'merge', label: 'Merge' }, { choice: 'useSynced', label: 'Use synced data' }],
   stale: [{ choice: 'useSynced', label: 'Use the synced data' }],
   rollback: [{ choice: 'acceptHistory', label: 'I restored it on purpose' }],
 };
@@ -305,7 +306,7 @@ function AttentionBanner({ attention }: AttentionBannerProps) {
       <div className="button-row">
         {attention.reason === 'reconnect' && <button type="button" className="is-primary" aria-disabled={isBusy} onClick={() => void run('sync.connect', {})}>Reconnect GitHub</button>}
         {choices.map(({ choice, label }) => <button key={choice} type="button" aria-disabled={isBusy} onClick={() => void run('sync.resolve', { choice })}>{label}</button>)}
-        {attention.reason !== 'reconnect' && <button type="button" aria-disabled={isBusy} onClick={() => void run('sync.syncNow', {})}>Try again</button>}
+        {attention.reason !== 'reconnect' && attention.reason !== 'join' && <button type="button" aria-disabled={isBusy} onClick={() => void run('sync.syncNow', {})}>Try again</button>}
       </div>
       <ErrorBanner error={error} />
     </div>

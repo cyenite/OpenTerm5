@@ -1,7 +1,7 @@
 import { randomInt } from 'node:crypto';
 import path from 'node:path';
 import {
-  normalizeCodeGroup, passphraseProblem, type SyncAttention, type SyncAttentionReason, type SyncDeviceView, type SyncMassChange, type SyncMethod, type SyncMethods,
+  normalizeCodeGroup, passphraseProblem, rendererSyncKinds, splitRecordKey, type SyncAttention, type SyncAttentionReason, type SyncDeviceView, type SyncMassChange, type SyncMethod, type SyncMethods,
   type SyncPage, type SyncPairingRequest, type SyncPhase, type SyncRepositoryChoice, type SyncResolution, type SyncStatus, type SyncView,
 } from '../shared/sync';
 import type { PasswordCipher } from './account-registry';
@@ -9,7 +9,7 @@ import { FileRemote, SyncFileDamagedError, SyncFileUnavailableError } from './fi
 import { GITHUB_APP_SLUG, GITHUB_WEB, GitHubAuth, GitHubAuthError, type DeviceCode, type Fetch } from './github-auth';
 import { GitHubApi, GitHubNetworkError, GitHubRateLimitError, GitHubRemote, GitHubRequestError } from './github-remote';
 import { deriveKeys, newDeviceKeyPair, SyncCryptoError } from './sync-crypto';
-import { SyncEngine, type SyncOptions, type SyncRemote, type SyncSource } from './sync-engine';
+import { SyncEngine, SyncSourceUnavailableError, type SyncOptions, type SyncRemote, type SyncSource } from './sync-engine';
 import {
   answerPairing, FORMAT_PATH, inspectRepository, newKeyring, PAIRING_LIFETIME_MS, pairingConfirmation, pairingWords, requestPairing, SyncSetupError, unlockKeyring, updateKeyring, withDeviceWrap,
   withNewRecovery, type RepositorySetup,
@@ -47,6 +47,8 @@ export interface SyncServiceDeps {
 const heldMessage = (changes: readonly SyncMassChange[]) => changes.some((change) => change.side === 'local')
   ? 'Much of the data on this computer would be deleted from every computer. Choose whether to delete it everywhere or restore it from sync.'
   : 'Another computer deleted much of the synced data. Choose whether to delete it here too.';
+
+const joinMessage = 'This computer has layouts, drawings and lists of its own, and the synced data has some too. Merge adds this computer\'s to the synced ones on every computer; Use synced data replaces this computer\'s with the synced ones.';
 
 const groupIdOf = (target: SyncTarget) => target.kind === 'github' ? target.repository.id : target.groupId;
 
@@ -375,7 +377,25 @@ export class SyncService {
     await this.credentials.update({ target, rootKey, deviceKeys, epoch, isRecoveryConfirmed: true });
     [this.phase, this.pairingWords] = ['on', []];
     this.startEngine(target);
-    this.scheduler.start();
+    if (await this.hasSyncedContent(target, rootKey, epoch)) this.attend('join', joinMessage);
+    else this.scheduler.start();
+  }
+
+  // A computer joining for the first time asks before its own data meets the synced data. When the
+  // repository cannot be read now it asks anyway, so nothing merges without a choice.
+  private async hasSyncedContent(target: SyncTarget, rootKey: Buffer, epoch: number): Promise<boolean> {
+    if (await this.stateStore?.load()) return false;
+    try {
+      const remote = this.remoteFor(target);
+      const head = await remote.head();
+      const envelope = head === null ? null : (await remote.read(head, [MANIFEST_PATH])).get(MANIFEST_PATH);
+      if (!envelope) return false;
+      const manifest = openManifest(deriveKeys(rootKey), envelope, { epoch, repoId: groupIdOf(target), highWater: 0 });
+      const kinds = new Set<string>(rendererSyncKinds);
+      return Object.entries(manifest.records).some(([key, entry]) => entry.hash !== null && kinds.has(splitRecordKey(key).kind));
+    } catch {
+      return true;
+    }
   }
 
   // The new computer posts its public key and waits for a linked computer to wrap the key to it.
@@ -514,6 +534,7 @@ export class SyncService {
 
   private async resolve(choice: SyncResolution): Promise<void> {
     const options: Record<SyncResolution, SyncOptions> = {
+      merge: {},
       allowDeletions: { isMassChangeAllowed: true },
       useSynced: { isLocalDiscarded: true, isMassChangeAllowed: true },
       acceptHistory: { isHistoryAccepted: true, isLocalDiscarded: true, isMassChangeAllowed: true },
@@ -619,6 +640,10 @@ export class SyncService {
 
   private failed(error: Error): RunResult {
     if (error instanceof SyncIntegrityError) return this.attend(error.reason, error.message);
+    if (error instanceof SyncSourceUnavailableError) {
+      this.status = 'idle';
+      return { kind: 'retry' };
+    }
     if (error instanceof GitHubAuthError && error.reason === 'reconnect') return this.attend('reconnect', error.message);
     if (error instanceof GitHubRateLimitError) {
       [this.status, this.error] = ['waiting', error.message];

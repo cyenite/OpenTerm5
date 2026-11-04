@@ -33,7 +33,8 @@ import { accountKey } from './journaling-store';
 import { autoUpdater, DebUpdater } from 'electron-updater';
 import { UpdateService } from './updater';
 import type { UpdateMethod, UpdateState } from '../shared/updates';
-import type { SyncMethod, SyncView } from '../shared/sync';
+import type { SyncMethod, SyncSourceReply, SyncView } from '../shared/sync';
+import { RendererSources } from './sync-renderer';
 import { SyncService } from './sync-service';
 import { SYNC_FILE_EXTENSION } from './file-remote';
 
@@ -54,6 +55,14 @@ let automation: AutomationHost | undefined;
 let journaling: JournalingService | undefined;
 let updates: UpdateService | undefined;
 let sync: SyncService | undefined;
+const syncSources = new RendererSources({
+  send: (id, request) => {
+    if (!window || window.isDestroyed()) return false;
+    window.webContents.send('sync:source', id, request);
+    return true;
+  },
+});
+let isSyncFlushed = false;
 let isChanging = false;
 let isWindowLoaded = false;
 let uiAccount: Account | null = null;
@@ -170,6 +179,7 @@ function closePopouts(): void {
 }
 
 function createWindow(): void {
+  isSyncFlushed = false;
   window = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -212,9 +222,20 @@ function createWindow(): void {
       : [{ role: 'copy' }];
     Menu.buildFromTemplate(template).popup({ window });
   });
-  // A reload or a closed main window takes the pop-outs' page with it.
-  window.webContents.on('did-start-loading', closePopouts);
+  // A reload or a closed main window takes the pop-outs' page with it, and the stores sync reads.
+  window.webContents.on('did-start-loading', () => {
+    closePopouts();
+    syncSources.setReady(false);
+  });
+  // Edits not yet synced are pushed while the window can still be asked for them.
+  window.on('close', (event) => {
+    if (isSyncFlushed || !sync?.hasUnpushedChanges) return;
+    event.preventDefault();
+    isSyncFlushed = true;
+    void Promise.race([sync.flush(), new Promise((resolve) => setTimeout(resolve, 5000))]).finally(() => window?.close());
+  });
   window.on('closed', () => {
+    syncSources.setReady(false);
     closePopouts();
     window = undefined;
     if (process.platform !== 'darwin') app.quit();
@@ -495,6 +516,11 @@ ipcMain.handle('sync:request', async (_event, method: SyncMethod, params: unknow
     return { error: { code: 0, message: (error as Error).message } };
   }
 });
+// Only the main window serves the stores; pop-outs share its page but have no preload of their own.
+const isMainWindow = (sender: Electron.WebContents) => !!window && !window.isDestroyed() && sender === window.webContents;
+ipcMain.on('sync:source-ready', (event) => { if (isMainWindow(event.sender)) syncSources.setReady(true); });
+ipcMain.on('sync:source-reply', (event, id: number, reply: SyncSourceReply) => { if (isMainWindow(event.sender)) syncSources.receive(id, reply); });
+ipcMain.on('sync:changed', (event) => { if (isMainWindow(event.sender)) sync?.noteLocalChange(); });
 ipcMain.handle('updates:request', async (_event, method: UpdateMethod, params: unknown) => {
   try {
     if (!updates) throw new Error('Updates are still starting');
@@ -621,6 +647,7 @@ if (!app.requestSingleInstanceLock()) {
       journal: (message) => journal(message, 'Sync'),
       openExternal: (url) => shell.openExternal(url),
       revealFile: (file) => shell.showItemInFolder(file),
+      sources: () => syncSources.sources(),
       chooseFile: async (mode) => {
         const filters = [{ name: 'OpenTerm5 sync file', extensions: [SYNC_FILE_EXTENSION] }];
         if (mode === 'open') {
@@ -646,8 +673,6 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
-
-let isSyncFlushed = false;
 
 // Quitting waits up to 5 s for edits not yet synced, so they are not left on one computer.
 app.on('before-quit', (event) => {

@@ -280,6 +280,16 @@ export function activeChart(state: WorkspaceState): ChartConfig | undefined {
 
 const noDrawings: readonly Drawing[] = [];
 
+// Drawing lists that arrived from another computer: the chart shows them without offering an undo.
+const syncedDrawingLists = new WeakSet<readonly Drawing[]>();
+
+export function markSyncedDrawings(drawings: Drawing[]): Drawing[] {
+  syncedDrawingLists.add(drawings);
+  return drawings;
+}
+
+export const isSyncedDrawings = (drawings: readonly Drawing[]) => syncedDrawingLists.has(drawings);
+
 // Drawings shared across the chart's tab for the chart's symbol.
 export function layoutDrawings(state: WorkspaceState, chart: ChartConfig): readonly Drawing[] {
   return tabOfChart(state, chart.id)?.drawings[instrumentKey(chart.symbol)] ?? noDrawings;

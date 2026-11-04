@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { test } from 'node:test';
 import { deriveKeys, newRootKey } from './sync-crypto';
+import { SyncSourceUnavailableError } from './sync-engine';
 import { device, FakeRemote, REPO_ID } from './sync-engine-fixtures';
 import { MANIFEST_PATH, openManifest, sealManifest, SyncIntegrityError } from './sync-manifest';
 
@@ -311,4 +312,17 @@ test('two computers syncing many random edits end up identical', async () => {
   }
   for (const computer of [a, b, a]) await computer.engine.sync({ isMassChangeAllowed: true });
   assert.deepEqual(a.source('chartDrawings').data, b.source('chartDrawings').data);
+});
+
+test('a source that cannot answer stops the sync instead of reading its values as invalid', async () => {
+  const { a, b } = setup();
+  a.source('layout').data = { L1: { name: 'Layout' } };
+  await a.engine.sync();
+  const source = b.source('layout');
+  source.validate = async () => { throw new SyncSourceUnavailableError('still loading'); };
+  await assert.rejects(b.engine.sync(), SyncSourceUnavailableError);
+  assert.deepEqual(source.data, {});
+  source.validate = async () => undefined;
+  await b.engine.sync();
+  assert.deepEqual(source.data, { L1: { name: 'Layout' } });
 });

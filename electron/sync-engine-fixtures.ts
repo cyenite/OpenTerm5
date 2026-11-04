@@ -68,7 +68,7 @@ export class MemorySource implements SyncSource {
 
   async snapshot(): Promise<Readonly<Record<string, Json>>> { return structuredClone(this.data); }
 
-  validate(value: Json): void {
+  validate(value: Json): void | Promise<void> {
     if (!this.isValid(value)) throw new Error('invalid');
   }
 

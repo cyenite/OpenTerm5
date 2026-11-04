@@ -3,7 +3,7 @@ import type { TerminalEvent, TerminalMethod, ConnectionSettings, TerminalApi } f
 import type { AutomationApi, AutomationEvent, AutomationMethod } from '../shared/automation';
 import type { JournalingApi, JournalingEvent, JournalingMethod } from '../shared/journaling';
 import type { UpdateApi, UpdateEvent, UpdateMethod } from '../shared/updates';
-import type { SyncApi, SyncEvent, SyncMethod } from '../shared/sync';
+import type { SyncApi, SyncEvent, SyncMethod, SyncSourceRequest } from '../shared/sync';
 import type { ZoomStep } from '../shared/zoom';
 
 class RequestError extends Error {
@@ -67,6 +67,17 @@ const updates: UpdateApi = {
 const sync: SyncApi = {
   request: (method: SyncMethod, params: unknown) => invoke('sync:request', method, params),
   on: (event: SyncEvent, listener: (data: never) => void) => onSync(event, listener),
+  serve: (handler: (request: SyncSourceRequest) => Promise<unknown>) => {
+    ipcRenderer.removeAllListeners('sync:source');
+    ipcRenderer.on('sync:source', (_: IpcRendererEvent, id: number, request: SyncSourceRequest) => {
+      handler(request).then(
+        (result) => ipcRenderer.send('sync:source-reply', id, { result }),
+        (error: unknown) => ipcRenderer.send('sync:source-reply', id, { error: error instanceof Error ? error.message : String(error) }),
+      );
+    });
+    ipcRenderer.send('sync:source-ready');
+  },
+  changed: () => ipcRenderer.send('sync:changed'),
 } as SyncApi;
 
 contextBridge.exposeInMainWorld('terminal', api);

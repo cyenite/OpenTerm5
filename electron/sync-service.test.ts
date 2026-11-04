@@ -8,7 +8,8 @@ import type { PasswordCipher } from './account-registry';
 import { FakeGitHub } from './github-fixtures';
 import { GitHubApi, GitHubRemote } from './github-remote';
 import { newRootKey } from './sync-crypto';
-import { FakeTimers } from './sync-engine-fixtures';
+import type { SyncSource } from './sync-engine';
+import { FakeTimers, MemorySource } from './sync-engine-fixtures';
 import { inspectRepository, updateKeyring, withDeviceWrap } from './sync-keyring';
 import { SyncService } from './sync-service';
 
@@ -28,7 +29,7 @@ async function until(check: () => boolean): Promise<void> {
   await settle();
 }
 
-async function computer(github: FakeGitHub, name: string, dir?: string, file?: string) {
+async function computer(github: FakeGitHub, name: string, dir?: string, file?: string, sources: readonly SyncSource[] = []) {
   const folder = dir ?? await fs.mkdtemp(path.join(os.tmpdir(), 'openterm-sync-service-'));
   const timers = new FakeTimers();
   const views: SyncView[] = [];
@@ -37,7 +38,7 @@ async function computer(github: FakeGitHub, name: string, dir?: string, file?: s
   const service = new SyncService({
     dir: folder, fetch: github.fetch, cipher, platform: 'linux', appVersion: '0.12.0', deviceName: name,
     send: (view) => views.push(view), journal: (message) => journal.push(message), openExternal: async (url) => { opened.push(url); }, chooseFile: async () => file ?? null,
-    now: () => 1_800_000_000_000 + timers.time, timers, pause: async () => undefined, passphraseCost: { N: 2 ** 14, r: 8, p: 1 },
+    now: () => 1_800_000_000_000 + timers.time, timers, pause: async () => undefined, passphraseCost: { N: 2 ** 14, r: 8, p: 1 }, sources: () => sources,
   });
   await service.init();
   const tick = async (ms = 0) => {
@@ -56,8 +57,8 @@ async function signIn(device: Awaited<ReturnType<typeof computer>>) {
   await until(() => device.view().userCode === null);
 }
 
-async function setUpFirst(github: FakeGitHub, passphrase: string | null = null) {
-  const first = await computer(github, 'Office PC');
+async function setUpFirst(github: FakeGitHub, passphrase: string | null = null, sources: readonly SyncSource[] = []) {
+  const first = await computer(github, 'Office PC', undefined, undefined, sources);
   await signIn(first);
   await first.service.handle('sync.chooseRepository', { id: REPO });
   const view = await first.service.handle('sync.create', { passphrase });
@@ -352,4 +353,38 @@ test('without GitHub, two computers sync through a sync file', async () => {
   await first.tick();
   assert.equal(first.view().status, 'offline');
   assert.equal(first.view().attention, null);
+});
+
+test('a computer joining synced layouts asks whether to merge its own or use the synced ones', async () => {
+  const github = fakeGitHub();
+  const office = new MemorySource('chart');
+  office.data = { c1: { symbol: 'XAUUSD' } };
+  const { recoveryCode } = await setUpFirst(github, null, [office]);
+  const laptop = new MemorySource('chart');
+  laptop.data = { c9: { symbol: 'EURUSD' } };
+  const second = await computer(github, 'Laptop', undefined, undefined, [laptop]);
+  await signIn(second);
+  await second.service.handle('sync.chooseRepository', { id: REPO });
+  await second.service.handle('sync.join', { recoveryCode });
+  await second.tick(60_000);
+  assert.equal(second.view().attention?.reason, 'join');
+  assert.deepEqual(laptop.data, { c9: { symbol: 'EURUSD' } });
+  await second.service.handle('sync.resolve', { choice: 'useSynced' });
+  await second.tick();
+  assert.equal(second.view().status, 'idle');
+  assert.deepEqual(laptop.data, { c1: { symbol: 'XAUUSD' } });
+});
+
+test('a computer joining a repository with no layouts yet syncs without asking', async () => {
+  const github = fakeGitHub();
+  const { recoveryCode } = await setUpFirst(github, null, [new MemorySource('chart')]);
+  const laptop = new MemorySource('chart');
+  laptop.data = { c9: { symbol: 'EURUSD' } };
+  const second = await computer(github, 'Laptop', undefined, undefined, [laptop]);
+  await signIn(second);
+  await second.service.handle('sync.chooseRepository', { id: REPO });
+  await second.service.handle('sync.join', { recoveryCode });
+  await second.tick();
+  assert.equal(second.view().attention, null);
+  assert.equal(second.view().status, 'idle');
 });

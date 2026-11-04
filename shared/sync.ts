@@ -12,39 +12,47 @@ export type Json = null | boolean | number | string | readonly Json[] | { readon
 // - value: one value; the newer write wins.
 export type SyncShape = 'fields' | 'map' | 'set' | 'list' | 'text' | 'value';
 
-// Declaration order is the order kinds sync in and are listed in. Raise `schema` when a kind's body
-// changes shape; older builds then leave records of the newer schema alone instead of rewriting them.
+// Declaration order is the order kinds sync in and are listed in: a kind applies after the kinds it
+// refers to (scripts and themes before the charts using them, charts before the layouts holding
+// them). Raise `schema` when a kind's body changes shape; older builds then leave records of the
+// newer schema alone instead of rewriting them. `side` is the process whose stores hold the kind.
 export const syncKinds = [
-  { key: 'account', label: 'Accounts', shape: 'fields', schema: 1, isSecret: false },
-  { key: 'accountSecret', label: 'Saved passwords and API keys', shape: 'value', schema: 1, isSecret: true },
-  { key: 'identity', label: 'CID', shape: 'value', schema: 1, isSecret: true },
-  { key: 'webhookSecrets', label: 'Webhook settings', shape: 'fields', schema: 1, isSecret: true },
-  { key: 'layout', label: 'Layouts', shape: 'fields', schema: 1, isSecret: false },
-  { key: 'layoutOrder', label: 'Layout order', shape: 'list', schema: 1, isSecret: false },
-  { key: 'chart', label: 'Charts', shape: 'fields', schema: 1, isSecret: false },
-  { key: 'chartDrawings', label: 'Chart drawings', shape: 'map', schema: 1, isSecret: false },
-  { key: 'symbolDrawings', label: 'Symbol drawings', shape: 'map', schema: 1, isSecret: false },
-  { key: 'chartProfile', label: 'Chart profiles', shape: 'fields', schema: 1, isSecret: false },
-  { key: 'chartTemplate', label: 'Chart templates', shape: 'fields', schema: 1, isSecret: false },
-  { key: 'drawingTemplates', label: 'Drawing templates', shape: 'map', schema: 1, isSecret: false },
-  { key: 'drawingLooks', label: 'Drawing looks', shape: 'map', schema: 1, isSecret: false },
-  { key: 'theme', label: 'Themes', shape: 'fields', schema: 1, isSecret: false },
-  { key: 'watchlists', label: 'Watchlists', shape: 'map', schema: 1, isSecret: false },
-  { key: 'indicatorFavorites', label: 'Indicator favourites', shape: 'set', schema: 1, isSecret: false },
-  { key: 'timeframeFavorites', label: 'Timeframe favourites', shape: 'set', schema: 1, isSecret: false },
-  { key: 'drawingFavorites', label: 'Drawing favourites', shape: 'set', schema: 1, isSecret: false },
-  { key: 'customColors', label: 'Custom colours', shape: 'list', schema: 1, isSecret: false },
-  { key: 'priceAlert', label: 'Price alerts', shape: 'fields', schema: 1, isSecret: false },
-  { key: 'pineScript', label: 'Pine scripts', shape: 'text', schema: 1, isSecret: false },
-  { key: 'preferences', label: 'Preferences', shape: 'fields', schema: 1, isSecret: false },
-  { key: 'journalingLink', label: 'Journaling connection', shape: 'fields', schema: 1, isSecret: false },
-  { key: 'copierConfig', label: 'Copier settings', shape: 'fields', schema: 1, isSecret: false },
-  { key: 'automationRule', label: 'Automation rules', shape: 'fields', schema: 1, isSecret: false },
-] as const satisfies readonly { key: string; label: string; shape: SyncShape; schema: number; isSecret: boolean }[];
+  { key: 'account', label: 'Accounts', shape: 'fields', schema: 1, isSecret: false, side: 'main' },
+  { key: 'accountSecret', label: 'Saved passwords and API keys', shape: 'value', schema: 1, isSecret: true, side: 'main' },
+  { key: 'identity', label: 'CID', shape: 'value', schema: 1, isSecret: true, side: 'main' },
+  { key: 'webhookSecrets', label: 'Webhook settings', shape: 'fields', schema: 1, isSecret: true, side: 'main' },
+  { key: 'theme', label: 'Themes', shape: 'value', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'pineScript', label: 'Pine scripts', shape: 'text', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'chart', label: 'Charts', shape: 'fields', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'chartDrawings', label: 'Chart drawings', shape: 'map', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'layout', label: 'Layouts', shape: 'fields', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'layoutCharts', label: 'Layout charts', shape: 'list', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'layoutDrawings', label: 'Layout drawings', shape: 'map', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'layoutOrder', label: 'Layout order', shape: 'list', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'symbolDrawings', label: 'Symbol drawings', shape: 'map', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'chartProfile', label: 'Chart profiles', shape: 'value', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'chartTemplate', label: 'Chart templates', shape: 'fields', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'drawingTemplates', label: 'Drawing templates', shape: 'map', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'drawingLooks', label: 'Drawing looks', shape: 'map', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'watchlists', label: 'Watchlists', shape: 'map', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'indicatorFavorites', label: 'Indicator favourites', shape: 'set', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'timeframeFavorites', label: 'Timeframe favourites', shape: 'set', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'drawingFavorites', label: 'Drawing favourites', shape: 'set', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'customColors', label: 'Custom colours', shape: 'list', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'priceAlert', label: 'Price alerts', shape: 'fields', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'preferences', label: 'Preferences', shape: 'fields', schema: 1, isSecret: false, side: 'renderer' },
+  { key: 'journalingLink', label: 'Journaling connection', shape: 'fields', schema: 1, isSecret: false, side: 'main' },
+  { key: 'copierConfig', label: 'Copier settings', shape: 'fields', schema: 1, isSecret: false, side: 'main' },
+  { key: 'automationRule', label: 'Automation rules', shape: 'fields', schema: 1, isSecret: false, side: 'main' },
+] as const satisfies readonly { key: string; label: string; shape: SyncShape; schema: number; isSecret: boolean; side: 'main' | 'renderer' }[];
 
 export type SyncKind = (typeof syncKinds)[number]['key'];
 
+export type RendererSyncKind = Extract<(typeof syncKinds)[number], { side: 'renderer' }>['key'];
+
 export const isSyncKind = (value: string): value is SyncKind => syncKinds.some((kind) => kind.key === value);
+
+export const rendererSyncKinds: readonly RendererSyncKind[] = syncKinds.flatMap((kind) => kind.side === 'renderer' ? [kind.key] : []);
 
 export const syncKindInfo = (kind: SyncKind) => syncKinds.find((item) => item.key === kind)!;
 
@@ -97,7 +105,7 @@ export type SyncStatus = (typeof syncStatuses)[number]['key'];
 
 export type SyncAttentionReason =
   | 'tampered' | 'rollback' | 'epoch' | 'tooNew' | 'stale' | 'revoked'
-  | 'held' | 'reconnect' | 'repositoryPublic' | 'repositoryMissing' | 'failed';
+  | 'held' | 'join' | 'reconnect' | 'repositoryPublic' | 'repositoryMissing' | 'failed';
 
 export interface SyncMassChange {
   readonly kind: SyncKind;
@@ -163,7 +171,7 @@ export interface SyncView {
 
 export type SyncPage = 'install' | 'verification' | 'authorizations' | 'repository' | 'newRepository';
 
-export type SyncResolution = 'allowDeletions' | 'useSynced' | 'acceptHistory';
+export type SyncResolution = 'merge' | 'allowDeletions' | 'useSynced' | 'acceptHistory';
 
 export interface SyncMethods {
   'sync.view': [Record<string, never>, SyncView];
@@ -195,9 +203,33 @@ export interface SyncEvents {
 
 export type SyncEvent = keyof SyncEvents;
 
+export interface SyncSourceChange {
+  readonly upserts: Readonly<Record<string, Json>>;
+  readonly deletes: readonly string[];
+}
+
+// A snapshot also names the records that fail their own checks, so they are left out of sync
+// instead of being read as deleted.
+export interface SyncSnapshot {
+  readonly values: Readonly<Record<string, Json>>;
+  readonly invalid: readonly string[];
+}
+
+// What the main process asks of the renderer's stores.
+export type SyncSourceRequest =
+  | { readonly method: 'snapshot'; readonly kind: RendererSyncKind }
+  | { readonly method: 'validate'; readonly kind: RendererSyncKind; readonly id: string; readonly value: Json }
+  | { readonly method: 'apply'; readonly kind: RendererSyncKind; readonly change: SyncSourceChange };
+
+export type SyncSourceReply = { readonly result: unknown } | { readonly error: string };
+
 export interface SyncApi {
   request<M extends SyncMethod>(method: M, params: SyncMethods[M][0]): Promise<SyncMethods[M][1]>;
   on<E extends SyncEvent>(event: E, listener: (data: SyncEvents[E]) => void): () => void;
+  // Answers the main process's requests for the renderer's stores; called once they have loaded.
+  serve(handler: (request: SyncSourceRequest) => Promise<unknown>): void;
+  // Tells the main process a synced store changed, so the edit is stamped and pushed.
+  changed(): void;
 }
 
 // Anyone holding the repository can guess passphrases offline for ever, so they must be long.

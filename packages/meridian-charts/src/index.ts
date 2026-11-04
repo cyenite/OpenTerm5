@@ -24,6 +24,7 @@ export {
   type MeridianUiTokens,
   type ThemePatch,
 } from './themes';
+export { customColorList, onCustomColorsChange, setCustomColors } from './ui/color-picker';
 export { iconSvg } from './ui/icons';
 export { DrawingToolbar, type CursorMode, type MagnetMode, type ToolbarActions, type ToolbarState } from './ui/toolbar';
 export { ensureStyles } from './ui/styles';

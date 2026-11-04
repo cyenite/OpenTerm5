@@ -7,6 +7,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Sync Across Computers now syncs your content**: layouts and their charts (symbol, timeframe,
+  indicators, chart settings and themes), every drawing (on a chart, shared across a layout, or on a
+  symbol for all layouts), chart profiles and templates, drawing templates and last-used looks,
+  imported themes, watchlists, favourite indicators, timeframes and drawing tools, custom colours,
+  price alerts, Pine scripts, and the theme, replay, Trade Assistant, Risk Ticket and risk settings.
+  Panels, docks, which layout and chart are in front, and one-click trading consent stay with each
+  computer. A computer joining data that already syncs asks whether to merge its own layouts in or
+  use the synced ones.
+
 ## [1.0.0] - 2026-11-04
 
 ### Added

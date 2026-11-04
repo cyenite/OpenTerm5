@@ -1,4 +1,4 @@
-import { isSameJson, isSyncKind, recordKey, splitRecordKey, syncKindInfo, type Json, type SyncKind } from '../shared/sync';
+import { isSameJson, isSyncKind, recordKey, splitRecordKey, syncKindInfo, type Json, type SyncKind, type SyncSourceChange } from '../shared/sync';
 import { hlcAt, HybridClock } from './sync-clock';
 import { decodePayload, encodePayload, envelopeHash, MAX_ENVELOPE_BYTES, objectPath, open, recordCipherKey, seal, type SyncKeys } from './sync-crypto';
 import { emptyManifest, MANIFEST_PATH, openManifest, sealManifest, SyncIntegrityError, type Manifest, type ManifestDevice, type ManifestEntry } from './sync-manifest';
@@ -21,16 +21,17 @@ export interface SyncRemote {
   commit(parent: string | null, writes: ReadonlyMap<string, Buffer | null>): Promise<string | null>;
 }
 
-export interface SourceChange {
-  readonly upserts: Readonly<Record<string, Json>>;
-  readonly deletes: readonly string[];
-}
+export type SourceChange = SyncSourceChange;
+
+// A source that cannot answer at all (its window is still loading) stops the sync, rather than
+// having its values read as invalid or missing.
+export class SyncSourceUnavailableError extends Error {}
 
 export interface SyncSource {
   readonly kind: SyncKind;
   snapshot(): Promise<Readonly<Record<string, Json>>>;
-  // Throws when a value would be unsafe to apply; it never changes the value.
-  validate(value: Json): void;
+  // Throws (or rejects) when a value would be unsafe to apply under that id; it never changes the value.
+  validate(value: Json, id: string): void | Promise<void>;
   apply(change: SourceChange): Promise<void>;
 }
 
@@ -137,7 +138,7 @@ export class SyncEngine {
         for (const id of Object.keys(snapshot)) keys.add(recordKey(kind, id));
         for (const key of keys) {
           const current = snapshot[splitRecordKey(key).id];
-          if (current !== undefined && !this.isValidPlain(source, current)) continue;
+          if (current !== undefined && !await this.isValidPlain(source, current, splitRecordKey(key).id)) continue;
           const baseline = state.pending[key] ?? state.bases[key];
           const stamped = stampRecord(shape, baseline, current, () => this.clock.tick());
           if (stamped === baseline || !stamped) continue;
@@ -213,7 +214,7 @@ export class SyncEngine {
       catch { throw new SyncIntegrityError('tampered', `A synced record (${splitRecordKey(key).kind}) failed authentication.`); }
       // An authentic record that fails validation came from a buggy build, not an attacker: it is
       // left alone on this computer rather than blocking every other record.
-      if (!this.isValid(key, record)) invalid.add(key);
+      if (!await this.isValid(key, record)) invalid.add(key);
       else records[key] = record;
     }
     for (const record of Object.values(records)) {
@@ -254,7 +255,7 @@ export class SyncEngine {
         if (view.invalid.has(key) || (entry && !this.isReadable(key, entry))) { skipped.add(key); continue; }
         const base = state.bases[key];
         const current = snapshot[id];
-        if (current !== undefined && !this.isValidPlain(source, current)) { skipped.add(key); continue; }
+        if (current !== undefined && !await this.isValidPlain(source, current, id)) { skipped.add(key); continue; }
         const local = options.isLocalDiscarded ? base : stampRecord(shape, state.pending[key] ?? base, current, tick);
         const remote = view.records[key];
         const result = mergeRecords(shape, base, local, remote, tick);
@@ -405,13 +406,19 @@ export class SyncEngine {
     return isSyncKind(kind) && this.sources.has(kind) && entry.schema <= syncKindInfo(kind).schema;
   }
 
-  private isValid(key: string, record: SyncedRecord): boolean {
-    const kind = splitRecordKey(key).kind as SyncKind;
-    const plain = recordPlain(syncKindInfo(kind).shape, record);
-    return plain === undefined || this.isValidPlain(this.sources.get(kind)!, plain);
+  private async isValid(key: string, record: SyncedRecord): Promise<boolean> {
+    const { kind, id } = splitRecordKey(key);
+    const plain = recordPlain(syncKindInfo(kind as SyncKind).shape, record);
+    return plain === undefined || this.isValidPlain(this.sources.get(kind as SyncKind)!, plain, id);
   }
 
-  private isValidPlain(source: SyncSource, plain: Json): boolean {
-    try { source.validate(plain); return true; } catch { return false; }
+  private async isValidPlain(source: SyncSource, plain: Json, id: string): Promise<boolean> {
+    try {
+      await source.validate(plain, id);
+      return true;
+    } catch (error) {
+      if (error instanceof SyncSourceUnavailableError) throw error;
+      return false;
+    }
   }
 }
