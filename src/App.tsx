@@ -12,6 +12,7 @@ import { PriceAlertsDialog } from './components/dialogs/PriceAlertsDialog';
 import { AccountsDialog } from './components/dialogs/AccountsDialog';
 import { WorkspacePresetDialog } from './components/dialogs/WorkspacePresetDialog';
 import { TradingViewDialog } from './components/dialogs/TradingViewDialog';
+import { SyncDialog } from './components/sync/SyncDialog';
 import { IndicatorsDialog } from './components/dialogs/IndicatorsDialog';
 import { BacktestDialog } from './components/backtest/BacktestDialog';
 import { BacktestOrderEditDialog, BacktestPositionDialog } from './components/backtest/BacktestTickets';
@@ -64,6 +65,7 @@ function ActiveDialog({ dialog }: ActiveDialogProps) {
     case 'template': return <WorkspacePresetDialog chartId={dialog.chartId} />;
     case 'alerts': return <PriceAlertsDialog />;
     case 'tradingview': return <TradingViewDialog />;
+    case 'sync': return <SyncDialog />;
     case 'indicators': return <IndicatorsDialog initialSection={dialog.section} />;
     case 'backtests': return <BacktestDialog />;
     case 'backtestPosition': return <BacktestPositionDialog ticket={dialog.ticket} />;

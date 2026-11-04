@@ -6,6 +6,7 @@ import { useStore } from '../lib/store';
 import { openDialog } from '../lib/workspace';
 import { JournalingStatus } from './journaling/JournalingStatus';
 import { SigningIn } from './ui/SigningIn';
+import { SyncStatus } from './sync/SyncStatus';
 import { UpdateStatus } from './updates/UpdateStatus';
 
 const RESULT_MS = 6000;
@@ -75,6 +76,7 @@ export function StatusBar() {
       {isSigningIn ? <SigningIn signIn={signIn} className="status-cell" /> : <span className="status-cell">{account ? `${account.login} ${account.server}` : 'Default'}</span>}
       <TradeActivity />
       <JournalingStatus />
+      <SyncStatus />
       <UpdateStatus />
       {bar && (
         <span className="status-cell status-ohlc">

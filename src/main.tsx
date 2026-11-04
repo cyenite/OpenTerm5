@@ -8,6 +8,7 @@ import { startWatchlists } from './lib/watchlists';
 import { startAutomation } from './lib/automation';
 import { startJournaling } from './lib/journaling';
 import { startUpdates } from './lib/updates';
+import { startSync } from './lib/sync';
 import { startTickBars } from './lib/mt5-provider';
 import { startFeedQuotes } from './lib/feed-symbols';
 import { registerMt5Studies } from './lib/mt5-studies';
@@ -42,6 +43,7 @@ startTimeframeFavorites();
 startAutomation();
 startJournaling();
 startUpdates();
+startSync();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
