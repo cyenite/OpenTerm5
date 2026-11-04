@@ -1,0 +1,301 @@
+import assert from 'node:assert/strict';
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { test } from 'node:test';
+import type { SyncView } from '../shared/sync';
+import type { PasswordCipher } from './account-registry';
+import { FakeGitHub } from './github-fixtures';
+import { FakeTimers } from './sync-engine-fixtures';
+import { SyncService } from './sync-service';
+
+const REPO = 42;
+const cipher: PasswordCipher = {
+  canEncrypt: () => true,
+  encrypt: (value) => Buffer.from(value).reverse().toString('base64'),
+  decrypt: (value) => Buffer.from(value, 'base64').reverse().toString(),
+};
+
+const turn = () => new Promise((resolve) => setImmediate(resolve));
+const settle = async () => { for (let index = 0; index < 50; index++) await turn(); };
+
+// Waits for a condition rather than a fixed number of turns, which a loaded machine can outrun.
+async function until(check: () => boolean): Promise<void> {
+  for (let index = 0; index < 20_000 && !check(); index++) await turn();
+  await settle();
+}
+
+async function computer(github: FakeGitHub, name: string, dir?: string, file?: string) {
+  const folder = dir ?? await fs.mkdtemp(path.join(os.tmpdir(), 'openterm-sync-service-'));
+  const timers = new FakeTimers();
+  const views: SyncView[] = [];
+  const opened: string[] = [];
+  const journal: string[] = [];
+  const service = new SyncService({
+    dir: folder, fetch: github.fetch, cipher, platform: 'linux', appVersion: '0.12.0', deviceName: name,
+    send: (view) => views.push(view), journal: (message) => journal.push(message), openExternal: async (url) => { opened.push(url); }, chooseFile: async () => file ?? null,
+    now: () => 1_800_000_000_000 + timers.time, timers, pause: async () => undefined, passphraseCost: { N: 2 ** 14, r: 8, p: 1 },
+  });
+  await service.init();
+  const tick = async (ms = 0) => {
+    await timers.advance(ms);
+    for (let round = 0; round < 20; round++) {
+      await until(() => service.view().status !== 'syncing');
+      if (!timers.hasDue()) break;
+      await timers.advance(0);
+    }
+  };
+  return { service, views, opened, journal, timers, dir: folder, tick, view: () => service.view() };
+}
+
+async function signIn(device: Awaited<ReturnType<typeof computer>>) {
+  await device.service.handle('sync.connect', {});
+  await until(() => device.view().userCode === null);
+}
+
+async function setUpFirst(github: FakeGitHub, passphrase: string | null = null) {
+  const first = await computer(github, 'Office PC');
+  await signIn(first);
+  await first.service.handle('sync.chooseRepository', { id: REPO });
+  const view = await first.service.handle('sync.create', { passphrase });
+  const groups = view.recoveryCode!.split('-');
+  await first.service.handle('sync.confirmRecovery', { answers: view.recoveryCheck.map((group) => groups[group - 1].toLowerCase()) });
+  await first.tick();
+  return { first, recoveryCode: view.recoveryCode! };
+}
+
+function fakeGitHub() {
+  const github = new FakeGitHub();
+  github.addRepository(REPO, 'octotrader/openterm5-sync');
+  return github;
+}
+
+test('the first computer signs in, chooses a repository, saves its code and syncs', async () => {
+  const github = fakeGitHub();
+  const first = await computer(github, 'Office PC');
+  assert.equal(first.view().phase, 'off');
+  github.pendingPolls = 2;
+  await first.service.handle('sync.connect', {});
+  assert.deepEqual([first.view().phase, first.view().userCode], ['signingIn', 'WDJB-MJHT']);
+  assert.deepEqual(first.opened, ['https://github.com/login/device']);
+  await until(() => first.view().userCode === null);
+  assert.equal(first.view().phase, 'choosingRepository');
+  assert.equal(first.view().login, 'octotrader');
+  assert.deepEqual(first.view().repositories, [{ id: REPO, fullName: 'octotrader/openterm5-sync', isPrivate: true }]);
+
+  await first.service.handle('sync.chooseRepository', { id: REPO });
+  assert.equal(first.view().phase, 'creating');
+  const saving = await first.service.handle('sync.create', { passphrase: null });
+  assert.equal(saving.phase, 'savingCode');
+  assert.match(saving.recoveryCode!, /^([0-9A-Z]{4}-){6}[0-9A-Z]{4}$/);
+  assert.equal(saving.recoveryCheck.length, 2);
+  await assert.rejects(first.service.handle('sync.confirmRecovery', { answers: ['AAAA', 'BBBB'] }), /do not match/);
+  const groups = saving.recoveryCode!.split('-');
+  await first.service.handle('sync.confirmRecovery', { answers: saving.recoveryCheck.map((group) => ` ${groups[group - 1].toLowerCase()} `) });
+  assert.equal(first.view().phase, 'on');
+  assert.equal(first.view().recoveryCode, null);
+
+  await first.tick();
+  const view = first.view();
+  assert.equal(view.status, 'idle');
+  assert.ok(view.lastSyncedAt);
+  assert.deepEqual(view.devices.map((device) => [device.name, device.isThisComputer]), [['Office PC', true]]);
+  const files = github.contents(REPO);
+  assert.ok(files.has('format.json') && files.has('keyring.json') && files.has('manifest'));
+  for (const content of files.values()) assert.ok(!content.includes('Office PC'), 'the device name is never stored in the clear');
+});
+
+test('a second computer joins with the recovery code and both list each other', async () => {
+  const github = fakeGitHub();
+  const { first, recoveryCode } = await setUpFirst(github);
+  const second = await computer(github, 'Laptop');
+  await signIn(second);
+  await second.service.handle('sync.chooseRepository', { id: REPO });
+  assert.equal(second.view().phase, 'joining');
+  await assert.rejects(second.service.handle('sync.join', { recoveryCode: 'ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345' }), /mistyped|Wrong recovery code/);
+  await second.service.handle('sync.join', { recoveryCode: recoveryCode.toLowerCase() });
+  await second.tick();
+  assert.equal(second.view().status, 'idle');
+  await first.service.handle('sync.syncNow', {});
+  await first.tick();
+  assert.deepEqual(first.view().devices.map((device) => device.name).sort(), ['Laptop', 'Office PC']);
+  const keyring = JSON.parse(github.contents(REPO).get('keyring.json')!.toString()) as { wraps: { kind: string }[] };
+  assert.equal(keyring.wraps.filter((wrap) => wrap.kind === 'device').length, 2);
+});
+
+test('a passphrase unlocks sync on another computer', async () => {
+  const github = fakeGitHub();
+  await setUpFirst(github, 'four words make a phrase');
+  const second = await computer(github, 'Laptop');
+  await signIn(second);
+  await second.service.handle('sync.chooseRepository', { id: REPO });
+  await assert.rejects(second.service.handle('sync.join', { passphrase: 'not the phrase at all' }), /Wrong passphrase/);
+  await second.service.handle('sync.join', { passphrase: 'four words make a phrase' });
+  assert.equal(second.view().phase, 'on');
+});
+
+test('short passphrases, public repositories and repositories with other files are refused', async () => {
+  const github = fakeGitHub();
+  github.addRepository(7, 'octotrader/website', false);
+  github.addRepository(9, 'octotrader/notes');
+  await github.fetch('https://api.github.com/repos/octotrader/notes/contents/notes.md', { method: 'PUT', headers: { Authorization: 'Bearer ghu_x' }, body: JSON.stringify({ content: Buffer.from('hi').toString('base64') }) });
+  const first = await computer(github, 'Office PC');
+  await signIn(first);
+  await assert.rejects(first.service.handle('sync.chooseRepository', { id: 7 }), /public/);
+  await assert.rejects(first.service.handle('sync.chooseRepository', { id: 9 }), /other files/);
+  await assert.rejects(first.service.handle('sync.chooseRepository', { id: 99 }), /cannot reach/);
+  await first.service.handle('sync.chooseRepository', { id: REPO });
+  await assert.rejects(first.service.handle('sync.create', { passphrase: 'short' }), /14 characters/);
+});
+
+test('after a restart sync carries on without asking again', async () => {
+  const github = fakeGitHub();
+  const { first } = await setUpFirst(github);
+  const again = await computer(github, 'Office PC', first.dir);
+  assert.equal(again.view().phase, 'on');
+  await again.tick();
+  assert.equal(again.view().status, 'idle');
+});
+
+test('a revoked GitHub sign-in asks to reconnect, and reconnecting resumes', async () => {
+  const github = fakeGitHub();
+  const { first } = await setUpFirst(github);
+  github.isTokenRevoked = true;
+  await first.service.handle('sync.syncNow', {});
+  await first.tick();
+  assert.equal(first.view().attention?.reason, 'reconnect');
+  await assert.rejects(first.service.handle('sync.syncNow', {}), /Reconnect GitHub first/);
+  github.isTokenRevoked = false;
+  await first.service.handle('sync.connect', {});
+  await until(() => first.view().userCode === null);
+  await first.tick();
+  assert.equal(first.view().attention, null);
+  assert.equal(first.view().status, 'idle');
+});
+
+test('being offline retries later instead of stopping', async () => {
+  const github = fakeGitHub();
+  const { first } = await setUpFirst(github);
+  github.isOffline = true;
+  await first.service.handle('sync.syncNow', {});
+  await first.tick();
+  assert.equal(first.view().status, 'offline');
+  assert.equal(first.view().attention, null);
+  assert.ok(first.view().nextRunAt);
+  github.isOffline = false;
+  await first.tick(30_000);
+  assert.equal(first.view().status, 'idle');
+});
+
+test('an altered manifest stops sync and says why', async () => {
+  const github = fakeGitHub();
+  const { first } = await setUpFirst(github);
+  github.tamper(REPO, 'manifest', (content) => {
+    const bytes = Buffer.from(content.toString(), 'base64');
+    bytes[30] ^= 1;
+    return Buffer.from(bytes.toString('base64'));
+  });
+  await first.service.handle('sync.syncNow', {});
+  await first.tick();
+  assert.equal(first.view().attention?.reason, 'tampered');
+  assert.equal(first.view().status, 'attention');
+});
+
+test('a new recovery code replaces the old one', async () => {
+  const github = fakeGitHub();
+  const { first, recoveryCode } = await setUpFirst(github);
+  const renewed = await first.service.handle('sync.newRecoveryCode', {});
+  assert.equal(renewed.phase, 'savingCode');
+  assert.notEqual(renewed.recoveryCode, recoveryCode);
+  assert.equal(renewed.isRecoveryConfirmed, false);
+  const second = await computer(github, 'Laptop');
+  await signIn(second);
+  await second.service.handle('sync.chooseRepository', { id: REPO });
+  await assert.rejects(second.service.handle('sync.join', { recoveryCode }), /Wrong recovery code/);
+  await second.service.handle('sync.join', { recoveryCode: renewed.recoveryCode! });
+  assert.equal(second.view().phase, 'on');
+});
+
+test('disconnecting forgets this computer\'s keys and state but leaves the repository', async () => {
+  const github = fakeGitHub();
+  const { first } = await setUpFirst(github);
+  const before = github.contents(REPO);
+  await first.service.handle('sync.disconnect', {});
+  assert.equal(first.view().phase, 'off');
+  await assert.rejects(fs.access(path.join(first.dir, 'sync-state.json')));
+  const stored = JSON.parse(await fs.readFile(path.join(first.dir, 'sync-credentials.json'), 'utf8')) as { secrets: unknown; target: unknown };
+  assert.deepEqual([stored.secrets, stored.target], [null, null]);
+  assert.deepEqual([...github.contents(REPO).keys()].sort(), [...before.keys()].sort());
+});
+
+test('a new computer joins by approval from a linked one, after comparing six words', async () => {
+  const github = fakeGitHub();
+  const { first } = await setUpFirst(github);
+  const second = await computer(github, 'Laptop');
+  await signIn(second);
+  await second.service.handle('sync.chooseRepository', { id: REPO });
+  const waiting = await second.service.handle('sync.requestPairing', {});
+  assert.equal(waiting.phase, 'pairing');
+  assert.equal(waiting.pairingWords.length, 6);
+
+  await first.service.handle('sync.syncNow', {});
+  await first.tick();
+  const [request] = first.view().pairingRequests;
+  assert.deepEqual(request.words, waiting.pairingWords);
+  await first.service.handle('sync.answerPairing', { deviceId: request.deviceId, isApproved: true });
+  assert.deepEqual(first.view().pairingRequests, []);
+
+  await second.timers.advance(5000);
+  await until(() => second.view().phase === 'on');
+  await second.tick();
+  assert.equal(second.view().status, 'idle');
+  assert.deepEqual(second.view().pairingWords, []);
+});
+
+test('a declined or cancelled pairing request goes away', async () => {
+  const github = fakeGitHub();
+  const { first } = await setUpFirst(github);
+  const second = await computer(github, 'Laptop');
+  await signIn(second);
+  await second.service.handle('sync.chooseRepository', { id: REPO });
+  await second.service.handle('sync.requestPairing', {});
+  await first.service.handle('sync.syncNow', {});
+  await first.tick();
+  await first.service.handle('sync.answerPairing', { deviceId: first.view().pairingRequests[0].deviceId, isApproved: false });
+  await second.timers.advance(5000);
+  await settle();
+  assert.equal(second.view().phase, 'pairing', 'still waiting, nothing was granted');
+  await second.service.handle('sync.cancelPairing', {});
+  assert.equal(second.view().phase, 'joining');
+});
+
+test('without GitHub, two computers sync through a sync file', async () => {
+  const github = new FakeGitHub();
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'openterm-sync-file-'));
+  const file = path.join(dir, 'OpenTerm5.ot5sync');
+  const first = await computer(github, 'Office PC', undefined, file);
+  await first.service.handle('sync.useFile', { mode: 'new' });
+  assert.deepEqual([first.view().phase, first.view().backend, first.view().repository], ['creating', 'file', file]);
+  const saving = await first.service.handle('sync.create', { passphrase: null });
+  const groups = saving.recoveryCode!.split('-');
+  await first.service.handle('sync.confirmRecovery', { answers: saving.recoveryCheck.map((group) => groups[group - 1]) });
+  await first.tick();
+  assert.equal(first.view().status, 'idle');
+
+  const second = await computer(github, 'Laptop', undefined, file);
+  await second.service.handle('sync.useFile', { mode: 'open' });
+  assert.equal(second.view().phase, 'joining');
+  await second.service.handle('sync.join', { recoveryCode: saving.recoveryCode! });
+  await second.tick();
+  assert.equal(second.view().status, 'idle');
+  await first.service.handle('sync.syncNow', {});
+  await first.tick();
+  assert.deepEqual(first.view().devices.map((device) => device.name).sort(), ['Laptop', 'Office PC']);
+  assert.equal(github.requests.length, 0, 'GitHub is never contacted');
+
+  await fs.rename(file, `${file}.away`);
+  await first.service.handle('sync.syncNow', {});
+  await first.tick();
+  assert.equal(first.view().status, 'offline');
+  assert.equal(first.view().attention, null);
+});

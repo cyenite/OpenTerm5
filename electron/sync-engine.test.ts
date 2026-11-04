@@ -139,9 +139,13 @@ test('a missing manifest, a foreign key and an older repository state are all re
   const stranger = device('s', remote, newRootKey(), ['layout'], clock);
   await assert.rejects(stranger.engine.sync(), integrity('tampered'));
 
+  const latest = remote.current;
   remote.current = old;
   await assert.rejects(a.engine.sync(), integrity('rollback'));
   assert.deepEqual(a.source('layout').data, { L1: { name: 'v2' } });
+  await a.engine.sync({ isHistoryAccepted: true, isLocalDiscarded: true });
+  assert.deepEqual(a.source('layout').data, { L1: { name: 'v1' } });
+  remote.current = latest;
 
   remote.current = remote.commits.size ? [...remote.commits.keys()].at(-1)! : null;
   remote.write(new Map([[MANIFEST_PATH, null]]));
@@ -261,6 +265,15 @@ test('every computer registers itself, and a removed one cannot push', async () 
   remote.write(new Map([[MANIFEST_PATH, sealManifest(keys, { ...manifest, seq: manifest.seq + 1, devices: manifest.devices.map((item) => item.id === 'b' ? { ...item, isRevoked: true } : item) })]]));
   b.source('layout').data = { L1: { name: 'x' } };
   await assert.rejects(b.engine.sync(), integrity('revoked'));
+  await a.engine.sync();
+
+  const revoked = openManifest(keys, remote.files().get(MANIFEST_PATH)!, { epoch: 1, repoId: REPO_ID, highWater: 0 });
+  const writtenByRemoved = { ...revoked, seq: revoked.seq + 1, writer: 'b' };
+  remote.write(new Map([[MANIFEST_PATH, sealManifest(keys, writtenByRemoved)]]));
+  await assert.rejects(a.engine.sync(), integrity('tampered'));
+  const restored = { ...revoked, seq: revoked.seq + 2, writer: 'a', devices: revoked.devices.map((item) => ({ ...item, isRevoked: false })) };
+  remote.write(new Map([[MANIFEST_PATH, sealManifest(keys, restored)]]));
+  await assert.rejects(a.engine.sync(), /brings back a computer/);
 });
 
 test('old deletions are cleared after 180 days, and a computer away longer must choose', async () => {
@@ -277,6 +290,8 @@ test('old deletions are cleared after 180 days, and a computer away longer must 
   assert.equal(manifest.records['layout:L2'], undefined);
   assert.ok(manifest.tombstonesPrunedBefore);
   await assert.rejects(b.engine.sync(), integrity('stale'));
+  await b.engine.sync({ isLocalDiscarded: true });
+  assert.deepEqual(b.source('layout').data, { L1: { name: 'kept' }, L3: { name: 'new' } });
 });
 
 test('two computers syncing many random edits end up identical', async () => {

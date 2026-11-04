@@ -3,6 +3,7 @@ import type { TerminalEvent, TerminalMethod, ConnectionSettings, TerminalApi } f
 import type { AutomationApi, AutomationEvent, AutomationMethod } from '../shared/automation';
 import type { JournalingApi, JournalingEvent, JournalingMethod } from '../shared/journaling';
 import type { UpdateApi, UpdateEvent, UpdateMethod } from '../shared/updates';
+import type { SyncApi, SyncEvent, SyncMethod } from '../shared/sync';
 import type { ZoomStep } from '../shared/zoom';
 
 class RequestError extends Error {
@@ -36,6 +37,7 @@ const onTerminal = channel('terminal:event');
 const onAutomation = channel('automation:event');
 const onJournaling = channel('journaling:event');
 const onUpdates = channel('updates:event');
+const onSync = channel('sync:event');
 
 const api: TerminalApi = {
   request: (method: TerminalMethod, params: unknown) => invoke('terminal:request', method, params),
@@ -62,7 +64,13 @@ const updates: UpdateApi = {
   on: (event: UpdateEvent, listener: (data: never) => void) => onUpdates(event, listener),
 } as UpdateApi;
 
+const sync: SyncApi = {
+  request: (method: SyncMethod, params: unknown) => invoke('sync:request', method, params),
+  on: (event: SyncEvent, listener: (data: never) => void) => onSync(event, listener),
+} as SyncApi;
+
 contextBridge.exposeInMainWorld('terminal', api);
 contextBridge.exposeInMainWorld('automation', automation);
 contextBridge.exposeInMainWorld('journaling', journaling);
 contextBridge.exposeInMainWorld('updates', updates);
+contextBridge.exposeInMainWorld('sync', sync);

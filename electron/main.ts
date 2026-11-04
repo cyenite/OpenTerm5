@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, screen, session, shell, type MenuItemConstructorOptions } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, screen, session, shell, type MenuItemConstructorOptions } from 'electron';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -33,6 +33,9 @@ import { accountKey } from './journaling-store';
 import { autoUpdater, DebUpdater } from 'electron-updater';
 import { UpdateService } from './updater';
 import type { UpdateMethod, UpdateState } from '../shared/updates';
+import type { SyncMethod, SyncView } from '../shared/sync';
+import { SyncService } from './sync-service';
+import { SYNC_FILE_EXTENSION } from './file-remote';
 
 migrateLegacyProfile();
 
@@ -50,6 +53,7 @@ const hyperliquid = new HyperliquidFeed();
 let automation: AutomationHost | undefined;
 let journaling: JournalingService | undefined;
 let updates: UpdateService | undefined;
+let sync: SyncService | undefined;
 let isChanging = false;
 let isWindowLoaded = false;
 let uiAccount: Account | null = null;
@@ -123,6 +127,10 @@ function leaveAccount(): void {
   pool.afterUiChange(null, previous);
 }
 
+function sendSync(view: SyncView): void {
+  window?.webContents.send('sync:event', 'view', view);
+}
+
 function journal(message: string, source = 'Terminal'): void {
   const entry: JournalEntry = { time: Date.now(), source, message };
   send('journal', entry);
@@ -182,6 +190,8 @@ function createWindow(): void {
     },
   });
   window.once('ready-to-show', () => window?.show());
+  window.on('focus', () => sync?.setFocused(true));
+  window.on('blur', () => sync?.setFocused(false));
   zoom.attach(window.webContents, process.platform === 'darwin');
   window.webContents.on('did-finish-load', () => {
     isWindowLoaded = true;
@@ -477,6 +487,14 @@ ipcMain.handle('journaling:request', async (_event, method: JournalingMethod, pa
     return { error: { code: 0, message: (error as Error).message } };
   }
 });
+ipcMain.handle('sync:request', async (_event, method: SyncMethod, params: unknown) => {
+  try {
+    if (!sync) throw new Error('Sync is still starting');
+    return { result: await sync.handle(method, params as never) };
+  } catch (error) {
+    return { error: { code: 0, message: (error as Error).message } };
+  }
+});
 ipcMain.handle('updates:request', async (_event, method: UpdateMethod, params: unknown) => {
   try {
     if (!updates) throw new Error('Updates are still starting');
@@ -590,6 +608,35 @@ if (!app.requestSingleInstanceLock()) {
       confirmRestart,
     });
     await updates.init();
+    // Its own in-memory session, so no cookie from any other site ever rides along to GitHub.
+    const syncSession = session.fromPartition('sync');
+    sync = new SyncService({
+      dir: app.getPath('userData'),
+      fetch: (url, init) => syncSession.fetch(url, init),
+      cipher: secretCipher,
+      platform: process.platform,
+      appVersion: app.getVersion(),
+      deviceName: os.hostname(),
+      send: sendSync,
+      journal: (message) => journal(message, 'Sync'),
+      openExternal: (url) => shell.openExternal(url),
+      revealFile: (file) => shell.showItemInFolder(file),
+      chooseFile: async (mode) => {
+        const filters = [{ name: 'OpenTerm5 sync file', extensions: [SYNC_FILE_EXTENSION] }];
+        if (mode === 'open') {
+          const result = window ? await dialog.showOpenDialog(window, { title: 'Open sync file', filters, properties: ['openFile'] }) : null;
+          return result && !result.canceled ? result.filePaths[0] ?? null : null;
+        }
+        const result = window ? await dialog.showSaveDialog(window, { title: 'Create sync file', defaultPath: `OpenTerm5.${SYNC_FILE_EXTENSION}`, filters }) : null;
+        return result && !result.canceled ? result.filePath ?? null : null;
+      },
+    });
+    await sync.init();
+    // Leaving a computer pushes its edits, and sitting down at one catches it up.
+    powerMonitor.on('suspend', () => sync?.wake());
+    powerMonitor.on('lock-screen', () => sync?.wake());
+    powerMonitor.on('resume', () => sync?.wake());
+    powerMonitor.on('unlock-screen', () => sync?.wake());
     app.on('activate', () => !window && createWindow());
   });
 }
@@ -600,8 +647,18 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', () => {
+let isSyncFlushed = false;
+
+// Quitting waits up to 5 s for edits not yet synced, so they are not left on one computer.
+app.on('before-quit', (event) => {
+  if (!isSyncFlushed && sync?.hasUnpushedChanges) {
+    event.preventDefault();
+    isSyncFlushed = true;
+    void Promise.race([sync.flush(), new Promise((resolve) => setTimeout(resolve, 5000))]).finally(() => app.quit());
+    return;
+  }
   updates?.shutdown();
+  sync?.shutdown();
   void automation?.shutdown();
   journaling?.shutdown();
   pool.shutdown();

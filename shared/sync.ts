@@ -70,3 +70,136 @@ export function canonicalJson(value: Json): string {
 
 export const isSameJson = (left: Json | undefined, right: Json | undefined) =>
   left === undefined || right === undefined ? left === right : canonicalJson(left) === canonicalJson(right);
+
+// Steps of setting sync up, in order; `on` once this computer syncs.
+export const syncPhases = [
+  { key: 'off', label: 'Off' },
+  { key: 'signingIn', label: 'Waiting for GitHub' },
+  { key: 'choosingRepository', label: 'Choose a repository' },
+  { key: 'creating', label: 'Set up sync' },
+  { key: 'joining', label: 'Unlock sync' },
+  { key: 'pairing', label: 'Waiting for approval' },
+  { key: 'savingCode', label: 'Save your recovery code' },
+  { key: 'on', label: 'On' },
+] as const;
+
+export type SyncPhase = (typeof syncPhases)[number]['key'];
+
+export const syncStatuses = [
+  { key: 'idle', label: 'Synced' },
+  { key: 'syncing', label: 'Syncing' },
+  { key: 'offline', label: 'Offline' },
+  { key: 'waiting', label: 'Waiting for GitHub' },
+  { key: 'attention', label: 'Needs attention' },
+] as const;
+
+export type SyncStatus = (typeof syncStatuses)[number]['key'];
+
+export type SyncAttentionReason =
+  | 'tampered' | 'rollback' | 'epoch' | 'tooNew' | 'stale' | 'revoked'
+  | 'held' | 'reconnect' | 'repositoryPublic' | 'repositoryMissing' | 'failed';
+
+export interface SyncMassChange {
+  readonly kind: SyncKind;
+  readonly side: 'local' | 'remote';
+  readonly removed: number;
+  readonly total: number;
+}
+
+export interface SyncAttention {
+  readonly reason: SyncAttentionReason;
+  readonly message: string;
+  readonly changes: readonly SyncMassChange[];
+}
+
+export interface SyncRepositoryChoice {
+  readonly id: number;
+  readonly fullName: string;
+  readonly isPrivate: boolean;
+}
+
+export interface SyncPairingRequest {
+  readonly deviceId: string;
+  readonly createdAt: number;
+  readonly words: readonly string[];
+}
+
+export interface SyncDeviceView {
+  readonly id: string;
+  readonly name: string;
+  readonly platform: string;
+  readonly lastSeen: number;
+  readonly isRevoked: boolean;
+  readonly isThisComputer: boolean;
+}
+
+export interface SyncView {
+  readonly phase: SyncPhase;
+  readonly backend: 'github' | 'file' | null;
+  readonly status: SyncStatus;
+  readonly error: string | null;
+  readonly login: string | null;
+  readonly userCode: string | null;
+  readonly repository: string | null;
+  readonly attention: SyncAttention | null;
+  readonly recoveryCode: string | null;
+  // 1-based groups of the recovery code to type back, which proves it was saved.
+  readonly recoveryCheck: readonly number[];
+  readonly conflicts: number;
+  readonly nextRunAt: number | null;
+  readonly lastSyncedAt: number | null;
+  readonly devices: readonly SyncDeviceView[];
+  readonly repositories: readonly SyncRepositoryChoice[];
+  // This computer's six words while it waits for approval, and other computers asking to join.
+  readonly pairingWords: readonly string[];
+  readonly pairingRequests: readonly SyncPairingRequest[];
+  readonly canKeepSecrets: boolean;
+  readonly isRecoveryConfirmed: boolean;
+}
+
+export type SyncPage = 'install' | 'verification' | 'authorizations' | 'repository' | 'newRepository';
+
+export type SyncResolution = 'allowDeletions' | 'useSynced' | 'acceptHistory';
+
+export interface SyncMethods {
+  'sync.view': [Record<string, never>, SyncView];
+  'sync.connect': [Record<string, never>, SyncView];
+  'sync.cancel': [Record<string, never>, SyncView];
+  'sync.open': [{ page: SyncPage }, boolean];
+  'sync.refreshRepositories': [Record<string, never>, SyncView];
+  'sync.chooseRepository': [{ id: number }, SyncView];
+  'sync.create': [{ passphrase: string | null }, SyncView];
+  'sync.confirmRecovery': [{ answers: readonly string[] }, SyncView];
+  'sync.join': [{ recoveryCode: string } | { passphrase: string }, SyncView];
+  'sync.useFile': [{ mode: 'new' | 'open' }, SyncView];
+  'sync.requestPairing': [Record<string, never>, SyncView];
+  'sync.cancelPairing': [Record<string, never>, SyncView];
+  'sync.answerPairing': [{ deviceId: string; isApproved: boolean }, SyncView];
+  'sync.syncNow': [Record<string, never>, SyncView];
+  'sync.resolve': [{ choice: SyncResolution }, SyncView];
+  'sync.newRecoveryCode': [Record<string, never>, SyncView];
+  'sync.disconnect': [Record<string, never>, SyncView];
+}
+
+export type SyncMethod = keyof SyncMethods;
+
+export interface SyncEvents {
+  view: SyncView;
+}
+
+export type SyncEvent = keyof SyncEvents;
+
+export interface SyncApi {
+  request<M extends SyncMethod>(method: M, params: SyncMethods[M][0]): Promise<SyncMethods[M][1]>;
+  on<E extends SyncEvent>(event: E, listener: (data: SyncEvents[E]) => void): () => void;
+}
+
+// Anyone holding the repository can guess passphrases offline for ever, so they must be long.
+export function passphraseProblem(passphrase: string): string | null {
+  const text = passphrase.trim();
+  const words = text.split(/\s+/).filter((word) => word.length >= 3).length;
+  return text.length >= 14 || (words >= 4 && text.length >= 12) ? null : 'Use at least 14 characters, or four or more words.';
+}
+
+// Recovery code groups typed back are compared as the code parser reads them.
+export const normalizeCodeGroup = (group: string) => group.trim().toUpperCase().replace(/[IL]/g, '1').replace(/O/g, '0');

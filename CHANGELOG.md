@@ -7,6 +7,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **File > Sync Across Computers...** (beta) connects your computers through a private GitHub
+  repository you own, or through one sync file on a USB drive or shared folder if you have no GitHub
+  account. Everything is encrypted on your computer before it leaves, so GitHub (or whoever holds the
+  file) stores only data it cannot read. A new computer joins by approval from one that already
+  syncs, after both show the same six words, or with the recovery code (and optional passphrase).
+  This release sets up the connection; layouts, drawings and settings start syncing in a later
+  update.
+
 ## [0.11.0] - 2026-11-03
 
 ### Added

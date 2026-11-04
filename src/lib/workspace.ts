@@ -96,6 +96,7 @@ export type Dialog =
   // Backtest dialogs change the simulated account, so analysis mode does not withhold them.
   | { kind: 'backtestPosition'; ticket: number }
   | { kind: 'backtestOrderEdit'; ticket: number }
+  | { kind: 'sync' }
   | { kind: 'about' };
 
 export interface WorkspaceState {

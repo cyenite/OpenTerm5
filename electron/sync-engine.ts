@@ -81,6 +81,8 @@ export interface SyncOptions {
   readonly isMassChangeAllowed?: boolean;
   // "Use synced data": local changes since the last sync are replaced by the remote's.
   readonly isLocalDiscarded?: boolean;
+  // The user confirmed the repository was put back to an older state on purpose.
+  readonly isHistoryAccepted?: boolean;
 }
 
 export type SyncOutcome =
@@ -165,7 +167,7 @@ export class SyncEngine {
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       if (attempt) await this.pause(2 ** attempt * 250 + Math.random() * 250);
       const head = await this.deps.remote.head();
-      const view = head !== null && head === state.head && state.manifest ? { head, manifest: state.manifest, records: state.bases, invalid: new Set<string>() } : await this.pull(head, state);
+      const view = head !== null && head === state.head && state.manifest ? { head, manifest: state.manifest, records: state.bases, invalid: new Set<string>() } : await this.pull(head, state, options);
       const outcome = await this.reconcile(state, view, options);
       if (outcome.status !== 'retry') return outcome.status === 'synced' ? outcome.outcome : outcome;
       state = outcome.state;
@@ -173,15 +175,22 @@ export class SyncEngine {
     return { status: 'busy' };
   }
 
-  private async pull(head: string | null, state: SyncState): Promise<RemoteView> {
+  private async pull(head: string | null, state: SyncState, options: SyncOptions): Promise<RemoteView> {
     const { keys, epoch, repoId, remote } = this.deps;
     const envelope = head === null ? null : (await remote.read(head, [MANIFEST_PATH])).get(MANIFEST_PATH) ?? null;
     if (!envelope) {
       if (state.highWater > 0) throw new SyncIntegrityError('tampered', 'The sync manifest is missing from the repository.');
       return { head, manifest: emptyManifest(epoch, repoId), records: {}, invalid: new Set() };
     }
-    const manifest = openManifest(keys, envelope, { epoch, repoId, highWater: state.highWater });
-    if (state.manifest && manifest.tombstonesPrunedBefore && manifest.tombstonesPrunedBefore > state.manifest.hlc) {
+    const manifest = openManifest(keys, envelope, { epoch, repoId, highWater: options.isHistoryAccepted ? 0 : state.highWater });
+    // A removed computer still holds the key until the key is replaced, so its writes are refused
+    // here, and no manifest may bring it back.
+    const removed = new Set(state.manifest?.devices.filter((item) => item.isRevoked).map((item) => item.id));
+    if (removed.has(manifest.writer)) throw new SyncIntegrityError('tampered', 'The sync data was changed by a computer that was removed from sync.');
+    if (manifest.devices.some((item) => removed.has(item.id) && !item.isRevoked) || [...removed].some((id) => !manifest.devices.some((item) => item.id === id))) {
+      throw new SyncIntegrityError('tampered', 'The sync data brings back a computer that was removed from sync.');
+    }
+    if (!options.isLocalDiscarded && state.manifest && manifest.tombstonesPrunedBefore && manifest.tombstonesPrunedBefore > state.manifest.hlc) {
       throw new SyncIntegrityError('stale', 'This computer last synced before old deletions were cleared. Choose which data to keep.');
     }
     const records: Record<string, SyncedRecord> = {};

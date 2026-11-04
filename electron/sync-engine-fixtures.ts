@@ -1,6 +1,7 @@
 import type { Json, SyncKind } from '../shared/sync';
 import { deriveKeys, type SyncKeys } from './sync-crypto';
 import { SyncEngine, type SourceChange, type SyncRemote, type SyncSource, type SyncState, type SyncStateStore } from './sync-engine';
+import type { Timers } from './sync-scheduler';
 
 export const REPO_ID = 77;
 
@@ -97,4 +98,34 @@ export function device(id: string, remote: FakeRemote, rootKey: Buffer, kinds: r
     now: () => clock.now, pause: async () => undefined,
   });
   return { id, store, engine, sources: own, source: (kind) => own[kind], restart: () => device(id, remote, rootKey, kinds, clock, store, own) };
+}
+
+export class FakeTimers implements Timers {
+  time = 0;
+  private next = 1;
+  private readonly queue = new Map<number, { at: number; run: () => void }>();
+
+  set(run: () => void, ms: number): unknown {
+    const id = this.next++;
+    this.queue.set(id, { at: this.time + ms, run });
+    return id;
+  }
+
+  clear(handle: unknown): void { this.queue.delete(handle as number); }
+
+  hasDue(): boolean { return [...this.queue.values()].some((timer) => timer.at <= this.time); }
+
+  // Moves time forward, firing due timers in order and letting their promises settle.
+  async advance(ms: number): Promise<void> {
+    const end = this.time + ms;
+    for (;;) {
+      const due = [...this.queue].filter(([, timer]) => timer.at <= end).sort((left, right) => left[1].at - right[1].at)[0];
+      if (!due) break;
+      this.queue.delete(due[0]);
+      this.time = due[1].at;
+      due[1].run();
+      for (let index = 0; index < 10; index++) await Promise.resolve();
+    }
+    this.time = end;
+  }
 }

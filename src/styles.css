@@ -5219,3 +5219,68 @@ button.is-link {
 .timeframe-prompt-hint.is-invalid {
   color: var(--bad);
 }
+
+.status-sync {
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  min-height: 0;
+  padding: 0 10px;
+  color: var(--muted);
+}
+
+.status-sync.is-good { color: var(--good); }
+.status-sync.is-warn { color: var(--warn); }
+.status-sync.is-bad { color: var(--bad); }
+
+.sync-steps {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  line-height: 1.6;
+}
+
+.sync-code {
+  margin: 4px 0 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--hover);
+  font-size: 16px;
+  letter-spacing: 0.06em;
+  user-select: all;
+}
+
+.sync-repositories {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.sync-devices {
+  width: 100%;
+  margin: 8px 0 12px;
+  border-collapse: collapse;
+}
+
+.sync-devices th,
+.sync-devices td {
+  padding: 4px 8px 4px 0;
+  text-align: left;
+  border-bottom: 0.5px solid var(--border-soft);
+}
+
+.sync-copy {
+  margin-bottom: 14px;
+}
+
+.sync-words {
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+
+.sync-alternative {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--border-soft);
+}

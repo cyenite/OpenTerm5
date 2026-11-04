@@ -94,6 +94,7 @@ function useMenus(): { label: string; items: MenuItem[] }[] {
         ] },
         separator,
         { label: 'Import from TradingView...', action: () => openDialog({ kind: 'tradingview' }) },
+        { label: 'Sync Across Computers...', action: () => openDialog({ kind: 'sync' }) },
         separator,
         { label: 'Accounts...', action: () => openDialog({ kind: 'accounts' }) },
         { label: 'Login to Trade Account', action: () => openDialog({ kind: 'login' }) },
