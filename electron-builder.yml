@@ -26,5 +26,12 @@ mac:
   # Squirrel.Mac updates from the zip, not the dmg.
   target: [dmg, zip]
   category: public.app-category.finance
+  # Without a Developer ID, electron-builder leaves the app unsigned (it never falls back to ad-hoc),
+  # and packaging breaks Electron's own signature, so macOS on Apple Silicon calls the download
+  # damaged. Ad-hoc signing gives a valid signature; Gatekeeper then asks once instead. Hardened
+  # runtime is off because, with ad-hoc signing, its library validation rejects Electron's
+  # frameworks, and it only matters for notarization. Replace both once a Developer ID exists.
+  identity: '-'
+  hardenedRuntime: false
 win:
   target: [nsis]

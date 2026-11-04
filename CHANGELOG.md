@@ -17,6 +17,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   This release sets up the connection; layouts, drawings and settings start syncing in a later
   update.
 
+### Fixed
+
+- macOS no longer says OpenTerm5 "is damaged and can't be opened" after installing it. The app is
+  now signed (ad hoc, until a publisher certificate is set up), so macOS asks once on first launch
+  instead; [Getting started](docs/getting-started.md) shows how to allow it.
+
 ## [0.11.0] - 2026-11-03
 
 ### Added
