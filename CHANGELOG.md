@@ -16,7 +16,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   price alerts, Pine scripts, and the theme, replay, Trade Assistant, Risk Ticket and risk settings.
   Panels, docks, which layout and chart are in front, and one-click trading consent stay with each
   computer. A computer joining data that already syncs asks whether to merge its own layouts in or
-  use the synced ones.
+  use the synced ones; either way your synced settings are kept.
+- **Saved accounts sync too.** In Sync Across Computers, **Passwords and identity** lets each
+  computer also sync saved passwords, API keys and webhook secrets (the newest saved password wins),
+  and **Use one CID on all my computers**, which asks which CID to keep if they differ.
+- **Logging in to an account that is open on another computer asks first**, and **Move it here**
+  has that computer log out of it, so the two sessions do not keep disconnecting each other.
 
 ## [1.0.0] - 2026-11-04
 

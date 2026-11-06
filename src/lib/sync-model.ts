@@ -112,12 +112,13 @@ export function layoutDrawingsRecord(tab: ChartTab): Json {
 export function restoreLayoutDrawings(value: Json): Record<string, Drawing[]> {
   if (!isObject(value)) fail('Layout drawings must be a map.');
   checkOrder(value);
-  const bySymbol: Record<string, Drawing[]> = {};
+  // A Map, so an instrument named like an Object.prototype member is just a name.
+  const bySymbol = new Map<string, Drawing[]>();
   for (const [id, item] of orderedItems(value)) {
-    if (!isObject(item) || typeof item.symbol !== 'string' || !item.symbol) fail(`Layout drawing ${id} has no instrument.`);
-    (bySymbol[item.symbol] ??= []).push(restoreDrawingItem(id, item.drawing));
+    if (!isObject(item) || typeof item.symbol !== 'string' || !item.symbol || item.symbol === '__proto__') fail(`Layout drawing ${id} has no instrument.`);
+    bySymbol.set(item.symbol, [...bySymbol.get(item.symbol) ?? [], restoreDrawingItem(id, item.drawing)]);
   }
-  return bySymbol;
+  return Object.fromEntries(bySymbol);
 }
 
 export function restoreProfile(name: string, value: Json): ChartProfile {

@@ -98,6 +98,7 @@ export const syncStatuses = [
   { key: 'syncing', label: 'Syncing' },
   { key: 'offline', label: 'Offline' },
   { key: 'waiting', label: 'Waiting for GitHub' },
+  { key: 'loading', label: 'Waiting for the app window' },
   { key: 'attention', label: 'Needs attention' },
 ] as const;
 
@@ -167,11 +168,25 @@ export interface SyncView {
   readonly pairingConfirmation: readonly string[];
   readonly canKeepSecrets: boolean;
   readonly isRecoveryConfirmed: boolean;
+  // Opt-ins of this computer: saved passwords, API keys and webhook secrets; one CID for all.
+  readonly isSecretsSynced: boolean;
+  readonly isIdentitySynced: boolean;
+  // Turning on one CID found a different one already synced: which to keep waits for the user.
+  readonly isIdentityChoiceNeeded: boolean;
 }
 
 export type SyncPage = 'install' | 'verification' | 'authorizations' | 'repository' | 'newRepository';
 
 export type SyncResolution = 'merge' | 'allowDeletions' | 'useSynced' | 'acceptHistory';
+
+// Which CID to keep when this computer's and the synced one differ.
+export type SyncIdentityChoice = 'synced' | 'this';
+
+export interface SyncSharing {
+  readonly isSecretsSynced: boolean;
+  readonly isIdentitySynced: boolean;
+  readonly identityChoice?: SyncIdentityChoice;
+}
 
 export interface SyncMethods {
   'sync.view': [Record<string, never>, SyncView];
@@ -192,6 +207,7 @@ export interface SyncMethods {
   'sync.syncNow': [Record<string, never>, SyncView];
   'sync.resolve': [{ choice: SyncResolution }, SyncView];
   'sync.newRecoveryCode': [Record<string, never>, SyncView];
+  'sync.setSharing': [SyncSharing, SyncView];
   'sync.disconnect': [Record<string, never>, SyncView];
 }
 

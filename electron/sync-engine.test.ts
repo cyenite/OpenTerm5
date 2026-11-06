@@ -326,3 +326,75 @@ test('a source that cannot answer stops the sync instead of reading its values a
   await b.engine.sync();
   assert.deepEqual(source.data, { L1: { name: 'Layout' } });
 });
+
+test('a merge that breaks a limit keeps the synced value instead of failing every sync', async () => {
+  const { a, b, tick } = setup();
+  for (const computer of [a, b]) computer.source('chartDrawings').isValid = (value) => Object.keys(value as object).length <= 2;
+  a.source('chartDrawings').data = { c1: { d1: 'line' } };
+  await a.engine.sync();
+  await b.engine.sync();
+  a.source('chartDrawings').data = { c1: { d1: 'line', d2: 'box' } };
+  b.source('chartDrawings').data = { c1: { d1: 'line', d3: 'fib' } };
+  tick();
+  await a.engine.sync();
+  const outcome = await b.engine.sync();
+  assert.equal(outcome.status, 'synced');
+  assert.deepEqual(b.source('chartDrawings').data, { c1: { d1: 'line', d2: 'box' } });
+});
+
+test('a record this computer could not read is never overwritten by its own copy', async () => {
+  const { a, b, tick } = setup();
+  b.source('layout').data = { L1: { name: 'old' } };
+  b.source('layout').isValid = (value) => (value as { name?: string }).name !== 'new';
+  a.source('layout').data = { L1: { name: 'new' } };
+  await a.engine.sync();
+  tick();
+  await b.engine.sync();
+  await b.engine.sync();
+  await a.engine.sync();
+  assert.deepEqual(a.source('layout').data, { L1: { name: 'new' } });
+});
+
+test('a first merge keeps what only this computer has and takes the synced value where both have one', async () => {
+  const { a, b, tick } = setup(['layout', 'preferences']);
+  a.source('preferences').data = { workspace: { theme: 'dark', drawingSync: 'symbol' } };
+  a.source('layout').data = { L1: { name: 'Synced' } };
+  await a.engine.sync();
+  tick();
+  b.source('preferences').data = { workspace: { theme: 'light', replayMode: 'allCharts' } };
+  b.source('layout').data = { L2: { name: 'Mine' } };
+  await b.engine.sync({ isRemotePreferred: true });
+  await a.engine.sync();
+  const expected = { workspace: { theme: 'dark', drawingSync: 'symbol', replayMode: 'allCharts' } };
+  assert.deepEqual(b.source('preferences').data, expected);
+  assert.deepEqual(a.source('preferences').data, expected);
+  assert.deepEqual(Object.keys(a.source('layout').data).sort(), ['L1', 'L2']);
+});
+
+test('use synced data can be limited to some kinds, the others still merging', async () => {
+  const { a, b } = setup(['account', 'layout']);
+  a.source('layout').data = { L1: { name: 'Synced' } };
+  await a.engine.sync();
+  b.source('layout').data = { L9: { name: 'Default' } };
+  b.source('account').data = { A9: { login: 9 } };
+  await b.engine.sync({ isLocalDiscarded: true, isMassChangeAllowed: true, discardedKinds: ['layout'] });
+  await a.engine.sync();
+  assert.deepEqual(b.source('layout').data, { L1: { name: 'Synced' } });
+  assert.deepEqual(a.source('account').data, { A9: { login: 9 } });
+});
+
+test('kinds apply in declaration order whatever order their sources came in, and __proto__ ids never sync', async () => {
+  const remote = new FakeRemote();
+  const rootKey = newRootKey();
+  const clock = { now: 1_800_000_000_000 };
+  const a = device('a', remote, rootKey, ['layout', 'chart'], clock);
+  a.source('chart').data = { c1: { symbol: 'EURUSD' } };
+  a.source('layout').data = JSON.parse('{"L1": {"name": "x"}, "__proto__": {"name": "y"}}');
+  await a.engine.sync();
+  const order: string[] = [];
+  const b = device('b', remote, rootKey, ['layout', 'chart'], clock);
+  for (const kind of ['layout', 'chart'] as const) b.source(kind).onApply = () => order.push(kind);
+  await b.engine.sync();
+  assert.deepEqual(order, ['chart', 'layout']);
+  assert.deepEqual(Object.keys(b.source('layout').data), ['L1']);
+});

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { SyncSourceReply, SyncSourceRequest } from '../shared/sync';
+import { syncKindInfo, type SyncSourceReply, type SyncSourceRequest } from '../shared/sync';
 import { SyncSourceUnavailableError } from './sync-engine';
 import { RendererSources } from './sync-renderer';
 
@@ -61,4 +61,18 @@ test('a malformed snapshot is refused rather than read as empty', async () => {
   const { host, source } = setup(() => ({ result: { values: [], invalid: [] } }));
   host.setReady(true);
   await assert.rejects(source('chart').snapshot(), /malformed/);
+});
+
+test('a malformed reply rejects instead of hanging, and snapshots must be plain JSON', async () => {
+  const replies: unknown[] = [null, { result: { values: { c1: { at: new Date() } }, invalid: [] } }, { result: { values: { c1: { price: Number.NaN } }, invalid: [] } }];
+  let index = 0;
+  const host: RendererSources = new RendererSources({ send: (id) => { const reply = replies[index++]; queueMicrotask(() => host.receive(id, reply)); return true; } });
+  host.setReady(true);
+  const chart = host.sources().find((source) => source.kind === 'chart')!;
+  for (let attempt = 0; attempt < 3; attempt++) await assert.rejects(chart.snapshot(), /malformed/);
+});
+
+test('no secret kind is ever served by the renderer', () => {
+  const host = new RendererSources({ send: () => true });
+  for (const source of host.sources()) assert.equal(syncKindInfo(source.kind).isSecret, false);
 });

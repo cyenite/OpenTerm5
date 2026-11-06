@@ -33,9 +33,10 @@ import { accountKey } from './journaling-store';
 import { autoUpdater, DebUpdater } from 'electron-updater';
 import { UpdateService } from './updater';
 import type { UpdateMethod, UpdateState } from '../shared/updates';
-import type { SyncMethod, SyncSourceReply, SyncView } from '../shared/sync';
+import type { SyncMethod, SyncView } from '../shared/sync';
+import { mainSyncSources } from './sync-main-sources';
 import { RendererSources } from './sync-renderer';
-import { SyncService } from './sync-service';
+import { SyncService, type LiveAccount } from './sync-service';
 import { SYNC_FILE_EXTENSION } from './file-remote';
 
 migrateLegacyProfile();
@@ -134,6 +135,51 @@ function leaveAccount(): void {
   uiAccount = null;
   journaling?.setActive(null);
   pool.afterUiChange(null, previous);
+  sync?.presenceChanged();
+}
+
+// When the account in use logged in here, so a move requested after that logs it out.
+let uiLoginAt = 0;
+
+// Sessions this computer holds, for presence. Background sessions (copiers, signal sources) are
+// listed too, but not handed over: copiers and signals get leases first.
+function liveAccounts(): LiveAccount[] {
+  const background = pool.status().filter((link) => link.accountId !== activeAccount && (link.state === 'connected' || link.state === 'connecting'));
+  return [...(activeAccount && uiAccount ? [{ id: activeAccount, since: uiLoginAt }] : []), ...background.map((link) => ({ id: link.accountId, since: Number.POSITIVE_INFINITY }))];
+}
+
+async function releaseAccounts(accountIds: readonly string[], to: string): Promise<void> {
+  if (!activeAccount || !accountIds.includes(activeAccount)) return;
+  const label = accounts?.list().find((profile) => profile.id === activeAccount)?.label || activeAccount.split('|').pop();
+  await changeConnection(async () => {
+    if (!activeAccount || !accountIds.includes(activeAccount)) return;
+    leaveAccount();
+    send('accountChanged', { id: null });
+    await applySettings();
+  });
+  journal(`${label} moved to ${to}, so this computer logged out of it.`, 'Accounts');
+}
+
+async function ask(message: string, detail: string, buttons: readonly string[]): Promise<number> {
+  const options = { type: 'question' as const, buttons: [...buttons], defaultId: 0, cancelId: buttons.length - 1, message, detail };
+  const parent = window && !window.isDestroyed() && window.isVisible() ? window : undefined;
+  return (parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options)).response;
+}
+
+// One MT5 account logged in from two computers can knock both sessions out, so a login to an
+// account open elsewhere asks first, and can have the other computer log out of it.
+async function handOff(accountId: string): Promise<void> {
+  const holders = await sync?.whereOpen(accountId) ?? [];
+  if (!holders.length) return;
+  const label = accounts?.list().find((profile) => profile.id === accountId)?.label || accountId.split('|').pop();
+  const where = holders.join(' and ');
+  const choice = await ask(`${label} is open on ${where}.`, `Move it here: ${where} logs out of it, then this computer logs in. Log in anyway: both stay logged in, which brokers may see as one account on two networks, and the two sessions can disconnect each other.`, ['Move it here', 'Log in anyway', 'Cancel']);
+  if (choice === 2) throw new Error('Login cancelled.');
+  if (choice === 1) return;
+  journal(`Asking ${where} to log out of ${label}.`, 'Accounts');
+  if (await sync!.moveHere(accountId)) return;
+  const again = await ask(`${where} has not logged out of ${label} yet.`, 'It may be asleep or offline, or running a copier or signal source on this account. Log in anyway, and it logs out of the account when it next syncs, unless a copier or signal source keeps it open.', ['Log in anyway', 'Cancel']);
+  if (again === 1) throw new Error('Login cancelled.');
 }
 
 function sendSync(view: SyncView): void {
@@ -357,12 +403,16 @@ function loginTarget(params: TerminalMethods['account.login'][0]): SignInTarget 
 async function loginAccount(params: TerminalMethods['account.login'][0]) {
   if (params.isPasswordSaved && !accounts?.canSavePasswords()) throw new Error('Secure password storage is unavailable. Leave Save password unchecked.');
   const next = parseSettings({ webEndpoint: params.webEndpoint ?? settings.webEndpoint });
+  await handOff(`${next.webEndpoint}|${params.login}`);
   leaveAccount();
   send('accountChanged', { id: null });
   direct.use(mt5);
   mt5.disconnect();
   // Each connection creates its client from device.clientId, so a new ID applies to this login.
-  if (params.isUniqueClientIdRequested && await device.ensureUnique()) journal('This computer now sends a unique client ID at login.', 'Accounts');
+  if (params.isUniqueClientIdRequested && await device.ensureUnique()) {
+    journal('This computer now sends a unique client ID at login.', 'Accounts');
+    sync?.noteLocalChange();
+  }
   await pool.beforeUiLogin(`${next.webEndpoint}|${params.login}`);
   await saveSettings(next);
   settings = next;
@@ -379,6 +429,8 @@ async function loginAccount(params: TerminalMethods['account.login'][0]) {
   }
   send('accountChanged', { id: activeAccount });
   uiAccount = account;
+  uiLoginAt = Date.now();
+  sync?.presenceChanged();
   journaling?.setActive(account);
   return account;
 }
@@ -420,6 +472,8 @@ async function loginExchange(params: ExchangeLogin): Promise<Account> {
   }
   send('accountChanged', { id: activeAccount });
   uiAccount = account;
+  uiLoginAt = Date.now();
+  sync?.presenceChanged();
   return account;
 }
 
@@ -519,7 +573,7 @@ ipcMain.handle('sync:request', async (_event, method: SyncMethod, params: unknow
 // Only the main window serves the stores; pop-outs share its page but have no preload of their own.
 const isMainWindow = (sender: Electron.WebContents) => !!window && !window.isDestroyed() && sender === window.webContents;
 ipcMain.on('sync:source-ready', (event) => { if (isMainWindow(event.sender)) syncSources.setReady(true); });
-ipcMain.on('sync:source-reply', (event, id: number, reply: SyncSourceReply) => { if (isMainWindow(event.sender)) syncSources.receive(id, reply); });
+ipcMain.on('sync:source-reply', (event, id: unknown, reply: unknown) => { if (isMainWindow(event.sender) && typeof id === 'number') syncSources.receive(id, reply); });
 ipcMain.on('sync:changed', (event) => { if (isMainWindow(event.sender)) sync?.noteLocalChange(); });
 ipcMain.handle('updates:request', async (_event, method: UpdateMethod, params: unknown) => {
   try {
@@ -575,7 +629,7 @@ if (!app.requestSingleInstanceLock()) {
     settings = await loadSettings();
     await zoom.load();
     await device.load();
-    try { accounts = await loadAccounts(); }
+    try { accounts = await loadAccounts(() => sync?.noteLocalChange()); }
     catch { journal('Saved accounts could not be loaded. Log in manually.', 'Accounts'); }
     const journalingSession = session.fromPartition('journaling');
     journaling = new JournalingService({
@@ -593,6 +647,40 @@ if (!app.requestSingleInstanceLock()) {
       },
     });
     await journaling.init();
+    // Before the automatic login, which first asks whether the account is open on another computer.
+    // Its own in-memory session, so no cookie from any other site ever rides along to GitHub.
+    const syncSession = session.fromPartition('sync');
+    sync = new SyncService({
+      dir: app.getPath('userData'),
+      fetch: (url, init) => syncSession.fetch(url, init),
+      cipher: secretCipher,
+      platform: process.platform,
+      appVersion: app.getVersion(),
+      deviceName: os.hostname(),
+      send: sendSync,
+      journal: (message) => journal(message, 'Sync'),
+      openExternal: (url) => shell.openExternal(url),
+      revealFile: (file) => shell.showItemInFolder(file),
+      sources: () => [
+        ...mainSyncSources({
+          accounts: () => accounts, automation: () => automation, device, onAccountsChanged: () => send('accounts', accountProfiles()), journal: (message) => journal(message, 'Sync'),
+        }),
+        ...syncSources.sources(),
+      ],
+      liveAccounts,
+      releaseAccounts,
+      chooseFile: async (mode) => {
+        const filters = [{ name: 'OpenTerm5 sync file', extensions: [SYNC_FILE_EXTENSION] }];
+        if (mode === 'open') {
+          const result = window ? await dialog.showOpenDialog(window, { title: 'Open sync file', filters, properties: ['openFile'] }) : null;
+          return result && !result.canceled ? result.filePaths[0] ?? null : null;
+        }
+        const result = window ? await dialog.showSaveDialog(window, { title: 'Create sync file', defaultPath: `OpenTerm5.${SYNC_FILE_EXTENSION}`, filters }) : null;
+        return result && !result.canceled ? result.filePath ?? null : null;
+      },
+    });
+    await sync.init();
+    pool.on('state', () => sync?.presenceChanged());
     const recent = accounts?.list()[0];
     const automatic = recent?.isPasswordSaved && recent.hasPassword && (isExchangePlatform(recent.platform) || recent.webEndpoint === settings.webEndpoint) ? recent : undefined;
     // Announced before the window loads and before the endpoint connects, so the window never looks logged out meanwhile.
@@ -619,6 +707,7 @@ if (!app.requestSingleInstanceLock()) {
     automation = new AutomationHost({
       pool, userData: app.getPath('userData'), cipher: secretCipher, appVersion: app.getVersion(), accounts: () => accounts, send: sendAutomation, journal, saveFile,
       clientId: () => device.clientId.toString('hex'),
+      onSecretsSaved: () => sync?.noteLocalChange(),
     });
     await automation.init();
     // Squirrel.Mac only installs signed builds, so macOS checks and links to the release page.
@@ -634,31 +723,6 @@ if (!app.requestSingleInstanceLock()) {
       confirmRestart,
     });
     await updates.init();
-    // Its own in-memory session, so no cookie from any other site ever rides along to GitHub.
-    const syncSession = session.fromPartition('sync');
-    sync = new SyncService({
-      dir: app.getPath('userData'),
-      fetch: (url, init) => syncSession.fetch(url, init),
-      cipher: secretCipher,
-      platform: process.platform,
-      appVersion: app.getVersion(),
-      deviceName: os.hostname(),
-      send: sendSync,
-      journal: (message) => journal(message, 'Sync'),
-      openExternal: (url) => shell.openExternal(url),
-      revealFile: (file) => shell.showItemInFolder(file),
-      sources: () => syncSources.sources(),
-      chooseFile: async (mode) => {
-        const filters = [{ name: 'OpenTerm5 sync file', extensions: [SYNC_FILE_EXTENSION] }];
-        if (mode === 'open') {
-          const result = window ? await dialog.showOpenDialog(window, { title: 'Open sync file', filters, properties: ['openFile'] }) : null;
-          return result && !result.canceled ? result.filePaths[0] ?? null : null;
-        }
-        const result = window ? await dialog.showSaveDialog(window, { title: 'Create sync file', defaultPath: `OpenTerm5.${SYNC_FILE_EXTENSION}`, filters }) : null;
-        return result && !result.canceled ? result.filePath ?? null : null;
-      },
-    });
-    await sync.init();
     // Leaving a computer pushes its edits, and sitting down at one catches it up.
     powerMonitor.on('suspend', () => sync?.wake());
     powerMonitor.on('lock-screen', () => sync?.wake());
@@ -676,10 +740,10 @@ app.on('window-all-closed', () => {
 
 // Quitting waits up to 5 s for edits not yet synced, so they are not left on one computer.
 app.on('before-quit', (event) => {
-  if (!isSyncFlushed && sync?.hasUnpushedChanges) {
+  if (!isSyncFlushed && sync?.isLeaveNeeded) {
     event.preventDefault();
     isSyncFlushed = true;
-    void Promise.race([sync.flush(), new Promise((resolve) => setTimeout(resolve, 5000))]).finally(() => app.quit());
+    void Promise.race([sync.leave(), new Promise((resolve) => setTimeout(resolve, 5000))]).finally(() => app.quit());
     return;
   }
   updates?.shutdown();

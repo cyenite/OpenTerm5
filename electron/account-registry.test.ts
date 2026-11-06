@@ -99,3 +99,56 @@ test('profiles saved before platforms existed load as MetaTrader 5 accounts', as
   assert.equal(profile.platform, 'mt5');
   assert.deepEqual(restarted.credentials(profile.id), { platform: 'mt5', login: 1234, password: 'fixture-secret', endpoint });
 });
+
+test('logging in again with the same saved password keeps when it was saved', async () => {
+  let stored: readonly { secretSavedAt?: number }[] = [];
+  const registry = new AccountRegistry(cipher, async (profiles) => { stored = profiles as typeof stored; });
+  await registry.remember(account, endpoint, 'first', undefined, true);
+  const savedAt = stored[0].secretSavedAt!;
+  assert.ok(savedAt > 0);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await registry.remember(account, endpoint, 'first', undefined, true);
+  assert.equal(stored[0].secretSavedAt, savedAt);
+  await registry.remember(account, endpoint, 'changed', undefined, true);
+  assert.ok(stored[0].secretSavedAt! > savedAt);
+});
+
+test('synced profiles keep this computer\'s secret and latest use; ids come from the fields', async () => {
+  const registry = new AccountRegistry(cipher, async () => {});
+  const profile = await registry.remember(account, endpoint, 'local-secret', 'Mine', true);
+  const synced = registry.syncedProfiles();
+  assert.ok(!JSON.stringify(synced).includes('encrypted'));
+  assert.throws(() => registry.checkSyncedProfile('wss://other.example/terminal|1234', synced[profile.id]), /does not match/);
+  const other = { ...synced[profile.id], label: 'Renamed elsewhere', lastUsed: 1 };
+  await registry.applySyncedProfiles({ upserts: { [profile.id]: other }, deletes: [] });
+  assert.equal(registry.get(profile.id).label, 'Renamed elsewhere');
+  assert.equal(registry.get(profile.id).lastUsed, profile.lastUsed);
+  assert.equal(registry.password(profile.id), 'local-secret');
+  await registry.applySyncedProfiles({ upserts: {}, deletes: [profile.id] });
+  assert.equal(registry.list().length, 0);
+});
+
+test('the newest saved secret wins, and one that no longer decrypts is not read as removed', async () => {
+  const registry = new AccountRegistry(cipher, async () => {});
+  const profile = await registry.remember(account, endpoint, 'local', undefined, true);
+  const local = registry.syncedSecrets()[profile.id] as { secret: string; savedAt: number };
+  assert.equal(local.secret, 'local');
+  assert.throws(() => registry.checkSyncedSecret('wss://unknown.example/terminal|1', { secret: 'x', savedAt: 1 }), /does not have/);
+  await registry.applySyncedSecrets({ upserts: { [profile.id]: { secret: 'older', savedAt: local.savedAt - 1 } }, deletes: [] });
+  assert.equal(registry.password(profile.id), 'local');
+  await registry.applySyncedSecrets({ upserts: { [profile.id]: { secret: 'newer', savedAt: local.savedAt + 1 } }, deletes: [] });
+  assert.equal(registry.password(profile.id), 'newer');
+  const broken = new AccountRegistry({ ...cipher, decrypt: () => { throw new Error('keychain changed'); } }, async () => {});
+  await broken.remember(account, endpoint, 'x', undefined, true);
+  assert.deepEqual(Object.values(broken.syncedSecrets()), [{ isUnreadable: true }]);
+  await registry.applySyncedSecrets({ upserts: {}, deletes: [profile.id] });
+  assert.equal(registry.get(profile.id).isPasswordSaved, false);
+});
+
+test('a synced exchange secret must hold an API key and secret', async () => {
+  const registry = new AccountRegistry(cipher, async () => {});
+  const bybit = { ...account, login: 4242, server: 'Bybit Demo trading', company: 'Bybit' };
+  const profile = await registry.rememberExchange(bybit, { platform: 'bybit', environment: 'demo', apiKey: 'k', apiSecret: 's' });
+  assert.throws(() => registry.checkSyncedSecret(profile.id, { secret: 'plain password', savedAt: 1 }), /API key/);
+  registry.checkSyncedSecret(profile.id, { secret: JSON.stringify({ apiKey: 'k2', apiSecret: 's2' }), savedAt: 1 });
+});

@@ -33,6 +33,17 @@ export interface MergeResult {
 
 const SINGLE = '';
 
+// Entries are plain objects keyed by item ids, so lookups must not reach Object.prototype.
+const own = (entries: SyncEntries, key: string): SyncEntry | undefined => Object.hasOwn(entries, key) ? entries[key] : undefined;
+
+const UNSAFE_KEY = '__proto__';
+
+// A key that would set an object's prototype when assigned, among a value's entry keys.
+export function hasUnsafeKey(shape: SyncShape, plain: Json): boolean {
+  if (shape === 'set') return Array.isArray(plain) && plain.includes(UNSAFE_KEY);
+  return (shape === 'fields' || shape === 'map') && plain !== null && typeof plain === 'object' && !Array.isArray(plain) && Object.hasOwn(plain, UNSAFE_KEY);
+}
+
 function plainEntries(shape: SyncShape, plain: Json): Record<string, Json> {
   if (shape === 'fields' || shape === 'map') {
     if (plain === null || typeof plain !== 'object' || Array.isArray(plain)) throw new Error(`A ${shape} record must be an object.`);
@@ -49,7 +60,7 @@ export function fromEntries(shape: SyncShape, entries: SyncEntries): Json {
   const live = Object.entries(entries).filter(([, entry]) => !entry.isDeleted);
   if (shape === 'fields' || shape === 'map') return Object.fromEntries(live.map(([key, entry]) => [key, entry.value ?? null]));
   if (shape === 'set') return live.map(([key]) => key).sort();
-  return entries[SINGLE]?.isDeleted ? null : entries[SINGLE]?.value ?? null;
+  return own(entries, SINGLE)?.isDeleted ? null : own(entries, SINGLE)?.value ?? null;
 }
 
 export const recordPlain = (shape: SyncShape, record: SyncedRecord | undefined): Json | undefined =>
@@ -65,7 +76,7 @@ export function stampRecord(shape: SyncShape, baseline: SyncedRecord | undefined
   const entries: Record<string, SyncEntry> = {};
   let isChanged = !baseline || !!baseline.deletedHlc;
   for (const [key, value] of Object.entries(current)) {
-    const old = previous[key];
+    const old = own(previous, key);
     const isKept = !!old && !old.isDeleted && isSameJson(old.value, value);
     entries[key] = isKept ? old : { hlc: tick(), value };
     isChanged ||= !isKept;
@@ -83,7 +94,7 @@ const isSameEntry = (left: SyncEntry | undefined, right: SyncEntry | undefined) 
 
 const isSameRecord = (left: SyncedRecord | undefined, right: SyncedRecord | undefined) =>
   left === right || (!!left && !!right && left.deletedHlc === right.deletedHlc && Object.keys(left.entries).length === Object.keys(right.entries).length &&
-    Object.entries(left.entries).every(([key, entry]) => isSameEntry(entry, right.entries[key])));
+    Object.entries(left.entries).every(([key, entry]) => isSameEntry(entry, own(right.entries, key))));
 
 const isSameValue = (left: SyncEntry, right: SyncEntry) => !!left.isDeleted === !!right.isDeleted && (!!left.isDeleted || isSameJson(left.value, right.value));
 
@@ -91,7 +102,7 @@ const isSameValue = (left: SyncEntry, right: SyncEntry) => !!left.isDeleted === 
 function latestChange(base: SyncedRecord | undefined, side: SyncedRecord): string {
   if (side.deletedHlc) return side.deletedHlc;
   const previous = base && !base.deletedHlc ? base.entries : {};
-  return Object.entries(side.entries).reduce((latest, [key, entry]) => !isSameEntry(previous[key], entry) && entry.hlc > latest ? entry.hlc : latest, '');
+  return Object.entries(side.entries).reduce((latest, [key, entry]) => !isSameEntry(own(previous, key), entry) && entry.hlc > latest ? entry.hlc : latest, '');
 }
 
 function combineLists(winner: Json, loser: Json, base: Json | undefined): readonly Json[] {
@@ -124,10 +135,10 @@ export function mergeRecords(shape: SyncShape, base: SyncedRecord | undefined, l
   const conflicts: MergeConflict[] = [];
   const copies: Json[] = [];
   for (const key of new Set([...Object.keys(previous), ...Object.keys(local.entries), ...Object.keys(remote.entries)])) {
-    const original = previous[key];
+    const original = own(previous, key);
     // An entry pruned on one side after its deletion reads as the oldest possible deletion.
-    const mine = local.entries[key] ?? (original ? { hlc: '', isDeleted: true as const } : undefined);
-    const theirs = remote.entries[key] ?? (original ? { hlc: '', isDeleted: true as const } : undefined);
+    const mine = own(local.entries, key) ?? (original ? { hlc: '', isDeleted: true as const } : undefined);
+    const theirs = own(remote.entries, key) ?? (original ? { hlc: '', isDeleted: true as const } : undefined);
     const isMineChanged = !isSameEntry(original, mine);
     const isTheirsChanged = !isSameEntry(original, theirs);
     let merged: SyncEntry | undefined;
@@ -151,6 +162,19 @@ export function mergeRecords(shape: SyncShape, base: SyncedRecord | undefined, l
   return { merged: { entries }, conflicts, copies };
 }
 
+// The first merge of a computer joining synced data: it keeps what only it has, and wherever
+// both sides hold a value the synced one wins. Text still keeps the local version as a copy.
+export function preferRemote(shape: SyncShape, local: SyncedRecord, remote: SyncedRecord, tick: () => string): MergeResult {
+  if (shape === 'text') return mergeRecords(shape, undefined, local, remote, tick);
+  if (shape === 'value') return { merged: remote, conflicts: [], copies: [] };
+  if (shape === 'list') {
+    const [mine, theirs] = [own(local.entries, SINGLE), own(remote.entries, SINGLE)];
+    if (!mine || mine.isDeleted || !theirs || theirs.isDeleted) return { merged: remote, conflicts: [], copies: [] };
+    return { merged: { entries: { [SINGLE]: { hlc: tick(), value: combineLists(theirs.value ?? null, mine.value ?? null, undefined) } } }, conflicts: [], copies: [] };
+  }
+  return { merged: { entries: { ...local.entries, ...remote.entries } }, conflicts: [], copies: [] };
+}
+
 export function pruneTombstones(record: SyncedRecord, before: string): SyncedRecord {
   const entries = Object.entries(record.entries);
   const kept = entries.filter(([, entry]) => !entry.isDeleted || entry.hlc >= before);
@@ -165,6 +189,7 @@ export function parseSyncedRecord(value: unknown): SyncedRecord {
   if (!entries || typeof entries !== 'object' || Array.isArray(entries)) throw new Error('Sync record has no entries.');
   const parsed: Record<string, SyncEntry> = {};
   for (const [key, entry] of Object.entries(entries as Record<string, unknown>)) {
+    if (key === UNSAFE_KEY) throw new Error('Sync record entry key is not allowed.');
     const { hlc, value: entryValue, isDeleted } = (entry ?? {}) as { hlc?: unknown; value?: Json; isDeleted?: unknown };
     if (!isHlc(hlc) || (isDeleted !== undefined && isDeleted !== true) || (isDeleted === true) === (entryValue !== undefined)) throw new Error(`Sync record entry ${key} is invalid.`);
     parsed[key] = isDeleted ? { hlc, isDeleted: true } : { hlc, value: entryValue };

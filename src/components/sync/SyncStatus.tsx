@@ -3,7 +3,7 @@ import { syncStore } from '../../lib/sync';
 import { useStore } from '../../lib/store';
 import { openDialog } from '../../lib/workspace';
 
-const tones = { idle: 'is-good', syncing: '', offline: 'is-warn', waiting: 'is-warn', attention: 'is-bad' } as const;
+const tones = { idle: 'is-good', syncing: '', offline: 'is-warn', waiting: 'is-warn', loading: 'is-warn', attention: 'is-bad' } as const;
 
 export function SyncStatus() {
   const view = useStore(syncStore, (state) => state.view);

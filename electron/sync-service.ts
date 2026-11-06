@@ -1,7 +1,7 @@
 import { randomInt } from 'node:crypto';
 import path from 'node:path';
 import {
-  normalizeCodeGroup, passphraseProblem, rendererSyncKinds, splitRecordKey, type SyncAttention, type SyncAttentionReason, type SyncDeviceView, type SyncMassChange, type SyncMethod, type SyncMethods,
+  isSameJson, normalizeCodeGroup, passphraseProblem, recordKey, rendererSyncKinds, splitRecordKey, syncKindInfo, type SyncSharing, type SyncAttention, type SyncAttentionReason, type SyncDeviceView, type SyncMassChange, type SyncMethod, type SyncMethods,
   type SyncPage, type SyncPairingRequest, type SyncPhase, type SyncRepositoryChoice, type SyncResolution, type SyncStatus, type SyncView,
 } from '../shared/sync';
 import type { PasswordCipher } from './account-registry';
@@ -14,9 +14,12 @@ import {
   answerPairing, FORMAT_PATH, inspectRepository, newKeyring, PAIRING_LIFETIME_MS, pairingConfirmation, pairingWords, requestPairing, SyncSetupError, unlockKeyring, updateKeyring, withDeviceWrap,
   withNewRecovery, type RepositorySetup,
 } from './sync-keyring';
-import { MANIFEST_PATH, openManifest, SyncIntegrityError } from './sync-manifest';
+import { IDENTITY_ID } from './sync-main-sources';
+import {
+  HANDOFF_LIFETIME_MS, isPresenceDue, liveHandoffs, MANIFEST_PATH, openManifest, presentElsewhere, SyncIntegrityError, withPresence, type Manifest,
+} from './sync-manifest';
 import { realTimers, SyncScheduler, type RunResult, type Timers } from './sync-scheduler';
-import { CredentialStore, EncryptedStateStore, type SyncTarget } from './sync-storage';
+import { CredentialStore, EncryptedStateStore, type PendingJoin, type SyncTarget } from './sync-storage';
 
 const REPOSITORY_CHECK_MS = 3_600_000;
 const PAIRING_POLL_MS = 5000;
@@ -24,6 +27,17 @@ const PAIRING_ATTEMPTS = 3;
 const CODE_GROUPS = 7;
 // A sync file has no repository id, so it gets a random one that binds its data the same way.
 const MAX_GROUP_ID = 2 ** 47;
+const PRESENCE_DELAY_MS = 2000;
+const PEEK_TIMEOUT_MS = 5000;
+const HANDOFF_POLL_MS = 3000;
+const HANDOFF_POLLS = 20;
+
+// An account with a live session here, and since when (local time). Background sessions report
+// Infinity: they are not handed over until copiers and signals have leases.
+export interface LiveAccount {
+  readonly id: string;
+  readonly since: number;
+}
 
 export interface SyncServiceDeps {
   readonly dir: string;
@@ -38,6 +52,9 @@ export interface SyncServiceDeps {
   readonly revealFile?: (file: string) => void;
   readonly chooseFile?: (mode: 'new' | 'open') => Promise<string | null>;
   readonly sources?: () => readonly SyncSource[];
+  readonly liveAccounts?: () => readonly LiveAccount[];
+  // Another computer moved these accounts to itself: log out of them here.
+  readonly releaseAccounts?: (accountIds: readonly string[], to: string) => Promise<void>;
   readonly now?: () => number;
   readonly timers?: Timers;
   readonly pause?: (ms: number, signal?: AbortSignal) => Promise<void>;
@@ -49,6 +66,13 @@ const heldMessage = (changes: readonly SyncMassChange[]) => changes.some((change
   : 'Another computer deleted much of the synced data. Choose whether to delete it here too.';
 
 const joinMessage = 'This computer has layouts, drawings and lists of its own, and the synced data has some too. Merge adds this computer\'s to the synced ones on every computer; Use synced data replaces this computer\'s with the synced ones.';
+
+// A joining computer's first merge: the synced value wins where both hold one. Use synced data
+// replaces layouts and lists; saved accounts and their passwords always merge.
+const joinOptions: Record<Exclude<PendingJoin, 'ask'>, SyncOptions> = {
+  merge: { isRemotePreferred: true },
+  useSynced: { isRemotePreferred: true, isLocalDiscarded: true, isMassChangeAllowed: true, discardedKinds: rendererSyncKinds },
+};
 
 const groupIdOf = (target: SyncTarget) => target.kind === 'github' ? target.repository.id : target.groupId;
 
@@ -74,6 +98,10 @@ export class SyncService {
   private pairingRequests: SyncPairingRequest[] = [];
   private pairingConfirmation: string[] = [];
   private pairingAttempts = 0;
+  private isIdentityChoiceNeeded = false;
+  private presenceTimer: unknown = null;
+  private hasPresence = false;
+  private readonly answeredHandoffs = new Set<string>();
   // A key that arrived for this computer, held until the confirmation words prove it is the real one.
   private pairedKey: { readonly rootKey: Buffer; readonly epoch: number } | null = null;
   // The public key behind each request whose words were shown, so approval binds to what was checked.
@@ -110,6 +138,7 @@ export class SyncService {
       this.phase = 'on';
       this.startEngine(target);
       if (target.kind === 'github' && !this.auth.isSignedIn) this.attend('reconnect', 'Reconnect GitHub to keep syncing.');
+      else if (this.credentials.get().pendingJoin === 'ask') this.attend('join', joinMessage);
       else this.scheduler.start();
     } else if (target && (target.kind === 'file' || this.auth.isSignedIn)) {
       [this.choice, this.phase] = [target, 'joining'];
@@ -122,6 +151,7 @@ export class SyncService {
 
   shutdown(): void {
     this.scheduler.stop();
+    this.timers.clear(this.presenceTimer);
     this.stopPairingPoll();
     this.signIn?.abort();
   }
@@ -130,6 +160,54 @@ export class SyncService {
   noteLocalChange(): void {
     this.changedAt = this.now();
     this.scheduler.localChange();
+  }
+
+  // A session started or ended here; presence is written shortly after, without the stores.
+  presenceChanged(): void {
+    if (!this.engine || this.presenceTimer) return;
+    this.presenceTimer = this.timers.set(() => {
+      this.presenceTimer = null;
+      void this.writePresence();
+    }, PRESENCE_DELAY_MS);
+  }
+
+  // Names of the other computers with a live session on the account, from the remote when it
+  // answers in time, else from the last sync.
+  async whereOpen(accountId: string): Promise<string[]> {
+    const manifest = await this.currentManifest();
+    if (!manifest || !this.engine) return [];
+    const ids = presentElsewhere(manifest.presence, accountId, this.credentials.get().deviceId, this.engine.serverNow());
+    return ids.map((id) => manifest.devices.find((device) => device.id === id)?.name || 'another computer');
+  }
+
+  // Asks the computers holding the account to log out of it, and waits a minute for them to.
+  async moveHere(accountId: string): Promise<boolean> {
+    const engine = this.engine;
+    if (!engine) return true;
+    const { deviceId } = this.credentials.get();
+    const manifest = await this.currentManifest();
+    const holders = manifest ? presentElsewhere(manifest.presence, accountId, deviceId, engine.serverNow()) : [];
+    if (!holders.length) return true;
+    await engine.editManifest((current, now) => ({
+      ...current, handoffs: { ...liveHandoffs(current.handoffs, now), [accountId]: { from: deviceId, to: holders, createdAt: now, expiresAt: now + HANDOFF_LIFETIME_MS } },
+    }));
+    const pause = this.deps.pause ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    for (let poll = 0; poll < HANDOFF_POLLS; poll++) {
+      await pause(HANDOFF_POLL_MS);
+      const latest = await engine.peekManifest().catch(() => null);
+      if (latest && !presentElsewhere(latest.presence, accountId, deviceId, engine.serverNow()).length) return true;
+    }
+    return false;
+  }
+
+  // At quit: edits pushed, and this computer no longer listed as holding any account.
+  async leave(): Promise<void> {
+    if (this.hasUnpushedChanges) await this.flush();
+    if (this.hasPresence) await this.writePresence([]);
+  }
+
+  get isLeaveNeeded(): boolean {
+    return this.hasUnpushedChanges || this.hasPresence;
   }
 
   get hasUnpushedChanges(): boolean {
@@ -141,7 +219,8 @@ export class SyncService {
     if (!this.engine || this.attention) return;
     this.scheduler.stop();
     await this.engine.recordLocalChanges().catch(() => undefined);
-    await this.run({});
+    // Closing the window on macOS leaves the app running, so syncing carries on afterwards.
+    if ((await this.run({})).kind !== 'stop') this.scheduler.start();
   }
 
   setFocused(isFocused: boolean): void {
@@ -173,6 +252,7 @@ export class SyncService {
       else if (method === 'sync.syncNow') this.syncNow();
       else if (method === 'sync.resolve') await this.resolve((params as SyncMethods['sync.resolve'][0]).choice);
       else if (method === 'sync.newRecoveryCode') await this.newRecoveryCode();
+      else if (method === 'sync.setSharing') await this.setSharing(params as SyncMethods['sync.setSharing'][0]);
       else if (method === 'sync.disconnect') await this.disconnect();
       else throw new Error(`Unknown sync method ${method}`);
       this.emit();
@@ -195,6 +275,8 @@ export class SyncService {
       repositories: this.repositories, pairingWords: this.pairingWords, pairingRequests: this.pairingRequests, canKeepSecrets: this.credentials.canKeepSecrets,
       isPairingApproved: !!this.pairedKey, pairingConfirmation: this.pairingConfirmation,
       isRecoveryConfirmed: credentials.isRecoveryConfirmed,
+      isSecretsSynced: credentials.isSecretsSynced && this.credentials.canKeepSecrets, isIdentitySynced: credentials.isIdentitySynced,
+      isIdentityChoiceNeeded: this.isIdentityChoiceNeeded,
     };
   }
 
@@ -377,8 +459,10 @@ export class SyncService {
     await this.credentials.update({ target, rootKey, deviceKeys, epoch, isRecoveryConfirmed: true });
     [this.phase, this.pairingWords] = ['on', []];
     this.startEngine(target);
-    if (await this.hasSyncedContent(target, rootKey, epoch)) this.attend('join', joinMessage);
-    else this.scheduler.start();
+    if (await this.hasSyncedContent(target, rootKey, epoch)) {
+      await this.credentials.update({ pendingJoin: 'ask' });
+      this.attend('join', joinMessage);
+    } else this.scheduler.start();
   }
 
   // A computer joining for the first time asks before its own data meets the synced data. When the
@@ -533,6 +617,12 @@ export class SyncService {
   }
 
   private async resolve(choice: SyncResolution): Promise<void> {
+    if (this.attention?.reason === 'join' || this.credentials.get().pendingJoin === 'ask') {
+      await this.credentials.update({ pendingJoin: choice === 'useSynced' ? 'useSynced' : 'merge' });
+      this.attention = null;
+      if ((await this.run({})).kind !== 'stop') this.scheduler.start();
+      return;
+    }
     const options: Record<SyncResolution, SyncOptions> = {
       merge: {},
       allowDeletions: { isMassChangeAllowed: true },
@@ -565,9 +655,94 @@ export class SyncService {
     this.choice = null;
     this.stateStore = new EncryptedStateStore(path.join(this.deps.dir, 'sync-state.json'), keys.state, { epoch, repoId });
     this.engine = new SyncEngine({
-      epoch, repoId, keys, remote: this.remoteFor(target), store: this.stateStore, sources: this.deps.sources?.() ?? [], now: this.now,
+      epoch, repoId, keys, remote: this.remoteFor(target), store: this.stateStore, sources: this.engineSources(), now: this.now,
       device: { id: deviceId, name: this.deps.deviceName.slice(0, 256), platform: this.deps.platform, publicKey: deviceKeys?.publicKey ?? '', appVersion: this.deps.appVersion },
     });
+  }
+
+  // Kinds this computer opted into. Secret kinds also need the keychain; while the synced CID is
+  // being adopted, this computer offers none of its own, so the synced one is taken as it is.
+  private engineSources(): SyncSource[] {
+    const { isSecretsSynced, isIdentitySynced, isIdentityAdopting } = this.credentials.get();
+    return (this.deps.sources?.() ?? []).flatMap((source): SyncSource[] => {
+      if (source.kind === 'identity') {
+        if (!isIdentitySynced) return [];
+        return [isIdentityAdopting ? { kind: source.kind, snapshot: async () => ({}), validate: (value, id) => source.validate(value, id), apply: (change) => source.apply(change) } : source];
+      }
+      return syncKindInfo(source.kind).isSecret && !(isSecretsSynced && this.credentials.canKeepSecrets) ? [] : [source];
+    });
+  }
+
+  // Turning on one CID when another one is already synced asks which to keep, unless the choice
+  // came with the request. Each change restarts the engine with the kinds now chosen.
+  private async setSharing({ isSecretsSynced, isIdentitySynced, identityChoice }: SyncSharing): Promise<void> {
+    if (!this.engine) throw new Error('Sync is not set up on this computer.');
+    if (isSecretsSynced && !this.credentials.canKeepSecrets) throw new Error('This computer has no secure storage for passwords, so they cannot sync here.');
+    const current = this.credentials.get();
+    let isIdentityAdopting = current.isIdentityAdopting && isIdentitySynced;
+    if (isIdentitySynced && !current.isIdentitySynced) {
+      const source = this.deps.sources?.().find((candidate) => candidate.kind === 'identity');
+      if (!source) throw new Error('This computer cannot sync its CID.');
+      const synced = await this.engine.peek(recordKey('identity', IDENTITY_ID));
+      const own = (await source.snapshot())[IDENTITY_ID];
+      const isDifferent = synced !== undefined && !isSameJson(synced, own);
+      if (isDifferent && !identityChoice) {
+        this.isIdentityChoiceNeeded = true;
+        return;
+      }
+      isIdentityAdopting = isDifferent && identityChoice === 'synced';
+    }
+    this.isIdentityChoiceNeeded = false;
+    this.scheduler.stop();
+    await this.running?.catch(() => undefined);
+    await this.credentials.update({ isSecretsSynced, isIdentitySynced, isIdentityAdopting });
+    this.startEngine(this.target());
+    if (!this.attention) this.scheduler.start();
+  }
+
+  // The synced CID has arrived once it is a merge base; from then on this computer's CID syncs.
+  private async finishAdopting(): Promise<void> {
+    if (!this.credentials.get().isIdentityAdopting) return;
+    const state = await this.stateStore?.load();
+    if (!state?.bases[recordKey('identity', IDENTITY_ID)]) return;
+    await this.credentials.update({ isIdentityAdopting: false });
+    this.startEngine(this.target());
+  }
+
+  private async currentManifest(): Promise<Manifest | null> {
+    if (!this.engine) return null;
+    const late = new Promise<null>((resolve) => this.timers.set(() => resolve(null), PEEK_TIMEOUT_MS));
+    const fresh = await Promise.race([this.engine.peekManifest().catch(() => null), late]);
+    return fresh ?? (await this.stateStore?.load())?.manifest ?? null;
+  }
+
+  private async writePresence(accounts = (this.deps.liveAccounts?.() ?? []).map((account) => account.id)): Promise<void> {
+    if (!this.engine || this.attention) return;
+    const { deviceId } = this.credentials.get();
+    const isWritten = await this.engine.editManifest((manifest, now) =>
+      isPresenceDue(manifest.presence, deviceId, accounts, now) ? { ...manifest, presence: withPresence(manifest.presence, deviceId, accounts, now) } : null).catch(() => false);
+    if (isWritten || !accounts.length) this.hasPresence = accounts.length > 0;
+  }
+
+  // Requests from computers that moved an account to themselves after this one logged in to it.
+  // A login here made after the request was a choice to come back, so it stays.
+  private async answerHandoffs(): Promise<void> {
+    const engine = this.engine;
+    const manifest = (await this.stateStore?.load())?.manifest;
+    if (!engine || !manifest || !this.deps.releaseAccounts) return;
+    const { deviceId } = this.credentials.get();
+    const offset = engine.serverNow() - this.now();
+    const live = new Map((this.deps.liveAccounts?.() ?? []).map((account) => [account.id, account.since + offset]));
+    const byComputer = new Map<string, string[]>();
+    for (const [account, request] of Object.entries(liveHandoffs(manifest.handoffs, engine.serverNow()))) {
+      const key = `${account}|${request.from}|${request.createdAt}`;
+      if (!request.to.includes(deviceId) || !(live.get(account)! < request.createdAt) || this.answeredHandoffs.has(key)) continue;
+      this.answeredHandoffs.add(key);
+      const name = manifest.devices.find((device) => device.id === request.from)?.name || 'another computer';
+      byComputer.set(name, [...byComputer.get(name) ?? [], account]);
+    }
+    for (const [name, released] of byComputer) await this.deps.releaseAccounts(released, name);
+    if (byComputer.size) await this.writePresence();
   }
 
   private async stamp(): Promise<void> {
@@ -583,6 +758,8 @@ export class SyncService {
 
   private async runOnce(options: SyncOptions): Promise<RunResult> {
     if (!this.engine) return { kind: 'stop' };
+    const join = this.credentials.get().pendingJoin;
+    if (join === 'ask') return this.attend('join', joinMessage);
     const startedAt = this.now();
     const target = this.target();
     this.status = 'syncing';
@@ -590,14 +767,18 @@ export class SyncService {
     try {
       const problem = await this.checkRepository(target);
       if (problem) return this.attend(problem.reason, problem.message);
-      const outcome = await this.engine.sync(options);
+      const outcome = await this.engine.sync(join ? { ...options, ...joinOptions[join] } : options);
       if (outcome.status === 'held') return this.attend('held', heldMessage(outcome.changes), outcome.changes);
       if (outcome.status === 'busy') {
         this.status = 'idle';
         return { kind: 'retry' };
       }
+      if (join) await this.credentials.update({ pendingJoin: null });
+      await this.answerHandoffs();
+      await this.writePresence();
       await this.refreshDevices();
       await this.refreshPairing(target);
+      await this.finishAdopting();
       this.pushedAt = startedAt + 1;
       [this.status, this.attention, this.error, this.conflicts, this.lastSyncedAt] = ['idle', null, null, outcome.conflicts.length, this.now()];
       if (outcome.conflicts.length) this.deps.journal(`${outcome.conflicts.length} edit(s) made on two computers at once were settled in favour of the newer one.`);
@@ -641,7 +822,7 @@ export class SyncService {
   private failed(error: Error): RunResult {
     if (error instanceof SyncIntegrityError) return this.attend(error.reason, error.message);
     if (error instanceof SyncSourceUnavailableError) {
-      this.status = 'idle';
+      [this.status, this.error] = ['loading', error.message];
       return { kind: 'retry' };
     }
     if (error instanceof GitHubAuthError && error.reason === 'reconnect') return this.attend('reconnect', error.message);

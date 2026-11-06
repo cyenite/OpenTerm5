@@ -24,7 +24,19 @@ export interface SyncCredentials {
   readonly deviceKeys: DeviceKeyPair | null;
   readonly target: SyncTarget | null;
   readonly isRecoveryConfirmed: boolean;
+  // This computer's opt-ins: saved passwords, API keys and webhook secrets; one CID for all.
+  readonly isSecretsSynced: boolean;
+  readonly isIdentitySynced: boolean;
+  // Set when turning on one CID chose the synced one: this computer offers none until it arrives.
+  readonly isIdentityAdopting: boolean;
+  // A first join into synced content: 'ask' until the user chooses, then the choice until a
+  // sync with it succeeds, so a restart in between neither skips the question nor the choice.
+  readonly pendingJoin: PendingJoin | null;
 }
+
+export type PendingJoin = 'ask' | 'merge' | 'useSynced';
+
+const pendingJoins: readonly PendingJoin[] = ['ask', 'merge', 'useSynced'];
 
 interface StoredCredentials {
   readonly epoch: number;
@@ -33,6 +45,10 @@ interface StoredCredentials {
   readonly secrets: string | null;
   readonly target: SyncTarget | null;
   readonly isRecoveryConfirmed: boolean;
+  readonly isSecretsSynced: boolean;
+  readonly isIdentitySynced: boolean;
+  readonly isIdentityAdopting: boolean;
+  readonly pendingJoin: PendingJoin | null;
 }
 
 interface Secrets {
@@ -62,6 +78,10 @@ function parseStored(value: unknown): StoredCredentials {
     secrets: typeof stored.secrets === 'string' ? stored.secrets : null,
     target: parseTarget(stored.target),
     isRecoveryConfirmed: stored.isRecoveryConfirmed !== false,
+    isSecretsSynced: stored.isSecretsSynced === true,
+    isIdentitySynced: stored.isIdentitySynced === true,
+    isIdentityAdopting: stored.isIdentityAdopting === true,
+    pendingJoin: pendingJoins.find((join) => join === stored.pendingJoin) ?? null,
   };
 }
 
@@ -111,7 +131,10 @@ export class CredentialStore {
   // Forgets everything but this computer's id, so it stays one device to the repository.
   async clear(): Promise<SyncCredentials> {
     const { deviceId } = this.get();
-    this.current = { epoch: 1, deviceId, login: null, rootKey: null, tokens: null, deviceKeys: null, target: null, isRecoveryConfirmed: true };
+    this.current = {
+      epoch: 1, deviceId, login: null, rootKey: null, tokens: null, deviceKeys: null, target: null, isRecoveryConfirmed: true,
+      isSecretsSynced: false, isIdentitySynced: false, isIdentityAdopting: false, pendingJoin: null,
+    };
     await this.write(this.current);
     return this.current;
   }
