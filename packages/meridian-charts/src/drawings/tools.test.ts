@@ -215,7 +215,8 @@ test('position labels show the quantity from account size, risk and lot size', (
   assert.ok(long.some((text) => text.includes('Risk/Reward Ratio: 2.00')));
   assert.ok(long.some((text) => text.startsWith('Target: 110.00') && text.includes('Amount: 20')));
   assert.ok(long.some((text) => text.startsWith('Stop: 95.00') && text.includes('Amount: 10')));
-  assert.ok(long.some((text) => /(Open|Closed) P&L: /.test(text)));
+  const filled = texts(build('long-position', [at(10, 105), at(30, 115), at(30, 100)], full));
+  assert.ok(filled.some((text) => /(Open|Closed) P&L: /.test(text)), 'P&L once price reaches the entry');
   // 2% of 5000 = 100 over 5 points with a lot size of 4: a quantity of 5.
   const custom = texts(build('long-position', [at(10, 100), at(30, 110), at(30, 95)], { ...full, accountSize: 5000, riskPercent: 2, lotSize: 4 }));
   assert.ok(custom.some((text) => text.includes('Qty: 5')), custom.join(' | '));
@@ -258,6 +259,22 @@ test('a position stops at the bar that hits its target or stop', () => {
   assert.equal(lost.x + lost.w, timeToX(bars[hit].time));
   assert.equal(lost.style.fill, '#f23645', 'a short stopped out is shaded in the stop color');
   assert.equal(progressOf(build('long-position', [at(70, 105), at(90, 200), at(90, 50)])).length, 0, 'no bars after the entry, nothing to shade');
+});
+
+test('a position opens where price first reaches the entry, not at the entry anchor', () => {
+  const entry = 115;
+  const touch = bars.findIndex((bar, index) => index >= 10 && bar.low <= entry && bar.high >= entry);
+  assert.ok(touch > 10);
+  const shapes = build('long-position', [at(10, entry), at(80, 200), at(80, 50)]);
+  const [progress] = progressOf(shapes);
+  assert.ok(progress?.kind === 'rect');
+  assert.equal(progress.x, timeToX(bars[touch].time));
+  const trace = shapes.find((shape) => shape.kind === 'line' && shape.style.dash?.length);
+  assert.ok(trace?.kind === 'line');
+  assert.deepEqual(trace.a, { x: timeToX(bars[touch].time), y: priceToY(entry) });
+  const unfilled = build('long-position', [at(10, 300), at(80, 400), at(80, 50)], { showStats: true, isCompact: false });
+  assert.equal(progressOf(unfilled).length, 0, 'an entry price never reached opens nothing');
+  assert.ok(!texts(unfilled).some((text) => text.includes('P&L')));
 });
 
 test('line tools append price, bars and angle info on request', () => {

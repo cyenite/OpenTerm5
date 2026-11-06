@@ -559,17 +559,21 @@ const positionFields: ToolField[] = [
   checkbox('showStats', 'Always show stats'),
 ];
 
-// Follows price from the entry bar to the end of the position: the trade closes at the first bar
-// that touches the stop (checked first) or the target, else it is still open at the last close.
-function positionOutcome(env: ToolEnv, isLong: boolean, entry: DrawingPoint, end: number, target: number, stop: number): { exit: number; index: number; isClosed: boolean } | null {
+// As in TradingView, the trade opens at the first bar from the entry anchor that trades through the
+// entry price, and closes at the first bar from there that touches the stop (checked first) or the
+// target, else it is still open at the last close. A price that never reaches the entry opens nothing.
+function positionOutcome(env: ToolEnv, isLong: boolean, entry: DrawingPoint, end: number, target: number, stop: number): { exit: number; start: number; index: number; isClosed: boolean } | null {
   const range = barRange(env, entry.time, end);
   if (!range) return null;
-  for (let index = range[0]; index <= range[1]; index++) {
+  let start = range[0];
+  while (start <= range[1] && (env.bars[start].low > entry.price || env.bars[start].high < entry.price)) start++;
+  if (start > range[1]) return null;
+  for (let index = start; index <= range[1]; index++) {
     const bar = env.bars[index];
-    if (isLong ? bar.low <= stop : bar.high >= stop) return { exit: stop, index, isClosed: true };
-    if (isLong ? bar.high >= target : bar.low <= target) return { exit: target, index, isClosed: true };
+    if (isLong ? bar.low <= stop : bar.high >= stop) return { exit: stop, start, index, isClosed: true };
+    if (isLong ? bar.high >= target : bar.low <= target) return { exit: target, start, index, isClosed: true };
   }
-  return { exit: env.bars[range[1]].close, index: range[1], isClosed: false };
+  return { exit: env.bars[range[1]].close, start, index: range[1], isClosed: false };
 }
 
 function position(isLong: boolean): Build {
@@ -586,15 +590,16 @@ function position(isLong: boolean): Build {
     const opacity = o.num('areaOpacity') / 100;
     g.rect({ x: x0, y: entry.y }, { x: x1, y: target.y }, { width: 0, fill: profitColor, fillOpacity: opacity });
     g.rect({ x: x0, y: entry.y }, { x: x1, y: stop.y }, { width: 0, fill: stopColor, fillOpacity: opacity });
-    // As in TradingView, the trade so far is shaded darker: from the entry to the bar where it
-    // stands (the latest bar while open, the bar that hit the target or stop once closed), between
-    // the entry and that price, with a dashed line from the entry to it.
+    // As in TradingView, the trade so far is shaded darker: from the bar where price reached the
+    // entry to the bar where it stands (the latest bar while open, the bar that hit the target or
+    // stop once closed), between the entry and that price, with a dashed line along it.
     const outcome = targetPoint.time > entryPoint.time ? positionOutcome(env, isLong, entryPoint, targetPoint.time, targetPrice, stopPrice) : null;
     if (outcome) {
+      const opened = { x: env.timeToX(env.bars[outcome.start].time), y: entry.y };
       const exit = { x: env.timeToX(env.bars[outcome.index].time), y: env.priceToY(outcome.exit) };
       const isProfit = (outcome.exit - entryPrice) * (isLong ? 1 : -1) >= 0;
-      g.rect({ x: x0, y: entry.y }, exit, { width: 0, fill: isProfit ? profitColor : stopColor, fillOpacity: Math.min(1, opacity + 0.2) });
-      g.line({ x: x0, y: entry.y }, exit, { color: env.theme.muted, width: 1, dash: [4, 4] });
+      g.rect(opened, exit, { width: 0, fill: isProfit ? profitColor : stopColor, fillOpacity: Math.min(1, opacity + 0.2) });
+      g.line(opened, exit, { color: env.theme.muted, width: 1, dash: [4, 4] });
     }
     g.line({ x: x0, y: entry.y }, { x: x1, y: entry.y }, { color: env.theme.muted, width: 1 });
     const reward = Math.abs(targetPrice - entryPrice);
