@@ -23,9 +23,14 @@ const cipher: PasswordCipher = {
 const turn = () => new Promise((resolve) => setImmediate(resolve));
 const settle = async () => { for (let index = 0; index < 50; index++) await turn(); };
 
-// Waits for a condition rather than a fixed number of turns, which a loaded machine can outrun.
+// Waits on the clock rather than a count of turns: a slow Windows runner outran 20,000 turns
+// before sign-in finished, and the test went on as if it had.
 async function until(check: () => boolean): Promise<void> {
-  for (let index = 0; index < 20_000 && !check(); index++) await turn();
+  const deadline = Date.now() + 10_000;
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error('Timed out waiting for the sync service');
+    await turn();
+  }
   await settle();
 }
 
