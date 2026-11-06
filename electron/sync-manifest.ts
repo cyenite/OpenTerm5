@@ -11,7 +11,14 @@ export const MAX_MANIFEST_BYTES = 4 * 1024 * 1024;
 // `fenceAfterMs` without a renewal, before anyone else may take the lease at `lifetimeMs` plus
 // the margin, so two computers never both have the right to open.
 export const leaseTiming = { renewEveryMs: 120_000, fenceAfterMs: 420_000, lifetimeMs: 600_000, takeoverMarginMs: 60_000 } as const;
-export const PRESENCE_LIFETIME_MS = 300_000;
+// Presence costs a commit per renewal, and each commit keeps a new copy of the manifest in the
+// repository's history, so it lasts half an hour and renews when less than half is left. A
+// computer that logs out removes it at once; one that crashed is covered by "Log in anyway".
+export const PRESENCE_LIFETIME_MS = 1_800_000;
+export const PRESENCE_RENEW_MS = 900_000;
+// A request to move an account stays open long enough for a computer that was asleep to see it
+// when it wakes; it then logs out only if its own login is older than the request.
+export const HANDOFF_LIFETIME_MS = 12 * 3_600_000;
 
 export interface ManifestEntry {
   // null for a deleted record.
@@ -44,6 +51,14 @@ export interface Presence {
   readonly expiresAt: number;
 }
 
+// A computer asking the ones that hold an account to log out of it, so it can log in alone.
+export interface Handoff {
+  readonly from: string;
+  readonly to: readonly string[];
+  readonly createdAt: number;
+  readonly expiresAt: number;
+}
+
 export interface Manifest {
   readonly v: 1;
   readonly seq: number;
@@ -57,6 +72,8 @@ export interface Manifest {
   readonly leases: Readonly<Record<string, Lease>>;
   readonly records: Readonly<Record<string, ManifestEntry>>;
   readonly presence: Readonly<Record<string, Presence>>;
+  // By account id. Missing in manifests written before login handoff; older builds keep it as is.
+  readonly handoffs?: Readonly<Record<string, Handoff>>;
 }
 
 export type IntegrityReason = 'tampered' | 'rollback' | 'epoch' | 'tooNew' | 'stale' | 'revoked';
@@ -90,6 +107,8 @@ export function parseManifest(value: unknown): Manifest {
     if (!isObject(device) || !isDeviceId(device.id) || !isText(device.name) || !isText(device.platform) || !isText(device.publicKey) || !isText(device.appVersion) ||
       !isCount(device.lastSeen) || !isCount(device.firstSeen) || typeof device.isRevoked !== 'boolean') fail('device');
   }
+  // Keys are assigned into plain objects all through the engine, so none may be `__proto__`.
+  if ([...Object.keys(records as object), ...Object.keys(leases as object)].some((key) => key === '__proto__' || key.endsWith(':__proto__'))) fail('keys');
   for (const entry of Object.values(records as Record<string, unknown>)) {
     if (!isObject(entry) || !(entry.hash === null || (typeof entry.hash === 'string' && /^[0-9a-f]{64}$/.test(entry.hash))) || !isHlc(entry.hlc) ||
       !isCount(entry.schema) || !isCount(entry.generation)) fail('record');
@@ -99,6 +118,13 @@ export function parseManifest(value: unknown): Manifest {
   }
   for (const [deviceId, entry] of Object.entries(presence as Record<string, unknown>)) {
     if (!isDeviceId(deviceId) || !isObject(entry) || !Array.isArray(entry.accounts) || !entry.accounts.every((account) => isText(account, 512)) || !isCount(entry.expiresAt)) fail('presence');
+  }
+  const { handoffs } = value;
+  if (handoffs !== undefined) {
+    if (!isObject(handoffs)) fail('handoffs');
+    for (const [account, entry] of Object.entries(handoffs as Record<string, unknown>)) {
+      if (account === '__proto__' || !isText(account, 512) || !isObject(entry) || !isDeviceId(entry.from) || !Array.isArray(entry.to) || !entry.to.every(isDeviceId) || !isCount(entry.createdAt) || !isCount(entry.expiresAt)) fail('handoff');
+    }
   }
   return value as unknown as Manifest;
 }
@@ -162,6 +188,18 @@ export function releaseLease(leases: Manifest['leases'], key: string, deviceId: 
 export function withPresence(presence: Manifest['presence'], deviceId: string, accounts: readonly string[], serverNow: number): Manifest['presence'] {
   const live = Object.fromEntries(Object.entries(presence).filter(([id, entry]) => id !== deviceId && entry.expiresAt > serverNow));
   return accounts.length ? { ...live, [deviceId]: { accounts: [...accounts].sort(), expiresAt: serverNow + PRESENCE_LIFETIME_MS } } : live;
+}
+
+// Whether this computer's presence should be written: its accounts changed, or it runs out soon.
+export function isPresenceDue(presence: Manifest['presence'], deviceId: string, accounts: readonly string[], serverNow: number): boolean {
+  const own = presence[deviceId];
+  if (!accounts.length) return !!own;
+  return !own || own.expiresAt - serverNow < PRESENCE_RENEW_MS || own.accounts.join('\n') !== [...accounts].sort().join('\n');
+}
+
+// Open requests, expired ones dropped.
+export function liveHandoffs(handoffs: Manifest['handoffs'], serverNow: number): Record<string, Handoff> {
+  return Object.fromEntries(Object.entries(handoffs ?? {}).filter(([, entry]) => entry.expiresAt > serverNow));
 }
 
 export function presentElsewhere(presence: Manifest['presence'], account: string, deviceId: string, serverNow: number): string[] {

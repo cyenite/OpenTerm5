@@ -10,13 +10,15 @@ export const secretCipher: PasswordCipher = {
   decrypt: (value) => safeStorage.decryptString(Buffer.from(value, 'base64')),
 };
 
-export async function loadAccounts(): Promise<AccountRegistry> {
+// `onSaved` runs after every write, so sync hears about saved accounts.
+export async function loadAccounts(onSaved: () => void = () => undefined): Promise<AccountRegistry> {
   const file = path.join(app.getPath('userData'), 'accounts.json');
   const registry = new AccountRegistry(secretCipher, async (profiles) => {
     await fs.mkdir(path.dirname(file), { recursive: true });
     const temporary = `${file}.tmp`;
     await fs.writeFile(temporary, JSON.stringify(profiles, null, 2), { mode: 0o600 });
     await fs.rename(temporary, file);
+    onSaved();
   });
   try { registry.load(JSON.parse(await fs.readFile(file, 'utf8'))); }
   catch (error) {

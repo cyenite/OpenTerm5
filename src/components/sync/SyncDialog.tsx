@@ -3,7 +3,7 @@ import { passphraseProblem, syncKindInfo, syncStatuses, type SyncAttention, type
 import { requestSync, syncStore } from '../../lib/sync';
 import { useStore } from '../../lib/store';
 import { Dialog } from '../dialogs/Dialog';
-import { Section } from '../ui/Controls';
+import { Section, Switch } from '../ui/Controls';
 
 function useAction() {
   const [error, setError] = useState<string | null>(null);
@@ -281,6 +281,7 @@ function RecoveryStep({ view }: SyncStepProps) {
 
 const resolutionLabels: Partial<Record<SyncAttention['reason'], { choice: SyncMethods['sync.resolve'][0]['choice']; label: string }[]>> = {
   held: [{ choice: 'useSynced', label: 'Restore from sync' }, { choice: 'allowDeletions', label: 'Delete everywhere' }],
+  join: [{ choice: 'merge', label: 'Merge' }, { choice: 'useSynced', label: 'Use synced data' }],
   stale: [{ choice: 'useSynced', label: 'Use the synced data' }],
   rollback: [{ choice: 'acceptHistory', label: 'I restored it on purpose' }],
 };
@@ -305,7 +306,7 @@ function AttentionBanner({ attention }: AttentionBannerProps) {
       <div className="button-row">
         {attention.reason === 'reconnect' && <button type="button" className="is-primary" aria-disabled={isBusy} onClick={() => void run('sync.connect', {})}>Reconnect GitHub</button>}
         {choices.map(({ choice, label }) => <button key={choice} type="button" aria-disabled={isBusy} onClick={() => void run('sync.resolve', { choice })}>{label}</button>)}
-        {attention.reason !== 'reconnect' && <button type="button" aria-disabled={isBusy} onClick={() => void run('sync.syncNow', {})}>Try again</button>}
+        {attention.reason !== 'reconnect' && attention.reason !== 'join' && <button type="button" aria-disabled={isBusy} onClick={() => void run('sync.syncNow', {})}>Try again</button>}
       </div>
       <ErrorBanner error={error} />
     </div>
@@ -336,6 +337,40 @@ function DeviceList({ devices }: DeviceListProps) {
   );
 }
 
+// Secrets and the CID sync only on request, and only where the system keychain can hold them.
+function SharingPanel({ view }: SyncStepProps) {
+  const { error, isBusy, run } = useAction();
+  const share = (change: Partial<SyncMethods['sync.setSharing'][0]>) => void run('sync.setSharing', { isSecretsSynced: view.isSecretsSynced, isIdentitySynced: view.isIdentitySynced, ...change });
+  return (
+    <Section title="Passwords and identity" detail="Saved accounts always sync. Their passwords and the CID sync only if you turn them on here, on each computer.">
+      <Switch
+        label="Sync saved passwords, API keys and webhook secrets"
+        hint={view.canKeepSecrets ? 'Encrypted with your sync key, and stored here in the system keychain. The newest saved password wins.' : 'This computer has no system keychain, so passwords cannot be kept here.'}
+        isOn={view.isSecretsSynced}
+        isDisabled={isBusy || !view.canKeepSecrets}
+        onChange={(isSecretsSynced) => share({ isSecretsSynced })}
+      />
+      <Switch
+        label="Use one CID on all my computers"
+        hint="Brokers and prop firms then see your computers as one device. Off, each computer is its own device. Logging in to one account from two computers at once can look like one device on two networks."
+        isOn={view.isIdentitySynced}
+        isDisabled={isBusy || view.isIdentityChoiceNeeded}
+        onChange={(isIdentitySynced) => share({ isIdentitySynced })}
+      />
+      {view.isIdentityChoiceNeeded && (
+        <div className="banner is-warn" role="alert">
+          <p>Your other computers already share a different CID. Which one should all your computers use? A change applies from each computer's next login.</p>
+          <div className="button-row">
+            <button type="button" className="is-primary" aria-disabled={isBusy} onClick={() => share({ isIdentitySynced: true, identityChoice: 'synced' })}>Use the synced CID</button>
+            <button type="button" aria-disabled={isBusy} onClick={() => share({ isIdentitySynced: true, identityChoice: 'this' })}>Use this computer's CID</button>
+          </div>
+        </div>
+      )}
+      <ErrorBanner error={error} />
+    </Section>
+  );
+}
+
 function OnPanel({ view }: SyncStepProps) {
   const { error, isBusy, run } = useAction();
   const [isConfirmingDisconnect, setIsConfirmingDisconnect] = useState(false);
@@ -348,7 +383,7 @@ function OnPanel({ view }: SyncStepProps) {
       {view.attention && <AttentionBanner attention={view.attention} />}
       {!view.isRecoveryConfirmed && <p className="banner is-warn">The recovery code for this sync was never confirmed. Make a new one and save it.</p>}
       {view.status === 'offline' && view.error && <p className="banner is-warn">{view.error} OpenTerm5 keeps your edits and tries again.</p>}
-      <p className="is-muted">Charts, drawings and other data start syncing in a coming update. For now this connects your computers and checks the encrypted {view.backend === 'file' ? 'sync file' : 'repository'}.</p>
+      <p className="is-muted">Layouts, charts, drawings, watchlists, templates, alerts, Pine scripts, saved accounts and settings stay the same on your computers. Panels, and which layout is in front, stay with each one.</p>
       <DeviceList devices={view.devices} />
       <div className="button-row">
         <button type="button" aria-disabled={isBusy || !!view.attention} onClick={() => void run('sync.syncNow', {})}>Sync now</button>
@@ -378,7 +413,7 @@ function SyncStep({ view }: SyncStepProps) {
     case 'joining': return <JoinStep view={view} />;
     case 'pairing': return <PairingStep view={view} />;
     case 'savingCode': return <RecoveryStep key={view.recoveryCode} view={view} />;
-    case 'on': return <OnPanel view={view} />;
+    case 'on': return <><OnPanel view={view} /><SharingPanel view={view} /></>;
   }
 }
 

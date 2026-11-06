@@ -30,6 +30,27 @@ export interface HostDeps {
   send<E extends AutomationEvent>(event: E, data: AutomationEvents[E]): void;
   journal(message: string, source: string): void;
   saveFile(name: string, contents: string): Promise<string | null>;
+  // After webhook settings or notification targets are saved, from here or from sync.
+  onSecretsSaved?(): void;
+}
+
+// Webhook sources and notification targets as they sync. Whether a source is switched on stays
+// with each computer, like the listener's address, port and switches: two computers holding
+// broker sessions for one source's account would knock each other out.
+export interface SyncedWebhooks {
+  readonly sources: readonly Omit<WebhookSource, 'isEnabled'>[];
+  readonly notifications: readonly NotificationTarget[];
+}
+
+function checkTargets(value: unknown): NotificationTarget[] {
+  const targets = value as NotificationTarget[];
+  if (!Array.isArray(targets) || targets.length > 20) throw new Error('At most 20 notification targets');
+  return targets.map((target) => {
+    if (!target || typeof target !== 'object' || !notificationKinds.some((kind) => kind.key === target.kind)) throw new Error('Unknown notification kind');
+    const problem = validateTarget(target);
+    if (problem) throw new Error(`${target.name || 'Target'}: ${problem}`);
+    return { ...target, events: Array.isArray(target.events) ? target.events.filter((event) => notificationEvents.some((item) => item.key === event)) : [] };
+  });
 }
 
 const MAX_NEWS_MINUTES = 240;
@@ -85,6 +106,8 @@ export class AutomationHost {
   readonly news: NewsCalendar;
   private settings: WebhookSettings = { host: '127.0.0.1', port: 8787, sources: [], isEnabled: false, isPaused: false };
   private notifications: NotificationTarget[] = [];
+  // Settings that failed to load are not synced, or the empty defaults would replace everyone's.
+  private isSecretsLoaded = false;
   private copierPush?: NodeJS.Timeout;
   private readonly heldSources = new Map<string, string>();
   private readonly secrets: JsonStore<StoredSecrets>;
@@ -145,6 +168,7 @@ export class AutomationHost {
       this.settings = validateWebhookSettings(decode(stored.settings));
       this.notifications = decode(stored.notifications);
       this.notifier.setTargets(this.notifications);
+      this.isSecretsLoaded = true;
       await this.webhooks.apply(this.settings);
       this.syncSourceSessions();
     } catch (error) {
@@ -192,6 +216,37 @@ export class AutomationHost {
     const isEncrypted = this.deps.cipher.canEncrypt();
     const encode = (value: unknown) => isEncrypted ? this.deps.cipher.encrypt(JSON.stringify(value)) : JSON.stringify(value);
     await this.secrets.save({ isEncrypted, settings: encode(this.settings), notifications: encode(this.notifications) });
+    this.isSecretsLoaded = true;
+    this.deps.onSecretsSaved?.();
+  }
+
+  // null while the saved settings are unreadable here.
+  syncedWebhooks(): SyncedWebhooks | null {
+    if (!this.isSecretsLoaded) return null;
+    return { sources: this.settings.sources.map(({ isEnabled, ...source }) => source), notifications: this.notifications };
+  }
+
+  private withSyncedSources(value: unknown): WebhookSettings {
+    const { sources } = (value ?? {}) as Partial<SyncedWebhooks>;
+    if (!Array.isArray(sources)) throw new Error('Invalid synced webhook sources');
+    const local = new Map(this.settings.sources.map((source) => [source.id, source.isEnabled]));
+    return validateWebhookSettings({ ...this.settings, sources: sources.map((source) => ({ ...source, isEnabled: local.get(source?.id) ?? false }) as WebhookSource) });
+  }
+
+  checkSyncedWebhooks(value: unknown): void {
+    this.withSyncedSources(value);
+    checkTargets((value as Partial<SyncedWebhooks>).notifications);
+  }
+
+  // A source new to this computer arrives switched off.
+  async applySyncedWebhooks(value: unknown): Promise<void> {
+    const settings = this.withSyncedSources(value);
+    const notifications = checkTargets((value as Partial<SyncedWebhooks>).notifications);
+    [this.settings, this.notifications] = [settings, notifications];
+    this.notifier.setTargets(notifications);
+    await this.persistSecrets();
+    await this.webhooks.apply(this.settings);
+    this.syncSourceSessions();
   }
 
   canOpen(accountId: string | null, symbol?: string, lots?: number): Promise<string | null> {
@@ -279,14 +334,7 @@ export class AutomationHost {
         return this.webhooks.test(source, body);
       }
       case 'notifications.save': {
-        const targets = params as NotificationTarget[];
-        if (!Array.isArray(targets) || targets.length > 20) throw new Error('At most 20 notification targets');
-        for (const target of targets) {
-          if (!notificationKinds.some((kind) => kind.key === target.kind)) throw new Error('Unknown notification kind');
-          const problem = validateTarget(target);
-          if (problem) throw new Error(`${target.name || 'Target'}: ${problem}`);
-          target.events = target.events.filter((event) => notificationEvents.some((item) => item.key === event));
-        }
+        const targets = checkTargets(params);
         this.notifications = targets;
         this.notifier.setTargets(targets);
         await this.persistSecrets();

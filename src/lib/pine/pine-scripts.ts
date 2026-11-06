@@ -231,6 +231,20 @@ export async function importPineScript(source: string, origin: PineOrigin, isQui
   return script;
 }
 
+export const pineScriptSource = (id: string): Promise<string> => sourceOf(id);
+
+// A script from another computer: saved and registered as it is, keeping its id. Charts showing
+// it get their new study ids through their own synced records.
+export async function putSyncedPineScript(script: PineScript, source: string): Promise<void> {
+  await saveScript(script, source);
+  sources.set(script.id, Promise.resolve(source));
+  noticed.delete(script.id);
+  register(script);
+  pineScripts.set((state) => ({ scripts: [...state.scripts.filter((candidate) => candidate.id !== script.id), script].sort(byRank) }));
+}
+
+export const restorePineScript = (value: unknown): PineScript | null => restore([value])[0] ?? null;
+
 // Scripts registered but not yet in the list.
 const pending = new Map<string, PineScript>();
 

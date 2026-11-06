@@ -1,9 +1,13 @@
 import { defaultRiskPreferences, type RiskPreferences } from '../../shared/automation';
+import type { Market } from '../../shared/protocol';
 import { automation } from './automation';
 import { log } from './session';
 import { Store } from './store';
 
 export const riskPreferences = new Store<RiskPreferences>(defaultRiskPreferences);
+
+// The Risk Ticket's own settings per market, saved by the ticket itself.
+export const riskTicketStorageKeys: Record<Market, string> = { fx: 'openterm.riskTicket.v1', crypto: 'openterm.riskTicket.bybit.v1' };
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 

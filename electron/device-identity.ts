@@ -69,6 +69,24 @@ export class DeviceIdentity {
     return true;
   }
 
+  // The CID as it syncs between computers that share one identity.
+  syncRecord(): { cid: string; isUnique: boolean } {
+    return { cid: this.clientId.toString('hex'), isUnique: !this.isWeak };
+  }
+
+  // Another computer's CID, from sync. Like a regenerated one, it applies from the next login.
+  async setFromSync(value: unknown): Promise<boolean> {
+    const { cid, isUnique } = (value ?? {}) as { cid?: unknown; isUnique?: unknown };
+    if (typeof isUnique !== 'boolean') throw new Error('Invalid client ID.');
+    const parsed = parseClientId({ cid, ...(isUnique ? { version: SEED_VERSION } : {}) });
+    if (this.current?.equals(parsed.cid) && this.isWeak === parsed.hasWeakSeed) return false;
+    await fs.mkdir(path.dirname(this.file), { recursive: true });
+    await fs.writeFile(this.file, JSON.stringify({ cid: parsed.cid.toString('hex'), ...(isUnique ? { version: SEED_VERSION } : {}) }, null, 2), { mode: 0o600 });
+    this.current = parsed.cid;
+    this.isWeak = parsed.hasWeakSeed;
+    return true;
+  }
+
   async regenerate(): Promise<Buffer> {
     const next = deriveClientId(this.traits(), randomBytes(16).toString('hex'));
     await fs.mkdir(path.dirname(this.file), { recursive: true });

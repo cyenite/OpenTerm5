@@ -114,6 +114,10 @@ export class GitHubRemote implements SyncRemote {
     return `/repos/${this.repository.fullName}`;
   }
 
+  serverNow(): number {
+    return this.api.serverNow;
+  }
+
   // Conditional on the last ETag (sent back verbatim: GitHub's are weak), so an unchanged head
   // costs no rate limit. An empty repository has no branch yet and reads as null.
   async head(): Promise<string | null> {

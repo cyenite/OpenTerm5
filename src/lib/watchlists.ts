@@ -33,6 +33,23 @@ let market: Market = 'fx';
 
 export const watchlists = new Store<WatchlistsState>(load(market));
 
+// A market's lists as saved, for sync: the market in use from the store, another from storage, and
+// null for a market whose lists were never saved here (its default list has a new id each load).
+export function savedWatchlists(of: Market): WatchlistsState | null {
+  if (of === market) return watchlists.get();
+  try {
+    const saved = localStorage.getItem(storageKeys[of]);
+    return saved ? restoreWatchlists(JSON.parse(saved)) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setSavedWatchlists(of: Market, state: WatchlistsState): void {
+  if (of === market) watchlists.set(state);
+  else localStorage.setItem(storageKeys[of], JSON.stringify(state));
+}
+
 // The platform of the account in use; null while logged out or while the account changes.
 export function activePlatform(): Platform | null {
   const { accounts, profileId } = session.get();

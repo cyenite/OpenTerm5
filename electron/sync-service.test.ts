@@ -8,9 +8,10 @@ import type { PasswordCipher } from './account-registry';
 import { FakeGitHub } from './github-fixtures';
 import { GitHubApi, GitHubRemote } from './github-remote';
 import { newRootKey } from './sync-crypto';
-import { FakeTimers } from './sync-engine-fixtures';
+import type { SyncSource } from './sync-engine';
+import { FakeTimers, MemorySource } from './sync-engine-fixtures';
 import { inspectRepository, updateKeyring, withDeviceWrap } from './sync-keyring';
-import { SyncService } from './sync-service';
+import { SyncService, type SyncServiceDeps } from './sync-service';
 
 const REPO = 42;
 const cipher: PasswordCipher = {
@@ -28,7 +29,7 @@ async function until(check: () => boolean): Promise<void> {
   await settle();
 }
 
-async function computer(github: FakeGitHub, name: string, dir?: string, file?: string) {
+async function computer(github: FakeGitHub, name: string, dir?: string, file?: string, sources: readonly SyncSource[] = [], extra: Partial<SyncServiceDeps> = {}) {
   const folder = dir ?? await fs.mkdtemp(path.join(os.tmpdir(), 'openterm-sync-service-'));
   const timers = new FakeTimers();
   const views: SyncView[] = [];
@@ -37,7 +38,7 @@ async function computer(github: FakeGitHub, name: string, dir?: string, file?: s
   const service = new SyncService({
     dir: folder, fetch: github.fetch, cipher, platform: 'linux', appVersion: '0.12.0', deviceName: name,
     send: (view) => views.push(view), journal: (message) => journal.push(message), openExternal: async (url) => { opened.push(url); }, chooseFile: async () => file ?? null,
-    now: () => 1_800_000_000_000 + timers.time, timers, pause: async () => undefined, passphraseCost: { N: 2 ** 14, r: 8, p: 1 },
+    now: () => 1_800_000_000_000 + timers.time, timers, pause: async () => undefined, passphraseCost: { N: 2 ** 14, r: 8, p: 1 }, sources: () => sources, ...extra,
   });
   await service.init();
   const tick = async (ms = 0) => {
@@ -56,8 +57,8 @@ async function signIn(device: Awaited<ReturnType<typeof computer>>) {
   await until(() => device.view().userCode === null);
 }
 
-async function setUpFirst(github: FakeGitHub, passphrase: string | null = null) {
-  const first = await computer(github, 'Office PC');
+async function setUpFirst(github: FakeGitHub, passphrase: string | null = null, sources: readonly SyncSource[] = [], extra: Partial<SyncServiceDeps> = {}) {
+  const first = await computer(github, 'Office PC', undefined, undefined, sources, extra);
   await signIn(first);
   await first.service.handle('sync.chooseRepository', { id: REPO });
   const view = await first.service.handle('sync.create', { passphrase });
@@ -352,4 +353,140 @@ test('without GitHub, two computers sync through a sync file', async () => {
   await first.tick();
   assert.equal(first.view().status, 'offline');
   assert.equal(first.view().attention, null);
+});
+
+test('a computer joining synced layouts asks whether to merge its own or use the synced ones', async () => {
+  const github = fakeGitHub();
+  const office = new MemorySource('chart');
+  office.data = { c1: { symbol: 'XAUUSD' } };
+  const { recoveryCode } = await setUpFirst(github, null, [office]);
+  const laptop = new MemorySource('chart');
+  laptop.data = { c9: { symbol: 'EURUSD' } };
+  const second = await computer(github, 'Laptop', undefined, undefined, [laptop]);
+  await signIn(second);
+  await second.service.handle('sync.chooseRepository', { id: REPO });
+  await second.service.handle('sync.join', { recoveryCode });
+  await second.tick(60_000);
+  assert.equal(second.view().attention?.reason, 'join');
+  assert.deepEqual(laptop.data, { c9: { symbol: 'EURUSD' } });
+  await second.service.handle('sync.resolve', { choice: 'useSynced' });
+  await second.tick();
+  assert.equal(second.view().status, 'idle');
+  assert.deepEqual(laptop.data, { c1: { symbol: 'XAUUSD' } });
+});
+
+test('a computer joining a repository with no layouts yet syncs without asking', async () => {
+  const github = fakeGitHub();
+  const { recoveryCode } = await setUpFirst(github, null, [new MemorySource('chart')]);
+  const laptop = new MemorySource('chart');
+  laptop.data = { c9: { symbol: 'EURUSD' } };
+  const second = await computer(github, 'Laptop', undefined, undefined, [laptop]);
+  await signIn(second);
+  await second.service.handle('sync.chooseRepository', { id: REPO });
+  await second.service.handle('sync.join', { recoveryCode });
+  await second.tick();
+  assert.equal(second.view().attention, null);
+  assert.equal(second.view().status, 'idle');
+});
+
+async function joinSecond(github: FakeGitHub, recoveryCode: string, sources: readonly SyncSource[], dir?: string) {
+  const second = await computer(github, 'Laptop', dir, undefined, sources);
+  await signIn(second);
+  await second.service.handle('sync.chooseRepository', { id: REPO });
+  await second.service.handle('sync.join', { recoveryCode });
+  await second.tick();
+  return second;
+}
+
+test('turning on one CID asks which to keep when the synced one differs, then adopts it', async () => {
+  const github = fakeGitHub();
+  const officeCid = new MemorySource('identity');
+  officeCid.data = { cid: { cid: 'a'.repeat(32), isUnique: true } };
+  const { first, recoveryCode } = await setUpFirst(github, null, [officeCid]);
+  await first.service.handle('sync.setSharing', { isSecretsSynced: false, isIdentitySynced: true });
+  await first.tick();
+  assert.equal(first.view().isIdentitySynced, true);
+  const laptopCid = new MemorySource('identity');
+  laptopCid.data = { cid: { cid: 'b'.repeat(32), isUnique: true } };
+  const second = await joinSecond(github, recoveryCode, [laptopCid]);
+  await second.service.handle('sync.setSharing', { isSecretsSynced: false, isIdentitySynced: true });
+  assert.deepEqual([second.view().isIdentityChoiceNeeded, second.view().isIdentitySynced], [true, false]);
+  await second.service.handle('sync.setSharing', { isSecretsSynced: false, isIdentitySynced: true, identityChoice: 'synced' });
+  await second.tick();
+  assert.deepEqual(laptopCid.data, officeCid.data);
+  assert.equal(second.view().isIdentityChoiceNeeded, false);
+});
+
+test('passwords stay on a computer until it opts in, and only computers that opted in receive them', async () => {
+  const github = fakeGitHub();
+  const officeSecrets = new MemorySource('accountSecret');
+  officeSecrets.data = { 'wss://broker.example/terminal|1': { secret: 'pw', savedAt: 1 } };
+  const { first, recoveryCode } = await setUpFirst(github, null, [officeSecrets]);
+  const laptopSecrets = new MemorySource('accountSecret');
+  const second = await joinSecond(github, recoveryCode, [laptopSecrets]);
+  await second.service.handle('sync.setSharing', { isSecretsSynced: true, isIdentitySynced: false });
+  await second.tick();
+  assert.deepEqual(laptopSecrets.data, {});
+  await first.service.handle('sync.setSharing', { isSecretsSynced: true, isIdentitySynced: false });
+  await first.tick();
+  await second.service.handle('sync.syncNow', {});
+  await second.tick();
+  assert.deepEqual(laptopSecrets.data, officeSecrets.data);
+});
+
+test('the merge question survives a restart, and Merge keeps the synced settings', async () => {
+  const github = fakeGitHub();
+  const office = new MemorySource('preferences');
+  office.data = { workspace: { theme: 'dark' } };
+  const { recoveryCode } = await setUpFirst(github, null, [office]);
+  const laptop = new MemorySource('preferences');
+  laptop.data = { workspace: { theme: 'light', replayMode: 'allCharts' } };
+  const second = await joinSecond(github, recoveryCode, [laptop]);
+  assert.equal(second.view().attention?.reason, 'join');
+  second.service.shutdown();
+  const restarted = await computer(github, 'Laptop', second.dir, undefined, [laptop]);
+  await restarted.tick(60_000);
+  assert.equal(restarted.view().attention?.reason, 'join');
+  assert.deepEqual(laptop.data, { workspace: { theme: 'light', replayMode: 'allCharts' } });
+  await restarted.service.handle('sync.resolve', { choice: 'merge' });
+  await restarted.tick();
+  assert.deepEqual(laptop.data, { workspace: { theme: 'dark', replayMode: 'allCharts' } });
+  assert.equal(restarted.view().attention, null);
+});
+
+test('an account open on one computer shows there, and moving it here logs that computer out', async () => {
+  const github = fakeGitHub();
+  const account = 'wss://broker.example/terminal|1234';
+  let live = [{ id: account, since: 0 }];
+  const released: [readonly string[], string][] = [];
+  const { first, recoveryCode } = await setUpFirst(github, null, [], {
+    liveAccounts: () => live,
+    releaseAccounts: async (ids, to) => { released.push([ids, to]); live = []; },
+  });
+  first.service.presenceChanged();
+  await first.tick(5000);
+  const second = await joinSecond(github, recoveryCode, []);
+  assert.deepEqual(await second.service.whereOpen(account), ['Office PC']);
+  assert.equal(await second.service.moveHere(account), false);
+  await first.service.handle('sync.syncNow', {});
+  await first.tick();
+  assert.deepEqual(released, [[[account], 'Laptop']]);
+  assert.deepEqual(await second.service.whereOpen(account), []);
+  assert.equal(await second.service.moveHere(account), true);
+});
+
+test('a login made after the move request is a choice to come back, so it stays', async () => {
+  const github = fakeGitHub();
+  const account = 'wss://broker.example/terminal|1234';
+  let live = [{ id: account, since: 0 }];
+  const released: string[] = [];
+  const { first, recoveryCode } = await setUpFirst(github, null, [], { liveAccounts: () => live, releaseAccounts: async (ids) => { released.push(...ids); } });
+  first.service.presenceChanged();
+  await first.tick(5000);
+  const second = await joinSecond(github, recoveryCode, []);
+  await second.service.moveHere(account);
+  live = [{ id: account, since: Number.MAX_SAFE_INTEGER }];
+  await first.service.handle('sync.syncNow', {});
+  await first.tick();
+  assert.deepEqual(released, []);
 });

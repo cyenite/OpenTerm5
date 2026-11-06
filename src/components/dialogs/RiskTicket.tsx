@@ -7,6 +7,7 @@ import { formatMoney, formatPrice } from '../../lib/format';
 import { session } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useRiskPreview } from '../../lib/risk-preview';
+import { riskTicketStorageKeys as storageKeys } from '../../lib/risk-preferences';
 import { NumberField, Segmented, SelectField, Switch, TextField } from '../ui/Controls';
 import { LeverageField } from './LeverageField';
 
@@ -26,7 +27,6 @@ type EntryKind = (typeof entryKinds)[number]['key'];
 
 // Forex and crypto accounts keep separate settings: a pip stop or a per-lot commission means
 // nothing on a crypto contract. Exchanges share theirs; the crypto key predates Binance.
-const storageKeys: Record<Market, string> = { fx: 'openterm.riskTicket.v1', crypto: 'openterm.riskTicket.bybit.v1' };
 
 interface Preferences {
   mode: RiskMode;

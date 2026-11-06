@@ -35,7 +35,11 @@ test('malformed manifests are refused field by field', () => {
     { ...manifest, leases: { copier: { fence: 1, deviceId: 'a', expiresAt: 'soon', renewedAt: 1 } } },
     { ...manifest, presence: { a: { accounts: [5], expiresAt: 1 } } },
     { ...manifest, devices: [{ id: 'a', name: 'x', platform: 'linux', publicKey: 'k', appVersion: '1', lastSeen: 1, firstSeen: 1 }] },
+    { ...manifest, handoffs: { 'mt5|1': { from: 'a', to: ['Not An Id'], createdAt: 1, expiresAt: 2 } } },
+    { ...manifest, handoffs: { 'mt5|1': { from: 'a', to: ['b'], expiresAt: 2 } } },
+    JSON.parse(JSON.stringify({ ...manifest, records: {} }).replace('"records":{}', '"records":{"__proto__":{}}')),
   ];
+  assert.ok(parseManifest({ ...manifest, handoffs: { 'mt5|1': { from: 'a', to: ['b'], createdAt: 1, expiresAt: 2 } } }).handoffs);
   for (const value of bad) assert.throws(() => parseManifest(value), reason('tampered'), JSON.stringify(value));
 });
 
@@ -77,6 +81,7 @@ test('presence shows where an account is open and expires on its own', () => {
   presence = withPresence(presence, 'b', ['mt5|456'], 10);
   assert.deepEqual(presentElsewhere(presence, 'mt5|123', 'b', 20), ['a']);
   assert.deepEqual(presentElsewhere(presence, 'mt5|123', 'a', 20), []);
-  assert.deepEqual(presentElsewhere(presence, 'mt5|123', 'b', 400_000), []);
+  assert.deepEqual(presentElsewhere(presence, 'mt5|123', 'b', 400_000), ['a']);
+  assert.deepEqual(presentElsewhere(presence, 'mt5|123', 'b', 2_000_000), []);
   assert.deepEqual(Object.keys(withPresence(presence, 'a', [], 30)), ['b']);
 });

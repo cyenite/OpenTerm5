@@ -1,8 +1,8 @@
-import { isSameJson, isSyncKind, recordKey, splitRecordKey, syncKindInfo, type Json, type SyncKind } from '../shared/sync';
+import { isSameJson, isSyncKind, recordKey, splitRecordKey, syncKindInfo, syncKinds, type Json, type SyncKind, type SyncSourceChange } from '../shared/sync';
 import { hlcAt, HybridClock } from './sync-clock';
 import { decodePayload, encodePayload, envelopeHash, MAX_ENVELOPE_BYTES, objectPath, open, recordCipherKey, seal, type SyncKeys } from './sync-crypto';
 import { emptyManifest, MANIFEST_PATH, openManifest, sealManifest, SyncIntegrityError, type Manifest, type ManifestDevice, type ManifestEntry } from './sync-manifest';
-import { mergeRecords, parseSyncedRecord, pruneTombstones, recordPlain, stampRecord, type MergeConflict, type SyncedRecord } from './sync-merge';
+import { hasUnsafeKey, mergeRecords, parseSyncedRecord, preferRemote, pruneTombstones, recordPlain, stampRecord, type MergeConflict, type SyncedRecord } from './sync-merge';
 
 const TOMBSTONE_LIFETIME_MS = 180 * 86_400_000;
 const MAX_ATTEMPTS = 5;
@@ -19,18 +19,21 @@ export interface SyncRemote {
   head(): Promise<string | null>;
   read(commit: string, paths: readonly string[]): Promise<ReadonlyMap<string, Buffer | null>>;
   commit(parent: string | null, writes: ReadonlyMap<string, Buffer | null>): Promise<string | null>;
+  // The remote's own clock, which presence and leases are measured on; local time when absent.
+  serverNow?(): number;
 }
 
-export interface SourceChange {
-  readonly upserts: Readonly<Record<string, Json>>;
-  readonly deletes: readonly string[];
-}
+export type SourceChange = SyncSourceChange;
+
+// A source that cannot answer at all (its window is still loading) stops the sync, rather than
+// having its values read as invalid or missing.
+export class SyncSourceUnavailableError extends Error {}
 
 export interface SyncSource {
   readonly kind: SyncKind;
   snapshot(): Promise<Readonly<Record<string, Json>>>;
-  // Throws when a value would be unsafe to apply; it never changes the value.
-  validate(value: Json): void;
+  // Throws (or rejects) when a value would be unsafe to apply under that id; it never changes the value.
+  validate(value: Json, id: string): void | Promise<void>;
   apply(change: SourceChange): Promise<void>;
 }
 
@@ -81,6 +84,11 @@ export interface SyncOptions {
   readonly isMassChangeAllowed?: boolean;
   // "Use synced data": local changes since the last sync are replaced by the remote's.
   readonly isLocalDiscarded?: boolean;
+  // Limits `isLocalDiscarded` to these kinds; the others still merge.
+  readonly discardedKinds?: readonly SyncKind[];
+  // A computer merging into synced data for the first time: where both sides hold a value and
+  // there is no base yet, the synced one wins, so a fresh install's defaults never replace it.
+  readonly isRemotePreferred?: boolean;
   // The user confirmed the repository was put back to an older state on purpose.
   readonly isHistoryAccepted?: boolean;
 }
@@ -117,7 +125,9 @@ export class SyncEngine {
     this.now = deps.now ?? Date.now;
     this.clock = new HybridClock(deps.device.id, this.now);
     this.pause = deps.pause ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
-    this.sources = new Map(deps.sources.map((source) => [source.kind, source]));
+    // Kinds apply in declaration order, whatever order the sources came in.
+    const rank = (kind: SyncKind) => syncKinds.findIndex((info) => info.key === kind);
+    this.sources = new Map([...deps.sources].sort((left, right) => rank(left.kind) - rank(right.kind)).map((source) => [source.kind, source]));
   }
 
   // Stamps local edits when they happen rather than at the next sync, so "the newer edit wins"
@@ -137,7 +147,7 @@ export class SyncEngine {
         for (const id of Object.keys(snapshot)) keys.add(recordKey(kind, id));
         for (const key of keys) {
           const current = snapshot[splitRecordKey(key).id];
-          if (current !== undefined && !this.isValidPlain(source, current)) continue;
+          if (current !== undefined && !await this.isValidPlain(source, current, splitRecordKey(key).id)) continue;
           const baseline = state.pending[key] ?? state.bases[key];
           const stamped = stampRecord(shape, baseline, current, () => this.clock.tick());
           if (stamped === baseline || !stamped) continue;
@@ -154,6 +164,65 @@ export class SyncEngine {
     return this.exclusive(() => this.syncNow(options));
   }
 
+  // One record as the remote holds it now, for a kind this computer may not sync yet (deciding
+  // which CID to keep before turning CID sync on). Checked like a pull: hash, then authentication.
+  peek(key: string): Promise<Json | undefined> {
+    return this.exclusive(async () => {
+      const { keys, epoch, repoId, remote } = this.deps;
+      const head = await remote.head();
+      const envelope = head === null ? null : (await remote.read(head, [MANIFEST_PATH])).get(MANIFEST_PATH) ?? null;
+      if (head === null || !envelope) return undefined;
+      const state = await this.deps.store.load();
+      const entry = openManifest(keys, envelope, { epoch, repoId, highWater: state?.highWater ?? 0 }).records[key];
+      if (!entry?.hash) return undefined;
+      const object = (await remote.read(head, [objectPath(entry.hash)])).get(objectPath(entry.hash));
+      if (!object || envelopeHash(object) !== entry.hash) throw new SyncIntegrityError('tampered', 'A synced record is missing or altered.');
+      let record: SyncedRecord;
+      try { record = parseSyncedRecord(decodePayload(open(recordCipherKey(keys, key), object, this.recordContext(key, entry.generation)))); }
+      catch { throw new SyncIntegrityError('tampered', 'A synced record failed authentication.'); }
+      return recordPlain(syncKindInfo(splitRecordKey(key).kind as SyncKind).shape, record);
+    });
+  }
+
+  serverNow(): number {
+    return this.deps.remote.serverNow?.() ?? this.now();
+  }
+
+  // The remote manifest now, checked as a pull checks it, without reading any record or store.
+  peekManifest(): Promise<Manifest | null> {
+    return this.exclusive(async () => (await this.readManifest())?.manifest ?? null);
+  }
+
+  // A commit of the manifest alone (presence, handoff requests), so it needs none of the stores.
+  // `edit` returns null when nothing needs writing; a lost race reads again and retries.
+  editManifest(edit: (manifest: Manifest, serverNow: number) => Manifest | null): Promise<boolean> {
+    return this.exclusive(async () => {
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        if (attempt) await this.pause(2 ** attempt * 250 + Math.random() * 250);
+        const current = await this.readManifest();
+        if (!current) return false;
+        this.clock.observe(current.manifest.hlc);
+        const next = edit(current.manifest, this.serverNow());
+        if (!next) return false;
+        const manifest: Manifest = { ...next, seq: current.manifest.seq + 1, hlc: this.clock.tick(), writer: this.deps.device.id };
+        if (await this.deps.remote.commit(current.head, new Map([[MANIFEST_PATH, sealManifest(this.deps.keys, manifest)]])) === null) continue;
+        const state = await this.deps.store.load();
+        if (state) await this.deps.store.save({ ...state, highWater: Math.max(state.highWater, manifest.seq), clock: this.clock.last });
+        return true;
+      }
+      return false;
+    });
+  }
+
+  private async readManifest(): Promise<{ head: string; manifest: Manifest } | null> {
+    const { keys, epoch, repoId, remote } = this.deps;
+    const head = await remote.head();
+    const envelope = head === null ? null : (await remote.read(head, [MANIFEST_PATH])).get(MANIFEST_PATH) ?? null;
+    if (head === null || !envelope) return null;
+    const state = await this.deps.store.load();
+    return { head, manifest: openManifest(keys, envelope, { epoch, repoId, highWater: state?.highWater ?? 0 }) };
+  }
+
   private exclusive<T>(run: () => Promise<T>): Promise<T> {
     const result = this.queue.then(run);
     this.queue = result.catch(() => undefined);
@@ -167,12 +236,20 @@ export class SyncEngine {
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       if (attempt) await this.pause(2 ** attempt * 250 + Math.random() * 250);
       const head = await this.deps.remote.head();
-      const view = head !== null && head === state.head && state.manifest ? { head, manifest: state.manifest, records: state.bases, invalid: new Set<string>() } : await this.pull(head, state, options);
+      const isUnchanged = head !== null && head === state.head && !!state.manifest && !this.hasUnreadRecords(state);
+      const view = isUnchanged ? { head: head!, manifest: state.manifest!, records: state.bases, invalid: new Set<string>() } : await this.pull(head, state, options);
       const outcome = await this.reconcile(state, view, options);
       if (outcome.status !== 'retry') return outcome.status === 'synced' ? outcome.outcome : outcome;
       state = outcome.state;
     }
     return { status: 'busy' };
+  }
+
+  // A record the last pull left out (invalid then, perhaps valid now that a record it depends on
+  // arrived) is in the manifest with no base. Skipping the pull would read it as absent and let
+  // local data overwrite it, so the pull runs again; it fetches only those records.
+  private hasUnreadRecords(state: SyncState): boolean {
+    return Object.entries(state.manifest!.records).some(([key, entry]) => entry.hash !== null && this.isReadable(key, entry) && !state.bases[key]);
   }
 
   private async pull(head: string | null, state: SyncState, options: SyncOptions): Promise<RemoteView> {
@@ -213,7 +290,7 @@ export class SyncEngine {
       catch { throw new SyncIntegrityError('tampered', `A synced record (${splitRecordKey(key).kind}) failed authentication.`); }
       // An authentic record that fails validation came from a buggy build, not an attacker: it is
       // left alone on this computer rather than blocking every other record.
-      if (!this.isValid(key, record)) invalid.add(key);
+      if (!await this.isValid(key, record)) invalid.add(key);
       else records[key] = record;
     }
     for (const record of Object.values(records)) {
@@ -243,6 +320,7 @@ export class SyncEngine {
     for (const [kind, source] of this.sources) {
       const { shape } = syncKindInfo(kind);
       const snapshot = snapshots.get(kind)!;
+      const isDiscarded = !!options.isLocalDiscarded && (!options.discardedKinds || options.discardedKinds.includes(kind));
       const keys = new Set([...Object.keys(state.bases), ...Object.keys(view.records), ...Object.keys(state.pending)].filter((key) => splitRecordKey(key).kind === kind));
       for (const id of Object.keys(snapshot)) keys.add(recordKey(kind, id));
       const counts = { local: 0, remote: 0, items: 0, total: 0 };
@@ -254,11 +332,20 @@ export class SyncEngine {
         if (view.invalid.has(key) || (entry && !this.isReadable(key, entry))) { skipped.add(key); continue; }
         const base = state.bases[key];
         const current = snapshot[id];
-        if (current !== undefined && !this.isValidPlain(source, current)) { skipped.add(key); continue; }
-        const local = options.isLocalDiscarded ? base : stampRecord(shape, state.pending[key] ?? base, current, tick);
+        if (current !== undefined && !await this.isValidPlain(source, current, id)) { skipped.add(key); continue; }
+        const local = isDiscarded ? base : stampRecord(shape, state.pending[key] ?? base, current, tick);
         const remote = view.records[key];
-        const result = mergeRecords(shape, base, local, remote, tick);
+        const isFirstMeeting = !!options.isRemotePreferred && !base && !!local && !!remote && !local.deletedHlc && !remote.deletedHlc;
+        const result = isFirstMeeting ? preferRemote(shape, local, remote, tick) : mergeRecords(shape, base, local, remote, tick);
         let next = result.merged;
+        // Each side was checked on its own; the merge of two valid values can still break a limit
+        // (more lists than allowed, no list at all). Then the remote's stays, rather than an apply
+        // failing on every sync from now on.
+        const mergedPlain = recordPlain(shape, next);
+        if (mergedPlain !== undefined && !isSameJson(mergedPlain, current) && !isSameJson(mergedPlain, recordPlain(shape, remote)) && !await this.isValidPlain(source, mergedPlain, id)) {
+          if (!isAlive(remote)) { skipped.add(key); continue; }
+          next = remote;
+        }
         if (next && !sameRecord(next, remote)) next = pruneTombstones(next, horizon);
         if (next) merged[key] = next;
         if (next && !sameRecord(next, remote)) toPush.add(key);
@@ -286,9 +373,9 @@ export class SyncEngine {
           counts.items = Math.max(counts.items, removedItems(base, local));
         }
       }
-      const isEmptied = counts.total >= MASS_EMPTY_FROM && !Object.keys(snapshot).length && !options.isLocalDiscarded;
+      const isEmptied = counts.total >= MASS_EMPTY_FROM && !Object.keys(snapshot).length && !isDiscarded;
       const isMass = (removed: number) => removed > MASS_RECORDS && removed / Math.max(counts.total, 1) > MASS_SHARE;
-      if (isEmptied || isMass(counts.local) || (counts.items > MASS_ITEMS && !options.isLocalDiscarded)) mass.push({ kind, side: 'local', removed: Math.max(counts.local, counts.items), total: counts.total });
+      if (isEmptied || isMass(counts.local) || (counts.items > MASS_ITEMS && !isDiscarded)) mass.push({ kind, side: 'local', removed: Math.max(counts.local, counts.items), total: counts.total });
       if (isMass(counts.remote)) mass.push({ kind, side: 'remote', removed: counts.remote, total: counts.total });
       if (change.deletes.length || Object.keys(change.upserts).length) {
         changes.set(kind, change);
@@ -405,13 +492,21 @@ export class SyncEngine {
     return isSyncKind(kind) && this.sources.has(kind) && entry.schema <= syncKindInfo(kind).schema;
   }
 
-  private isValid(key: string, record: SyncedRecord): boolean {
-    const kind = splitRecordKey(key).kind as SyncKind;
-    const plain = recordPlain(syncKindInfo(kind).shape, record);
-    return plain === undefined || this.isValidPlain(this.sources.get(kind)!, plain);
+  private async isValid(key: string, record: SyncedRecord): Promise<boolean> {
+    const { kind, id } = splitRecordKey(key);
+    const plain = recordPlain(syncKindInfo(kind as SyncKind).shape, record);
+    return plain === undefined || this.isValidPlain(this.sources.get(kind as SyncKind)!, plain, id);
   }
 
-  private isValidPlain(source: SyncSource, plain: Json): boolean {
-    try { source.validate(plain); return true; } catch { return false; }
+  // `__proto__` as an id or a key would set an object's prototype wherever it is assigned.
+  private async isValidPlain(source: SyncSource, plain: Json, id: string): Promise<boolean> {
+    if (id === '__proto__' || hasUnsafeKey(syncKindInfo(source.kind).shape, plain)) return false;
+    try {
+      await source.validate(plain, id);
+      return true;
+    } catch (error) {
+      if (error instanceof SyncSourceUnavailableError) throw error;
+      return false;
+    }
   }
 }

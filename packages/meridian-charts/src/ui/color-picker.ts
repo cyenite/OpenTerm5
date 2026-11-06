@@ -29,6 +29,21 @@ function saveCustom(colors: readonly string[]): void {
 // Shared by every picker in the window, as the custom row is in TradingView.
 let customColors = loadCustom();
 
+const customListeners = new Set<() => void>();
+
+// For a host that keeps the custom row elsewhere too (sync between computers).
+export const customColorList = (): readonly string[] => customColors;
+
+export function setCustomColors(colors: readonly string[]): void {
+  customColors = colors.filter((color) => /^#[0-9a-f]{6}$/i.test(color)).slice(0, CUSTOM_LIMIT);
+  saveCustom(customColors);
+}
+
+export function onCustomColorsChange(listener: () => void): () => void {
+  customListeners.add(listener);
+  return () => customListeners.delete(listener);
+}
+
 // Places a popup under `anchor` inside `host`, flipping above it when there is no room below.
 export function placePopup(popup: HTMLElement, host: HTMLElement, anchor: HTMLElement): void {
   const hostBox = host.getBoundingClientRect();
@@ -112,6 +127,7 @@ export function openColorPicker(host: HTMLElement, anchor: HTMLElement, current:
       const color = input.value.toLowerCase();
       customColors = [color, ...customColors.filter((candidate) => candidate !== color)].slice(0, CUSTOM_LIMIT);
       saveCustom(customColors);
+      customListeners.forEach((listener) => listener());
       renderCustom();
       choose(color);
     };

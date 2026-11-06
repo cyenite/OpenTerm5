@@ -20,7 +20,7 @@ import { drawingsForSymbol, setSymbolDrawings, symbolDrawings } from '../../lib/
 import { themeCssVariables } from '@meridian/charts/themes';
 import { chartTheme, themeStore } from '../../lib/theme';
 import { importedThemes } from '../../lib/custom-themes';
-import { focusChart, layoutDrawings, setLayoutDrawings, updateChart, workspace, type ChartConfig } from '../../lib/workspace';
+import { focusChart, isSyncedDrawings, layoutDrawings, setLayoutDrawings, updateChart, workspace, type ChartConfig } from '../../lib/workspace';
 import { chartMenu, liteChartMenu } from '../../lib/chart-menu';
 import { openContextMenu } from '../../lib/context-menu';
 import { OneClickPanel } from './OneClickPanel';
@@ -256,11 +256,12 @@ export function ChartWindow({ chart, isActive, isLite = false }: ChartWindowProp
   }, [instance, chart.indicators]);
 
   // A change to the chart's own list came from this chart's menus or dialogs and can be undone there;
-  // a change to its tab's or symbol's list alone came from another chart or an import.
+  // a change to its tab's or symbol's list alone came from another chart or an import, and one from
+  // sync came from another computer.
   const appliedOwn = useRef(chart.drawings);
   useEffect(() => {
     if (!instance) return;
-    const isOwnChange = appliedOwn.current !== chart.drawings;
+    const isOwnChange = appliedOwn.current !== chart.drawings && !isSyncedDrawings(chart.drawings);
     appliedOwn.current = chart.drawings;
     const drawings = [...chart.drawings, ...tabShared, ...shared];
     keepOwn(chart.drawings);

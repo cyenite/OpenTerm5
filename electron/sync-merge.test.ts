@@ -181,3 +181,8 @@ test('random edits on three replicas converge on the newest edit of every key', 
     for (const replica of replicas) assert.deepEqual(replica.plain, expected, `round ${round}`);
   }
 });
+
+test('an entry key that would set a prototype is refused when a record is read', () => {
+  const hlc = '1800000000000.0000.a';
+  assert.throws(() => parseSyncedRecord(JSON.parse(`{"entries": {"__proto__": {"hlc": "${hlc}", "value": 1}}}`)), /not allowed/);
+});
