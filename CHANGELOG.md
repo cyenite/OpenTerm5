@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-06
+
 ### Added
 
 - **Sync Across Computers now syncs your content**: layouts and their charts (symbol, timeframe,
@@ -22,6 +24,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and **Use one CID on all my computers**, which asks which CID to keep if they differ.
 - **Logging in to an account that is open on another computer asks first**, and **Move it here**
   has that computer log out of it, so the two sessions do not keep disconnecting each other.
+
+### Changed
+
+- Electron is updated to 45.2.1, which brings Chromium 156 security fixes.
 
 ### Fixed
 
@@ -596,7 +602,8 @@ First public release of OpenTerm5 (previously developed as Terminal5), under the
 - **Project files:** documentation under `docs/`, a contributing guide, code of conduct, security
   policy, issue and pull request templates, and CI on Linux, macOS and Windows.
 
-[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/cyenite/OpenTerm5/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/cyenite/OpenTerm5/compare/v0.11.0...v1.0.0
 [0.11.0]: https://github.com/cyenite/OpenTerm5/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/cyenite/OpenTerm5/compare/v0.10.0...v0.10.1
