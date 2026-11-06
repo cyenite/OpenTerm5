@@ -23,6 +23,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Logging in to an account that is open on another computer asks first**, and **Move it here**
   has that computer log out of it, so the two sessions do not keep disconnecting each other.
 
+### Fixed
+
+- The Long and Short Position tools shade the trade from the bar where price reached the entry, as
+  TradingView does, instead of from the tool's left edge. A position whose entry price is never
+  reached shows no shading and no P&L.
+
 ## [1.0.0] - 2026-11-04
 
 ### Added
