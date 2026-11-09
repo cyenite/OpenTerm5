@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-09
+
 ### Added
 
 - **The favourite drawing tools bar can be moved.** Drag it by the grip on its left end to anywhere
@@ -621,7 +623,8 @@ First public release of OpenTerm5 (previously developed as Terminal5), under the
 - **Project files:** documentation under `docs/`, a contributing guide, code of conduct, security
   policy, issue and pull request templates, and CI on Linux, macOS and Windows.
 
-[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/cyenite/OpenTerm5/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/cyenite/OpenTerm5/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/cyenite/OpenTerm5/compare/v0.11.0...v1.0.0
 [0.11.0]: https://github.com/cyenite/OpenTerm5/compare/v0.10.1...v0.11.0
