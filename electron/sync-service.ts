@@ -820,7 +820,7 @@ export class SyncService {
   }
 
   private failed(error: Error): RunResult {
-    if (error instanceof SyncIntegrityError) return this.attend(error.reason, error.message);
+    if (error instanceof SyncIntegrityError) return error.reason === 'tooNew' ? this.retryQuietly(error.message) : this.attend(error.reason, error.message);
     if (error instanceof SyncSourceUnavailableError) {
       [this.status, this.error] = ['loading', error.message];
       return { kind: 'retry' };
@@ -834,7 +834,16 @@ export class SyncService {
       [this.status, this.error] = ['offline', error.message];
       return { kind: 'retry' };
     }
-    if (error instanceof SyncSetupError || error instanceof SyncFileDamagedError) return this.attend('failed', error.message);
-    return this.attend('failed', `Sync stopped: ${error.message}`);
+    return this.retryQuietly(error.message);
+  }
+
+  // Anything that is not a choice for the user, a lost sign-in or a sign of tampering is tried
+  // again on the scheduler's back-off: most clear up on their own (a sync file another computer is
+  // writing, an update that adds a newer format), and "Try again" was all the user could do.
+  // Each new problem is journalled once, not on every retry.
+  private retryQuietly(message: string): RunResult {
+    if (message !== this.error) this.deps.journal(`Sync will try again: ${message}`);
+    [this.status, this.error] = ['retrying', message];
+    return { kind: 'retry' };
   }
 }

@@ -18,6 +18,7 @@ import { loadAccounts, secretCipher } from './accounts';
 import { SessionPool } from './session-pool';
 import { handleTradingView } from './tradingview';
 import { AppZoom } from './app-zoom';
+import { WindowBounds } from './window-bounds';
 import { isZoomStep } from '../shared/zoom';
 import { AutomationHost } from './automation-host';
 import type { AutomationEvent, AutomationMethod } from '../shared/automation';
@@ -199,6 +200,8 @@ async function applySettings(): Promise<void> {
 }
 
 const zoom = new AppZoom(path.join(app.getPath('userData'), 'zoom.json'), (factor) => send('zoom', factor));
+const windowBounds = new WindowBounds(path.join(app.getPath('userData'), 'window.json'));
+const minimumSize = { width: 960, height: 600 };
 
 // Charts popped out of the layout: windows the renderer opens on about:blank and draws into itself.
 const popoutPrefix = 'openterm-pip-';
@@ -226,11 +229,13 @@ function closePopouts(): void {
 
 function createWindow(): void {
   isSyncFlushed = false;
+  const workAreas = [screen.getPrimaryDisplay(), ...screen.getAllDisplays()].map((display) => display.workArea);
   window = new BrowserWindow({
     width: 1440,
     height: 900,
-    minWidth: 960,
-    minHeight: 600,
+    ...windowBounds.options(workAreas, minimumSize),
+    minWidth: minimumSize.width,
+    minHeight: minimumSize.height,
     title: 'OpenTerm5',
     show: false,
     // macOS takes the icon from the app bundle; Linux and Windows need it on the window.
@@ -245,6 +250,7 @@ function createWindow(): void {
       nodeIntegration: false,
     },
   });
+  windowBounds.track(window);
   window.once('ready-to-show', () => window?.show());
   window.on('focus', () => sync?.setFocused(true));
   window.on('blur', () => sync?.setFocused(false));
@@ -628,6 +634,7 @@ if (!app.requestSingleInstanceLock()) {
     installMenu();
     settings = await loadSettings();
     await zoom.load();
+    await windowBounds.load();
     await device.load();
     try { accounts = await loadAccounts(() => sync?.noteLocalChange()); }
     catch { journal('Saved accounts could not be loaded. Log in manually.', 'Accounts'); }

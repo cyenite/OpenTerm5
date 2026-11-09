@@ -34,8 +34,12 @@ const css = `
 .mc-star.is-on { color: #f7a600; }
 .mc-star:hover { color: #f7a600; }
 
-.mc-favorites { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; gap: 2px; padding: 2px; border-radius: 6px; background: var(--mc-surface); border: 1px solid var(--mc-border); box-shadow: 0 2px 8px rgb(0 0 0 / 0.25); }
+.mc-favorites { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 2px; padding: 2px 2px 2px 0; border-radius: 6px; background: var(--mc-surface); border: 1px solid var(--mc-border); box-shadow: 0 2px 8px rgb(0 0 0 / 0.25); }
+.mc-favorites-list { display: flex; gap: 2px; }
 .mc-favorites .mc-btn { width: 32px; height: 32px; }
+.mc-favorites-handle { display: flex; align-items: center; justify-content: center; width: 14px; height: 32px; color: var(--mc-muted); cursor: grab; touch-action: none; }
+.mc-favorites-handle:active { cursor: grabbing; }
+.mc-favorites-handle svg { width: 24px; height: 24px; margin: 0 -5px; }
 
 .mc-legend { position: absolute; left: 8px; z-index: 3; display: flex; flex-direction: column; gap: 2px; max-width: calc(100% - 90px); pointer-events: none; }
 .mc-legend-row { display: flex; align-items: center; gap: 6px; height: 20px; padding: 0 4px; border-radius: 4px; white-space: nowrap; pointer-events: auto; font-size: 12px; }

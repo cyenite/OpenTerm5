@@ -1,4 +1,6 @@
 import { drawingFavorites, saveDrawingFavorites, type MeridianChart, type MeridianDrawingTools } from '@meridian/charts';
+import { defaultDrawingTools, parseDrawingTools, savedDrawingTools, type SavedDrawingTools } from './drawing-tools-model';
+import { log } from './session';
 import { Store } from './store';
 import { tools, workspace } from './workspace';
 
@@ -11,9 +13,19 @@ export interface DrawingToolsState extends MeridianDrawingTools {
   readonly favorites: readonly string[];
 }
 
+const STORAGE_KEY = 'openterm.drawing-tools.v1';
+
 const engines = new Set<MeridianChart>();
 
-export const drawingTools = new Store<DrawingToolsState>({ tool: null, cursor: 'cross', magnet: 'off', isStayMode: false, isLocked: false, isHidden: false, favorites: drawingFavorites() });
+function load(): SavedDrawingTools {
+  try {
+    return parseDrawingTools(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null'));
+  } catch {
+    return defaultDrawingTools;
+  }
+}
+
+export const drawingTools = new Store<DrawingToolsState>({ tool: null, ...load(), favorites: drawingFavorites() });
 
 export function setDrawingTools(patch: Partial<MeridianDrawingTools>): void {
   drawingTools.set(patch);
@@ -40,6 +52,21 @@ export function attachDrawingTools(engine: MeridianChart): () => void {
     unsubscribe();
     engines.delete(engine);
   };
+}
+
+// The rail's switches outlast a restart, as TradingView's do; the tool in hand does not.
+export function startDrawingTools(): void {
+  let saved = '';
+  drawingTools.subscribe(() => {
+    const next = JSON.stringify(savedDrawingTools(drawingTools.get()));
+    if (next === saved) return;
+    saved = next;
+    try {
+      localStorage.setItem(STORAGE_KEY, next);
+    } catch (error) {
+      log(`Drawing tool settings could not be saved: ${(error as Error).message}`, 'Charts');
+    }
+  });
 }
 
 // The terminal's own quick tools (Insert menu, shortcuts) pick a rail tool; when the rail moves

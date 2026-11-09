@@ -31,17 +31,30 @@ export interface ToolbarActions {
 
 const MEASURE = 'measure';
 const ZOOM = 'zoom-in';
+const FAVORITES_POSITION_KEY = 'meridian.favorites.position';
+
+function loadFavoritesPosition(): { x: number; y: number } | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FAVORITES_POSITION_KEY) ?? 'null');
+    return saved && Number.isFinite(saved.x) && Number.isFinite(saved.y) ? { x: saved.x, y: saved.y } : null;
+  } catch {
+    return null;
+  }
+}
 
 // The drawing toolbar down the left of the chart. Each group button shows the tool last used
 // from it; its arrow opens the group's flyout, split into sections, where tools can be starred
-// into the favourites bar.
+// into the favourites bar, which floats over the charts and can be dragged anywhere on them.
 export class DrawingToolbar {
   readonly element: HTMLElement;
   private readonly lastUsed = new Map<string, string>(toolGroups.map((group) => [group.id, group.sections[0].tools[0].type]));
   private flyout: HTMLElement | null = null;
   private openArrow: HTMLElement | null = null;
   private state: ToolbarState;
+  private favoritesPosition = loadFavoritesPosition();
   private readonly favoritesBar: HTMLElement;
+  private readonly favoritesList: HTMLElement;
+  private readonly hostResize: ResizeObserver;
 
   constructor(host: HTMLElement, private readonly overlayHost: HTMLElement, private readonly actions: ToolbarActions, state: ToolbarState) {
     this.state = state;
@@ -52,6 +65,15 @@ export class DrawingToolbar {
     this.favoritesBar = element('div', 'mc-favorites', overlayHost);
     this.favoritesBar.setAttribute('role', 'toolbar');
     this.favoritesBar.setAttribute('aria-label', 'Favorite drawing tools');
+    const handle = element('span', 'mc-favorites-handle', this.favoritesBar);
+    handle.innerHTML = iconSvg('drag-handle', 24);
+    handle.title = 'Move';
+    handle.addEventListener('pointerdown', this.onDragFavorites);
+    this.favoritesList = element('div', 'mc-favorites-list', this.favoritesBar);
+    // From the host's own window: a popped-out chart lives in another document.
+    const view = overlayHost.ownerDocument.defaultView ?? window;
+    this.hostResize = new view.ResizeObserver(() => this.placeFavorites());
+    this.hostResize.observe(overlayHost);
     host.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
     this.render();
   }
@@ -59,6 +81,7 @@ export class DrawingToolbar {
   destroy(): void {
     this.element.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
     this.closeFlyout();
+    this.hostResize.disconnect();
     this.element.remove();
     this.favoritesBar.remove();
   }
@@ -145,13 +168,56 @@ export class DrawingToolbar {
   }
 
   private renderFavorites(): void {
-    this.favoritesBar.replaceChildren();
+    this.favoritesList.replaceChildren();
     for (const type of this.state.favorites) {
       const info = drawingToolInfo.get(type);
-      if (info) this.button(this.favoritesBar, type, info.label, this.state.tool === type, () => this.actions.selectTool(this.state.tool === type ? null : type));
+      if (info) this.button(this.favoritesList, type, info.label, this.state.tool === type, () => this.actions.selectTool(this.state.tool === type ? null : type));
     }
     this.favoritesBar.style.display = this.state.favorites.length && this.isVisible ? '' : 'none';
+    this.placeFavorites();
   }
+
+  // Kept inside the charts when they shrink, or when a favourite added makes the bar longer.
+  private placeFavorites(): void {
+    const bar = this.favoritesBar;
+    if (!this.favoritesPosition) {
+      bar.style.left = '50%';
+      bar.style.top = '8px';
+      bar.style.transform = 'translateX(-50%)';
+      return;
+    }
+    const box = this.overlayHost.getBoundingClientRect();
+    bar.style.transform = 'none';
+    bar.style.left = `${Math.max(0, Math.min(box.width - bar.offsetWidth, this.favoritesPosition.x))}px`;
+    bar.style.top = `${Math.max(0, Math.min(box.height - bar.offsetHeight, this.favoritesPosition.y))}px`;
+  }
+
+  private onDragFavorites = (event: PointerEvent): void => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const bar = this.favoritesBar;
+    const handle = event.currentTarget as HTMLElement;
+    const box = this.overlayHost.getBoundingClientRect();
+    const at = bar.getBoundingClientRect();
+    const start = { x: event.clientX, y: event.clientY, left: at.left - box.left, top: at.top - box.top };
+    handle.setPointerCapture(event.pointerId);
+    const move = (moveEvent: PointerEvent) => {
+      this.favoritesPosition = {
+        x: Math.max(0, Math.min(box.width - bar.offsetWidth, start.left + moveEvent.clientX - start.x)),
+        y: Math.max(0, Math.min(box.height - bar.offsetHeight, start.top + moveEvent.clientY - start.y)),
+      };
+      this.placeFavorites();
+    };
+    const end = () => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', end);
+      handle.removeEventListener('pointercancel', end);
+      try { localStorage.setItem(FAVORITES_POSITION_KEY, JSON.stringify(this.favoritesPosition)); } catch { /* The place then lasts for this session. */ }
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+  };
 
   private place(menu: HTMLElement, anchor: HTMLElement): void {
     const hostBox = this.overlayHost.getBoundingClientRect();

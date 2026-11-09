@@ -56,6 +56,9 @@ const paths = {
   expand: <path d="M14 4h6v6M20 4l-6 6M10 20H4v-6M4 20l6-6" />,
   compress: <path d="M20 10h-6V4M14 10l6-6M4 14h6v6M10 14l-6 6" />,
   popout: <><path d="M11 5H5v14h14v-6" /><path d="M14 4h6v6M20 4l-8 8" /></>,
+  cloudSynced: <><path d="M7 18.5h10a4 4 0 0 0 .6-7.96A5.5 5.5 0 0 0 7.06 9.6 4.5 4.5 0 0 0 7 18.5z" /><path d="m9.5 14 2 2 3.5-3.5" /></>,
+  cloudPaused: <><path d="M7 18.5h10a4 4 0 0 0 .6-7.96A5.5 5.5 0 0 0 7.06 9.6 4.5 4.5 0 0 0 7 18.5z" /><path d="M10 13.5h4" /></>,
+  cloudAttention: <><path d="M7 18.5h10a4 4 0 0 0 .6-7.96A5.5 5.5 0 0 0 7.06 9.6 4.5 4.5 0 0 0 7 18.5z" /><path d="M12 11.5v2.5M12 16.2v.1" /></>,
   dock: <><rect x="3" y="4" width="18" height="16" rx="2" /><rect x="12" y="12" width="6" height="5" rx="0.8" /><path d="M7 8l4 4M11 8.5V12H7.5" /></>,
 } as const;
 

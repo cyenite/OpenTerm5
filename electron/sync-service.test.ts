@@ -196,6 +196,29 @@ test('being offline retries later instead of stopping', async () => {
   assert.equal(first.view().status, 'idle');
 });
 
+test('an unexpected failure retries quietly, is journalled once and clears on its own', async () => {
+  const github = fakeGitHub();
+  const chart = new MemorySource('chart');
+  const { first } = await setUpFirst(github, null, [chart]);
+  const snapshot = chart.snapshot.bind(chart);
+  let failures = 2;
+  chart.snapshot = async () => {
+    if (failures-- > 0) throw new Error('disk busy');
+    return snapshot();
+  };
+  await first.service.handle('sync.syncNow', {});
+  await first.tick();
+  assert.equal(first.view().status, 'retrying');
+  assert.equal(first.view().attention, null);
+  assert.ok(first.view().nextRunAt);
+  await first.tick(30_000);
+  assert.equal(first.view().status, 'retrying');
+  assert.equal(first.journal.filter((line) => line.includes('disk busy')).length, 1);
+  await first.tick(60_000);
+  assert.equal(first.view().status, 'idle');
+  assert.equal(first.view().error, null);
+});
+
 test('an altered manifest stops sync and says why', async () => {
   const github = fakeGitHub();
   const { first } = await setUpFirst(github);
