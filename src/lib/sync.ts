@@ -1,4 +1,4 @@
-import type { SyncApi, SyncMethod, SyncMethods, SyncSnapshot, SyncSourceRequest, SyncView } from '../../shared/sync';
+import type { SyncApi, SyncMethod, SyncMethods, SyncSnapshot, SyncSourceRequest, SyncStatus, SyncView } from '../../shared/sync';
 import { Store } from './store';
 import { syncedStores, syncSources } from './sync-sources';
 import { toJson } from './sync-model';
@@ -13,7 +13,13 @@ declare global {
 
 export const sync = window.sync;
 
-export const syncStore = new Store<{ view: SyncView | null }>({ view: null });
+// `settled` is how the last run ended: a run starts every 15 s, and the status bar shows that
+// rather than flickering to "syncing" on each one.
+export const syncStore = new Store<{ view: SyncView | null; settled: SyncStatus }>({ view: null, settled: 'idle' });
+
+function showView(view: SyncView): void {
+  syncStore.set((state) => ({ view, settled: view.status === 'syncing' ? state.settled : view.status }));
+}
 
 // Store changes made by applying synced records are not news to the main process.
 let isApplying = false;
@@ -35,8 +41,8 @@ async function serve(request: SyncSourceRequest): Promise<unknown> {
 }
 
 export function startSync(): void {
-  sync.on('view', (view) => syncStore.set({ view }));
-  void sync.request('sync.view', {}).then((view) => syncStore.set({ view })).catch(() => undefined);
+  sync.on('view', showView);
+  void sync.request('sync.view', {}).then(showView).catch(() => undefined);
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
   const notice = () => {
     if (isApplying || noticeTimer || syncStore.get().view?.phase !== 'on') return;
@@ -53,7 +59,7 @@ export function startSync(): void {
 export async function requestSync<M extends SyncMethod>(method: M, params: SyncMethods[M][0]): Promise<string | null> {
   try {
     const result = await sync.request(method, params);
-    if (result && typeof result === 'object' && 'phase' in result) syncStore.set({ view: result as SyncView });
+    if (result && typeof result === 'object' && 'phase' in result) showView(result as SyncView);
     return null;
   } catch (error) {
     return (error as Error).message;

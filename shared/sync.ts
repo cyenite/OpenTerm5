@@ -99,6 +99,7 @@ export const syncStatuses = [
   { key: 'offline', label: 'Offline' },
   { key: 'waiting', label: 'Waiting for GitHub' },
   { key: 'loading', label: 'Waiting for the app window' },
+  { key: 'retrying', label: 'Retrying' },
   { key: 'attention', label: 'Needs attention' },
 ] as const;
 
@@ -106,7 +107,7 @@ export type SyncStatus = (typeof syncStatuses)[number]['key'];
 
 export type SyncAttentionReason =
   | 'tampered' | 'rollback' | 'epoch' | 'tooNew' | 'stale' | 'revoked'
-  | 'held' | 'join' | 'reconnect' | 'repositoryPublic' | 'repositoryMissing' | 'failed';
+  | 'held' | 'join' | 'reconnect' | 'repositoryPublic' | 'repositoryMissing';
 
 export interface SyncMassChange {
   readonly kind: SyncKind;

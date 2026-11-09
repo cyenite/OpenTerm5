@@ -5221,17 +5221,20 @@ button.is-link {
 }
 
 .status-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   background: transparent;
   box-shadow: none;
   border-radius: 0;
   min-height: 0;
-  padding: 0 10px;
+  padding: 0 8px;
   color: var(--muted);
+  opacity: 0.7;
 }
 
-.status-sync.is-good { color: var(--good); }
-.status-sync.is-warn { color: var(--warn); }
-.status-sync.is-bad { color: var(--bad); }
+.status-sync:hover { opacity: 1; }
+.status-sync.is-warn { color: var(--warn); opacity: 1; }
 
 .sync-steps {
   margin: 0 0 12px;

@@ -382,7 +382,7 @@ function OnPanel({ view }: SyncStepProps) {
       <PairingRequests requests={view.pairingRequests} />
       {view.attention && <AttentionBanner attention={view.attention} />}
       {!view.isRecoveryConfirmed && <p className="banner is-warn">The recovery code for this sync was never confirmed. Make a new one and save it.</p>}
-      {view.status === 'offline' && view.error && <p className="banner is-warn">{view.error} OpenTerm5 keeps your edits and tries again.</p>}
+      {(view.status === 'offline' || view.status === 'retrying') && view.error && <p className="banner is-warn">{view.error} OpenTerm5 keeps your edits and tries again.</p>}
       <p className="is-muted">Layouts, charts, drawings, watchlists, templates, alerts, Pine scripts, saved accounts and settings stay the same on your computers. Panels, and which layout is in front, stay with each one.</p>
       <DeviceList devices={view.devices} />
       <div className="button-row">
