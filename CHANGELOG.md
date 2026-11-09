@@ -7,6 +7,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The favourite drawing tools bar can be moved.** Drag it by the grip on its left end to anywhere
+  on the charts; it stays there after a restart and keeps inside the charts when the window shrinks.
+
+### Changed
+
+- **Sync looks after itself and stays quiet.** Problems you cannot act on are retried by themselves
+  instead of stopping sync until you press Try again. The status bar shows a small cloud icon that
+  no longer flickers to "Syncing" on every check; words appear only when sync needs you, such as
+  confirming large deletions or reconnecting GitHub.
+
+### Fixed
+
+- The drawing rail's cursor, magnet, Stay in Drawing Mode, Lock and Hide settings are kept between
+  launches instead of resetting each time the app opens.
+- The main window reopens at the size and position it was closed at, maximised or full screen if it
+  was. A window last left on a monitor that is no longer connected opens on the main screen.
+
 ## [1.1.0] - 2026-11-06
 
 ### Added
