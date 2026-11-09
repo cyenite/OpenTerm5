@@ -21,6 +21,7 @@ import { startDrawingTemplates } from './lib/drawing-templates';
 import { startPineScripts } from './lib/pine/pine-scripts';
 import { startIndicatorFavorites } from './lib/indicator-favorites';
 import { startTimeframeFavorites } from './lib/timeframe-favorites';
+import { startDrawingTools } from './lib/drawing-tools';
 import './styles.css';
 
 document.body.classList.add(`platform-${window.terminal.platform}`);
@@ -40,6 +41,7 @@ startImportedThemes();
 startPineScripts();
 startIndicatorFavorites();
 startTimeframeFavorites();
+startDrawingTools();
 startAutomation();
 startJournaling();
 startUpdates();
