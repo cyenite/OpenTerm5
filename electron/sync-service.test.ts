@@ -256,9 +256,16 @@ test('polls between full runs ask GitHub only for the branch and read no store',
   chart.snapshot = async () => { snapshots++; return snapshot(); };
   const from = github.requests.length;
   const viewsFrom = first.views.length;
-  await first.tick(30_000);
+  // One poll at a time, moving the clock only once the next one is scheduled: a slow runner does
+  // not finish a poll within the microtasks the fake clock allows between timers.
+  for (let poll = 0; poll < 5; poll++) {
+    const before = github.requests.length;
+    await until(() => first.view().nextRunAt !== null);
+    await first.timers.advance(first.view().nextRunAt! - (1_800_000_000_000 + first.timers.time));
+    await until(() => github.requests.length > before);
+  }
   const polled = github.requests.slice(from);
-  assert.ok(polled.length >= 5, `${polled.length} requests`);
+  assert.equal(polled.length, 5);
   assert.ok(polled.every((request) => request.method === 'GET' && request.url.endsWith('/git/ref/heads/main')), polled.map((request) => request.url).join(', '));
   assert.equal(snapshots, 0);
   assert.equal(first.views.length, viewsFrom, 'a quiet poll shows nothing');
