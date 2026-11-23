@@ -43,23 +43,20 @@ const repositoryInfo = (value: Record<string, unknown>): RepositoryInfo => ({
 export class GitHubApi {
   serverOffsetMs = 0;
 
-  constructor(private readonly fetch: Fetch, private readonly token: () => Promise<string>, private readonly now: () => number = Date.now) {}
+  // `renew` gets a fresh token when GitHub refuses one that has not expired by the clock.
+  constructor(private readonly fetch: Fetch, private readonly token: () => Promise<string>, private readonly now: () => number = Date.now, private readonly renew?: () => Promise<string>) {}
 
   get serverNow(): number {
     return this.now() + this.serverOffsetMs;
   }
 
   async request(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Reply> {
-    const token = await this.token();
-    let response: Response;
-    try {
-      response = await this.fetch(`${GITHUB_API}${path}`, {
-        method, redirect: 'error',
-        headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': API_VERSION, Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers },
-        ...(body ? { body: JSON.stringify(body) } : {}),
-      });
-    } catch {
-      throw new GitHubNetworkError('GitHub could not be reached.');
+    let response = await this.send(await this.token(), method, path, body, headers);
+    // A token can be refused before its stated expiry (revoked, or just issued and not yet known
+    // everywhere); one fresh token is tried before the user is asked to reconnect.
+    if (response.status === 401 && this.renew) {
+      await response.text().catch(() => '');
+      response = await this.send(await this.renew(), method, path, body, headers);
     }
     const date = Date.parse(response.headers.get('date') ?? '');
     if (Number.isFinite(date)) this.serverOffsetMs = date - this.now();
@@ -74,6 +71,20 @@ export class GitHubApi {
     }
     if (response.status >= 500) throw new GitHubRequestError(response.status, `GitHub answered ${response.status}. It will be tried again.`);
     return { status: response.status, headers: response.headers, body: parsed };
+  }
+
+  // `no-store`: Electron's fetch keeps GitHub's `max-age=60` responses in Chromium's HTTP cache, so
+  // a branch read just after this computer pushed would answer with the commit before the push.
+  private async send(token: string, method: string, path: string, body: unknown, headers: Record<string, string>): Promise<Response> {
+    try {
+      return await this.fetch(`${GITHUB_API}${path}`, {
+        method, redirect: 'error', cache: 'no-store',
+        headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': API_VERSION, Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+    } catch {
+      throw new GitHubNetworkError('GitHub could not be reached.');
+    }
   }
 
   async login(): Promise<string> {

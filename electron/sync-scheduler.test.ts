@@ -6,23 +6,36 @@ import { SyncScheduler, syncTiming, type RunResult } from './sync-scheduler';
 function harness(results: RunResult[] = []) {
   const timers = new FakeTimers();
   const runs: number[] = [];
+  const fullRuns: number[] = [];
   const stamps: number[] = [];
   const scheduler = new SyncScheduler({
     timers, now: () => timers.time,
     stamp: async () => { stamps.push(timers.time); },
-    run: async () => { runs.push(timers.time); return results.shift() ?? { kind: 'ok' }; },
+    run: async ({ isFull }) => {
+      runs.push(timers.time);
+      if (isFull) fullRuns.push(timers.time);
+      return results.shift() ?? { kind: 'ok' };
+    },
   });
-  return { timers, runs, stamps, scheduler };
+  return { timers, runs, fullRuns, stamps, scheduler };
 }
 
-test('starting runs at once, then polls every 15 s while focused and every 2 min in the background', async () => {
-  const { timers, runs, scheduler } = harness();
+test('starting runs in full at once, then polls every 5 s while focused and every 15 s in the background', async () => {
+  const { timers, runs, fullRuns, scheduler } = harness();
   scheduler.start();
-  await timers.advance(31_000);
-  assert.deepEqual(runs, [0, 15_000, 30_000]);
+  await timers.advance(11_000);
+  assert.deepEqual(runs, [0, 5000, 10_000]);
+  assert.deepEqual(fullRuns, [0]);
   scheduler.setFocused(false);
-  await timers.advance(300_000);
-  assert.deepEqual(runs.slice(3), [45_000, 165_000, 285_000]);
+  await timers.advance(40_000);
+  assert.deepEqual(runs.slice(3), [15_000, 30_000, 45_000]);
+});
+
+test('a poll reads every store again every two minutes', async () => {
+  const { timers, fullRuns, scheduler } = harness();
+  scheduler.start();
+  await timers.advance(250_000);
+  assert.deepEqual(fullRuns, [0, 120_000, 240_000]);
 });
 
 test('focus, wake and unlock run at once', async () => {
@@ -39,16 +52,30 @@ test('focus, wake and unlock run at once', async () => {
   assert.deepEqual(runs, [0, 2000, 2000]);
 });
 
-test('edits are stamped a second after they settle and pushed three seconds later', async () => {
-  const { timers, runs, stamps, scheduler } = harness();
+test('edits are stamped a second after they settle and pushed in full a second and a half later', async () => {
+  const { timers, fullRuns, stamps, scheduler } = harness();
   scheduler.start();
   await timers.advance(0);
   scheduler.localChange();
   await timers.advance(500);
   scheduler.localChange();
-  await timers.advance(5000);
+  await timers.advance(3500);
   assert.deepEqual(stamps, [1500]);
-  assert.deepEqual(runs, [0, 4500]);
+  assert.deepEqual(fullRuns, [0, 3000]);
+});
+
+test('edits that settle while a push is due ride along with it', async () => {
+  const { timers, fullRuns, stamps, scheduler } = harness();
+  scheduler.start();
+  await timers.advance(0);
+  scheduler.localChange();
+  await timers.advance(1200);
+  scheduler.localChange();
+  await timers.advance(1200);
+  scheduler.localChange();
+  await timers.advance(4000);
+  assert.deepEqual(stamps, [1000, 2200, 3400]);
+  assert.deepEqual(fullRuns, [0, 2500, 4900], 'the third edit came after the first push ran');
 });
 
 test('edits are still stamped while sync is stopped, but nothing runs', async () => {
@@ -59,15 +86,24 @@ test('edits are still stamped while sync is stopped, but nothing runs', async ()
 });
 
 test('constant editing is held to the push budget', async () => {
-  const { timers, runs, scheduler } = harness();
+  const { timers, fullRuns, scheduler } = harness();
   scheduler.setFocused(false);
   scheduler.start();
   await timers.advance(0);
-  for (let minute = 0; minute < 60; minute++) {
+  for (let second = 0; second < 3600; second += 2) {
     scheduler.localChange();
-    await timers.advance(60_000);
+    await timers.advance(2000);
   }
-  assert.ok(runs.length <= 1 + syncTiming.pushesPerHour + syncTiming.pushBurst + 30, `${runs.length} runs in an hour`);
+  const periodic = 3_600_000 / syncTiming.fullRunMs;
+  assert.ok(fullRuns.length <= 1 + syncTiming.pushesPerHour + syncTiming.pushBurst + periodic, `${fullRuns.length} full runs in an hour`);
+});
+
+test('a failed poll is retried in full', async () => {
+  const { timers, runs, fullRuns, scheduler } = harness([{ kind: 'ok' }, { kind: 'retry' }]);
+  scheduler.start();
+  await timers.advance(40_000);
+  assert.deepEqual(runs.slice(0, 3), [0, 5000, 35_000]);
+  assert.deepEqual(fullRuns.slice(0, 2), [0, 35_000]);
 });
 
 test('failures back off, a stated retry time is honoured, and a stop ends polling', async () => {

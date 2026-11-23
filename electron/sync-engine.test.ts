@@ -185,6 +185,52 @@ test('deleting many drawings from one chart is held too', async () => {
   assert.equal((await a.engine.sync()).status, 'held');
 });
 
+test('deletions the user made after the stores synced go out, and others keep them unless a kind is emptied', async () => {
+  const { a, b, tick } = setup();
+  a.source('layout').data = Object.fromEntries(['L1', 'L2', 'L3', 'L4', 'L5'].map((id) => [id, { name: id }]));
+  a.source('chartDrawings').data = { c1: Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`d${index}`, index])) };
+  await a.engine.sync();
+  await b.engine.sync();
+  tick();
+  a.source('layout').data = { L1: { name: 'L1' }, L2: { name: 'L2' } };
+  a.source('chartDrawings').data = { c1: {} };
+  assert.equal((await a.engine.sync({ isLocalMassChangeAllowed: true })).status, 'synced');
+  assert.equal((await b.engine.sync()).status, 'synced', 'three of five layouts and every drawing on a chart need no second answer');
+  assert.deepEqual(Object.keys(b.source('layout').data), ['L1', 'L2']);
+  assert.deepEqual(b.source('chartDrawings').data, { c1: {} });
+});
+
+test('a profile switch that replaces every layout is not an emptied kind elsewhere', async () => {
+  const { a, b, tick } = setup();
+  a.source('layout').data = Object.fromEntries(['L1', 'L2', 'L3'].map((id) => [id, { name: id }]));
+  await a.engine.sync();
+  await b.engine.sync();
+  tick();
+  a.source('layout').data = { P1: { name: 'Swing' } };
+  assert.equal((await a.engine.sync({ isLocalMassChangeAllowed: true })).status, 'synced');
+  assert.equal((await b.engine.sync()).status, 'synced');
+  assert.deepEqual(b.source('layout').data, { P1: { name: 'Swing' } });
+});
+
+test('isCurrent is true only while the remote is where the last sync left it', async () => {
+  const { a, b, tick } = setup();
+  assert.equal(await a.engine.isCurrent(), false, 'nothing synced in this process yet');
+  a.source('layout').data = { L1: { name: 'one' } };
+  await a.engine.sync();
+  assert.equal(await a.engine.isCurrent(), true);
+  await b.engine.sync();
+  assert.equal(await a.engine.isCurrent(), false, 'b registered itself');
+  await a.engine.sync();
+  assert.equal(await a.engine.isCurrent(), true);
+  assert.equal(await b.engine.isCurrent(), true);
+  tick();
+  b.source('layout').data = { L1: { name: 'two' } };
+  await b.engine.sync();
+  assert.equal(await a.engine.isCurrent(), false);
+  await a.engine.sync();
+  assert.equal(await a.engine.isCurrent(), true);
+});
+
 test('a store that refuses a change rolls every store back and keeps the old state', async () => {
   const { a, b, tick } = setup();
   a.source('layout').data = { L1: { name: 'new layout' } };

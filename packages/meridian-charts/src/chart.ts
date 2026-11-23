@@ -2579,11 +2579,16 @@ export class MeridianChart {
       title: drawingToolInfo.get(drawing.type)?.label ?? 'Drawing',
       fields: drawingFields(drawing, definition),
       focus,
-      onDefaults: () => valuesOf(withTemplate(original, null, styleFor(drawing.type))),
-      templates: () => (store?.list(drawing.type) ?? []).map((template) => ({ label: template.name, values: valuesOf(withTemplate(original, template, styleFor(drawing.type))) })),
+      onDefaults: () => valuesOf(withTemplate(original, null, styleFor(drawing.type), definition)),
+      templates: () => (store?.list(drawing.type) ?? []).map((template) => ({ label: template.name, values: valuesOf(withTemplate(original, template, styleFor(drawing.type), definition)) })),
       ...(store ? {
         templateActions: {
-          save: (name, values) => store.save(drawing.type, templateOf(applyDrawingFields(original, definition, values), name)),
+          // Saving a template is choosing that look, so the tool's next drawing starts with it.
+          save: (name, values) => {
+            const saved = applyDrawingFields(original, definition, values);
+            store.save(drawing.type, templateOf(saved, name));
+            this.rememberLook(saved);
+          },
           remove: (name) => store.remove(drawing.type, name),
         },
       } : {}),
@@ -2634,7 +2639,7 @@ export class MeridianChart {
     const drawing = this.drawingList.find((candidate) => candidate.id === id);
     if (!drawing) return;
     this.checkpoint();
-    const next = withTemplate(drawing, template, styleFor(drawing.type));
+    const next = withTemplate(drawing, template, styleFor(drawing.type), toolDefinitions.get(drawing.type));
     if (!Object.keys(next.props ?? {}).length) delete next.props;
     this.drawingList = this.drawingList.map((candidate) => (candidate.id === id ? next : candidate));
     this.rememberLook(next);
@@ -2656,7 +2661,9 @@ export class MeridianChart {
       ...(store ? {
         saveAs: () => askTemplateName(this.root, names, (name) => {
           const drawing = this.drawingList.find((candidate) => candidate.id === id);
-          if (drawing) store.save(type, templateOf(drawing, name));
+          if (!drawing) return;
+          store.save(type, templateOf(drawing, name));
+          this.rememberLook(drawing);
         }),
         remove: (name: string) => confirmRemove(this.root, name, () => store.remove(type, name)),
       } : {}),
@@ -2719,7 +2726,10 @@ export class MeridianChart {
     if (!drawing) return;
     if (!isKept) drawing.text = editing.original;
     else if (drawing.text !== editing.original && !editing.isNew) this.checkpoint(editing.before);
-    if (isKept && drawing.text !== editing.original) this.emit('drawings');
+    if (isKept && drawing.text !== editing.original) {
+      this.rememberLook(drawing);
+      this.emit('drawings');
+    }
     this.main.focus({ preventScroll: true });
     this.invalidate();
   }

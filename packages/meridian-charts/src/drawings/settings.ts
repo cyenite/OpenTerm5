@@ -173,16 +173,22 @@ export function applyDrawingFields(drawing: SerializedDrawing, definition: ToolD
 }
 
 // A drawing's look as a named template: style, options and text, never its place or visibility.
+// A removed label is kept as '', so the template removes it too.
 export function templateOf(drawing: SerializedDrawing, name: string): DrawingTemplate {
   const { visibility, isTransient, ...props } = drawing.props ?? {};
-  return { name, style: structuredClone(drawing.style), ...(Object.keys(props).length ? { props: structuredClone(props) } : {}), ...(drawing.text ? { text: drawing.text } : {}) };
+  return { name, style: structuredClone(drawing.style), ...(Object.keys(props).length ? { props: structuredClone(props) } : {}), ...(drawing.text !== undefined ? { text: drawing.text } : {}) };
 }
 
-// The drawing restyled by a template; with no template, by the tool's defaults.
-export function withTemplate(drawing: SerializedDrawing, template: DrawingTemplate | null, defaultStyle: SerializedDrawing['style']): SerializedDrawing {
+// A tool whose text is an optional label (a trend line's "BOS") rather than its content (a note).
+const hasOptionalLabel = (definition: ToolDefinition | undefined) => !!definition?.hasText && !definition.defaultText;
+
+// The drawing restyled by a template; with no template, by the tool's defaults. A label is part
+// of a template's look, so one without a label (saved before empty labels were kept) clears it.
+export function withTemplate(drawing: SerializedDrawing, template: DrawingTemplate | null, defaultStyle: SerializedDrawing['style'], definition?: ToolDefinition): SerializedDrawing {
   const visibility = drawing.props?.visibility;
   const props = { ...(template?.props ?? {}), ...(visibility ? { visibility } : {}) };
-  return { ...drawing, style: structuredClone(template?.style ?? defaultStyle), props, ...(template?.text !== undefined ? { text: template.text } : {}) };
+  const text = template?.text ?? (template && hasOptionalLabel(definition) ? '' : undefined);
+  return { ...drawing, style: structuredClone(template?.style ?? defaultStyle), props, ...(text !== undefined ? { text } : {}) };
 }
 
 // What a new drawing of the tool starts with, remembered from the last one the user styled. Text
