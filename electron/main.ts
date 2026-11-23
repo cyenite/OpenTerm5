@@ -578,7 +578,11 @@ ipcMain.handle('sync:request', async (_event, method: SyncMethod, params: unknow
 });
 // Only the main window serves the stores; pop-outs share its page but have no preload of their own.
 const isMainWindow = (sender: Electron.WebContents) => !!window && !window.isDestroyed() && sender === window.webContents;
-ipcMain.on('sync:source-ready', (event) => { if (isMainWindow(event.sender)) syncSources.setReady(true); });
+ipcMain.on('sync:source-ready', (event) => {
+  if (!isMainWindow(event.sender)) return;
+  syncSources.setReady(true);
+  sync?.windowLoaded();
+});
 ipcMain.on('sync:source-reply', (event, id: unknown, reply: unknown) => { if (isMainWindow(event.sender) && typeof id === 'number') syncSources.receive(id, reply); });
 ipcMain.on('sync:changed', (event) => { if (isMainWindow(event.sender)) sync?.noteLocalChange(); });
 ipcMain.handle('updates:request', async (_event, method: UpdateMethod, params: unknown) => {

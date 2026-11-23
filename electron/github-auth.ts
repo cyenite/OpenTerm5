@@ -101,6 +101,14 @@ export class GitHubAuth {
     return this.refreshing;
   }
 
+  // A new token whatever the stored one's expiry says, for when GitHub refused it early.
+  renewAccessToken(): Promise<string> {
+    const tokens = this.deps.load();
+    if (!tokens || tokens.refreshExpiresAt <= this.now()) return Promise.reject(new GitHubAuthError('reconnect', 'Reconnect GitHub to keep syncing.'));
+    this.refreshing ??= this.refresh(tokens).finally(() => { this.refreshing = null; });
+    return this.refreshing;
+  }
+
   async signOut(): Promise<void> {
     await this.deps.save(null);
   }

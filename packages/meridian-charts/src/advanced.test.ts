@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PriceScale } from './core/price-scale';
-import { applyDrawingFields, drawingFields, isShownOn, lookOf, visibilityForInterval } from './drawings/settings';
+import { applyDrawingFields, drawingFields, isShownOn, lookOf, templateOf, visibilityForInterval, withTemplate } from './drawings/settings';
 import { styleFor, toolDefinitions } from './drawings/tools';
 import { applySettingsFields, defaultSettings, restoreSettings, settingsFields } from './settings';
 import { meridianDark } from './themes';
@@ -135,4 +135,18 @@ test('a look carries style and options, and text only for optional labels', () =
   assert.deepEqual(lineLook.props, { endArrow: true }, 'visibility stays with the drawing');
   const note = { ...drawing('anchored-text', [{ time: 0, price: 1 }]), text: 'Hello' };
   assert.equal(lookOf(note, toolDefinitions.get('anchored-text')!).text, undefined);
+});
+
+test('a removed label stays removed in templates and in the next drawing\'s look', () => {
+  const definition = toolDefinitions.get('trend-line')!;
+  const line = { ...drawing('trend-line', [{ time: 0, price: 1 }, { time: 60_000, price: 2 }]), text: '' };
+  assert.equal(templateOf(line, 'Clean').text, '');
+  assert.equal(lookOf(line, definition).text, '');
+  const labelled = { ...line, text: 'BOS' };
+  assert.equal(withTemplate(labelled, templateOf(line, 'Clean'), labelled.style, definition).text, '');
+  const { text: _, ...savedBeforeEmptyLabelsWereKept } = templateOf(line, 'Old');
+  assert.equal(withTemplate(labelled, savedBeforeEmptyLabelsWereKept, labelled.style, definition).text, '', 'a template without a label clears it');
+  assert.equal(withTemplate(labelled, null, labelled.style, definition).text, 'BOS', 'defaults restyle and leave the label alone');
+  const note = { ...drawing('anchored-text', [{ time: 0, price: 1 }]), text: 'Hello' };
+  assert.equal(withTemplate(note, { name: 'Plain', style: note.style }, note.style, toolDefinitions.get('anchored-text')!).text, 'Hello', 'a note keeps what it says');
 });

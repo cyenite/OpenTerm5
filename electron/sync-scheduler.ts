@@ -1,16 +1,25 @@
 // When sync runs (design 17.4). Pushes cost GitHub's 500-an-hour content limit at 3 writes each, so
-// runs started by local edits draw from a bucket of 40 an hour; polls are conditional 304s and free.
+// runs started by local edits draw from a bucket of 60 an hour. Polls are conditional 304s, which
+// cost no rate limit, so they are frequent: most only ask whether the head moved, and a full run
+// that reads every store happens when it did, on edits, on start and wake, and every two minutes.
 export const syncTiming = {
   stampDelayMs: 1000,
-  pushDelayMs: 3000,
-  focusedPollMs: 15_000,
-  backgroundPollMs: 120_000,
-  pushesPerHour: 40,
-  pushBurst: 5,
+  pushDelayMs: 1500,
+  focusedPollMs: 5000,
+  backgroundPollMs: 15_000,
+  fullRunMs: 120_000,
+  pushesPerHour: 60,
+  pushBurst: 10,
   retryMs: [30_000, 60_000, 120_000, 300_000, 600_000],
 } as const;
 
 export type RunResult = { readonly kind: 'ok' } | { readonly kind: 'retry'; readonly at?: number } | { readonly kind: 'stop' };
+
+// `isFull` false: a poll, which may stop at "the remote has not changed". True: read every store
+// and push what changed.
+export interface RunRequest {
+  readonly isFull: boolean;
+}
 
 export interface Timers {
   set(run: () => void, ms: number): unknown;
@@ -19,7 +28,7 @@ export interface Timers {
 
 export interface SchedulerDeps {
   readonly stamp: () => Promise<void>;
-  readonly run: () => Promise<RunResult>;
+  readonly run: (request: RunRequest) => Promise<RunResult>;
   readonly now?: () => number;
   readonly timers?: Timers;
 }
@@ -30,11 +39,14 @@ export class SyncScheduler {
   private isFocused = true;
   private isRunning = false;
   private isStopped = true;
+  private isFullWanted = false;
   private isRerunWanted = false;
   private failures = 0;
+  private fullRunAt = 0;
   private tokens: number = syncTiming.pushBurst;
   private refilledAt: number;
   private runAt: number | null = null;
+  private pushAt: number | null = null;
   private runTimer: unknown = null;
   private stampTimer: unknown = null;
   private readonly now: () => number;
@@ -57,6 +69,7 @@ export class SyncScheduler {
   start(): void {
     this.isStopped = false;
     this.failures = 0;
+    this.isFullWanted = true;
     this.schedule(0);
   }
 
@@ -64,16 +77,19 @@ export class SyncScheduler {
     this.isStopped = true;
     this.timers.clear(this.runTimer);
     this.timers.clear(this.stampTimer);
-    [this.runTimer, this.stampTimer, this.runAt] = [null, null, null];
+    [this.runTimer, this.stampTimer, this.runAt, this.pushAt] = [null, null, null, null];
   }
 
   // Edits are stamped about a second after they settle, offline or not, then pushed shortly after.
+  // Edits made while a push is already due ride along with it.
   localChange(): void {
     this.timers.clear(this.stampTimer);
     this.stampTimer = this.timers.set(() => {
       this.stampTimer = null;
       void this.deps.stamp().catch(() => undefined).then(() => {
-        if (!this.isStopped) this.schedule(this.takeToken() ? syncTiming.pushDelayMs : this.untilNextToken());
+        if (this.isStopped || this.pushAt !== null) return;
+        this.pushAt = this.now() + syncTiming.pushDelayMs;
+        this.schedule(syncTiming.pushDelayMs);
       });
     }, syncTiming.stampDelayMs);
   }
@@ -84,7 +100,7 @@ export class SyncScheduler {
     if (isGained) this.wake();
   }
 
-  // Waking, unlocking or focusing the window: sync now, so a computer you sit down at catches up.
+  // Waking, unlocking or focusing the window: check now, so a computer you sit down at catches up.
   wake(): void {
     if (this.isStopped) return;
     this.failures = 0;
@@ -104,22 +120,37 @@ export class SyncScheduler {
     [this.runTimer, this.runAt] = [null, null];
     if (this.isStopped) return;
     if (this.isRunning) { this.isRerunWanted = true; return; }
+    const now = this.now();
+    // A push takes a token when it actually runs, so edits that ride along cost nothing; without
+    // one it waits for the next, while polls carry on.
+    const isPushDue = this.pushAt !== null && this.pushAt <= now;
+    const isPushing = isPushDue && this.takeToken();
+    if (isPushDue && !isPushing) this.pushAt = now + this.untilNextToken();
+    if (isPushing) this.pushAt = null;
+    const isFull = this.isFullWanted || isPushing || now - this.fullRunAt >= syncTiming.fullRunMs;
+    this.isFullWanted = false;
     this.isRunning = true;
     let result: RunResult;
-    try { result = await this.deps.run(); }
+    try { result = await this.deps.run({ isFull }); }
     catch { result = { kind: 'retry' }; }
     this.isRunning = false;
     if (result.kind === 'stop') { this.stop(); return; }
-    if (result.kind === 'ok') this.failures = 0;
-    else this.failures += 1;
+    if (result.kind === 'ok') {
+      this.failures = 0;
+      if (isFull) this.fullRunAt = now;
+    } else {
+      this.failures += 1;
+      this.isFullWanted = true;
+    }
     if (this.isRerunWanted) {
       this.isRerunWanted = false;
       this.schedule(0);
       return;
     }
     const backoff = syncTiming.retryMs[Math.min(this.failures - 1, syncTiming.retryMs.length - 1)];
-    const delay = result.kind === 'ok' ? (this.isFocused ? syncTiming.focusedPollMs : syncTiming.backgroundPollMs) : result.at !== undefined ? Math.max(0, result.at - this.now()) : backoff;
-    this.schedule(delay);
+    const poll = this.isFocused ? syncTiming.focusedPollMs : syncTiming.backgroundPollMs;
+    const delay = result.kind === 'ok' ? poll : result.at !== undefined ? Math.max(0, result.at - this.now()) : backoff;
+    this.schedule(this.pushAt !== null && result.kind === 'ok' ? Math.min(delay, Math.max(0, this.pushAt - this.now())) : delay);
   }
 
   private refill(): void {

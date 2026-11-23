@@ -219,6 +219,68 @@ test('an unexpected failure retries quietly, is journalled once and clears on it
   assert.equal(first.view().error, null);
 });
 
+test('a branch read that lags behind this computer\'s push is read again quietly, and only a lasting one asks', async () => {
+  const github = fakeGitHub();
+  const layout = new MemorySource('layout');
+  const { first } = await setUpFirst(github, null, [layout]);
+  const repo = github.repos.get(REPO)!;
+  const before = repo.head!;
+  layout.data = { L1: { name: 'Gold' } };
+  await first.service.handle('sync.syncNow', {});
+  await first.tick();
+  const pushed = repo.head!;
+  assert.notEqual(pushed, before);
+
+  repo.head = before;
+  await first.service.handle('sync.syncNow', {});
+  await first.tick();
+  assert.equal(first.view().status, 'retrying');
+  assert.equal(first.view().attention, null);
+  repo.head = pushed;
+  await first.tick(5000);
+  assert.equal(first.view().status, 'idle');
+
+  repo.head = before;
+  await first.service.handle('sync.syncNow', {});
+  for (let waited = 0; waited <= 125_000 && !first.view().attention; waited += 5000) await first.tick(5000);
+  assert.equal(first.view().attention?.reason, 'rollback');
+});
+
+test('polls between full runs ask GitHub only for the branch and read no store', async () => {
+  const github = fakeGitHub();
+  const chart = new MemorySource('chart');
+  const { first } = await setUpFirst(github, null, [chart]);
+  await first.tick(1000);
+  let snapshots = 0;
+  const snapshot = chart.snapshot.bind(chart);
+  chart.snapshot = async () => { snapshots++; return snapshot(); };
+  const from = github.requests.length;
+  const viewsFrom = first.views.length;
+  // One poll at a time, moving the clock only once the next one is scheduled: a slow runner does
+  // not finish a poll within the microtasks the fake clock allows between timers.
+  for (let poll = 0; poll < 5; poll++) {
+    const before = github.requests.length;
+    await until(() => first.view().nextRunAt !== null);
+    await first.timers.advance(first.view().nextRunAt! - (1_800_000_000_000 + first.timers.time));
+    await until(() => github.requests.length > before);
+  }
+  const polled = github.requests.slice(from);
+  assert.equal(polled.length, 5);
+  assert.ok(polled.every((request) => request.method === 'GET' && request.url.endsWith('/git/ref/heads/main')), polled.map((request) => request.url).join(', '));
+  assert.equal(snapshots, 0);
+  assert.equal(first.views.length, viewsFrom, 'a quiet poll shows nothing');
+});
+
+test('a sign-in GitHub refuses once is renewed without asking', async () => {
+  const github = fakeGitHub();
+  const { first } = await setUpFirst(github);
+  github.failNext = { path: /git\/ref\/heads/, status: 401 };
+  await first.service.handle('sync.syncNow', {});
+  await first.tick();
+  assert.equal(first.view().attention, null);
+  assert.equal(first.view().status, 'idle');
+});
+
 test('an altered manifest stops sync and says why', async () => {
   const github = fakeGitHub();
   const { first } = await setUpFirst(github);

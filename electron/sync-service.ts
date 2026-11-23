@@ -18,7 +18,7 @@ import { IDENTITY_ID } from './sync-main-sources';
 import {
   HANDOFF_LIFETIME_MS, isPresenceDue, liveHandoffs, MANIFEST_PATH, openManifest, presentElsewhere, SyncIntegrityError, withPresence, type Manifest,
 } from './sync-manifest';
-import { realTimers, SyncScheduler, type RunResult, type Timers } from './sync-scheduler';
+import { realTimers, SyncScheduler, type RunRequest, type RunResult, type Timers } from './sync-scheduler';
 import { CredentialStore, EncryptedStateStore, type PendingJoin, type SyncTarget } from './sync-storage';
 
 const REPOSITORY_CHECK_MS = 3_600_000;
@@ -31,6 +31,10 @@ const PRESENCE_DELAY_MS = 2000;
 const PEEK_TIMEOUT_MS = 5000;
 const HANDOFF_POLL_MS = 3000;
 const HANDOFF_POLLS = 20;
+// A head older than one this computer already saw is read again for this long before it is
+// treated as a rollback: GitHub can answer from a replica that has not caught up with a push.
+const ROLLBACK_RETRY_MS = 5000;
+const ROLLBACK_GRACE_MS = 120_000;
 
 // An account with a live session here, and since when (local time). Background sessions report
 // Infinity: they are not handed over until copiers and signals have leases.
@@ -63,7 +67,7 @@ export interface SyncServiceDeps {
 
 const heldMessage = (changes: readonly SyncMassChange[]) => changes.some((change) => change.side === 'local')
   ? 'Much of the data on this computer would be deleted from every computer. Choose whether to delete it everywhere or restore it from sync.'
-  : 'Another computer deleted much of the synced data. Choose whether to delete it here too.';
+  : `Another computer deleted all synced ${changes.map((change) => syncKindInfo(change.kind).label.toLowerCase()).join(', ')}. Choose whether to delete them here too.`;
 
 const joinMessage = 'This computer has layouts, drawings and lists of its own, and the synced data has some too. Merge adds this computer\'s to the synced ones on every computer; Use synced data replaces this computer\'s with the synced ones.';
 
@@ -91,6 +95,7 @@ export class SyncService {
   private changedAt = 0;
   private pushedAt = 0;
   private pairingSince = 0;
+  private rollbackSince: number | null = null;
   private lastSyncedAt: number | null = null;
   private choice: SyncTarget | null = null;
   private devices: SyncDeviceView[] = [];
@@ -98,6 +103,9 @@ export class SyncService {
   private pairingRequests: SyncPairingRequest[] = [];
   private pairingConfirmation: string[] = [];
   private pairingAttempts = 0;
+  // Set once a sync has read the stores since the window loaded them; until then a mass deletion
+  // may be a store that failed to load, and waits for the user.
+  private isLocalTrusted = false;
   private isIdentityChoiceNeeded = false;
   private presenceTimer: unknown = null;
   private hasPresence = false;
@@ -128,8 +136,8 @@ export class SyncService {
       fetch: deps.fetch, now: this.now, pause: deps.pause,
       load: () => this.credentials.get().tokens, save: async (tokens) => { await this.credentials.update({ tokens }); },
     });
-    this.api = new GitHubApi(deps.fetch, () => this.auth.accessToken(), this.now);
-    this.scheduler = new SyncScheduler({ stamp: () => this.stamp(), run: () => this.run({}), now: this.now, timers: this.timers });
+    this.api = new GitHubApi(deps.fetch, () => this.auth.accessToken(), this.now, () => this.auth.renewAccessToken());
+    this.scheduler = new SyncScheduler({ stamp: () => this.stamp(), run: (request) => this.scheduledRun(request), now: this.now, timers: this.timers });
   }
 
   async init(): Promise<void> {
@@ -154,6 +162,11 @@ export class SyncService {
     this.timers.clear(this.presenceTimer);
     this.stopPairingPoll();
     this.signIn?.abort();
+  }
+
+  // The app window (re)loaded its stores: deletions it reports are checked again until it syncs.
+  windowLoaded(): void {
+    this.isLocalTrusted = false;
   }
 
   // Store adapters call this whenever their data changes.
@@ -749,6 +762,20 @@ export class SyncService {
     await this.engine?.recordLocalChanges();
   }
 
+  // A poll after a clean sync asks only whether the remote moved; no store is read and nothing is
+  // shown unless it did.
+  private async scheduledRun({ isFull }: RunRequest): Promise<RunResult> {
+    if (isFull || !this.engine || this.attention || this.status !== 'idle') return this.run({});
+    try {
+      if (await this.engine.isCurrent()) return { kind: 'ok' };
+    } catch (error) {
+      const result = this.failed(error as Error);
+      this.emit();
+      return result;
+    }
+    return this.run({});
+  }
+
   private run(options: SyncOptions): Promise<RunResult> {
     const running = this.runOnce(options);
     this.running = running;
@@ -767,7 +794,8 @@ export class SyncService {
     try {
       const problem = await this.checkRepository(target);
       if (problem) return this.attend(problem.reason, problem.message);
-      const outcome = await this.engine.sync(join ? { ...options, ...joinOptions[join] } : options);
+      const trusted: SyncOptions = this.isLocalTrusted ? { isLocalMassChangeAllowed: true } : {};
+      const outcome = await this.engine.sync({ ...trusted, ...options, ...(join ? joinOptions[join] : {}) });
       if (outcome.status === 'held') return this.attend('held', heldMessage(outcome.changes), outcome.changes);
       if (outcome.status === 'busy') {
         this.status = 'idle';
@@ -780,6 +808,7 @@ export class SyncService {
       await this.refreshPairing(target);
       await this.finishAdopting();
       this.pushedAt = startedAt + 1;
+      [this.isLocalTrusted, this.rollbackSince] = [true, null];
       [this.status, this.attention, this.error, this.conflicts, this.lastSyncedAt] = ['idle', null, null, outcome.conflicts.length, this.now()];
       if (outcome.conflicts.length) this.deps.journal(`${outcome.conflicts.length} edit(s) made on two computers at once were settled in favour of the newer one.`);
       if (outcome.skipped.length) this.deps.journal(`${outcome.skipped.length} item(s) were too large or not readable by this version and were left out of sync.`);
@@ -820,6 +849,10 @@ export class SyncService {
   }
 
   private failed(error: Error): RunResult {
+    if (error instanceof SyncIntegrityError && error.reason === 'rollback' && this.now() - (this.rollbackSince ??= this.now()) < ROLLBACK_GRACE_MS) {
+      [this.status, this.error] = ['retrying', 'GitHub answered with an older copy of the sync data. It is read again shortly.'];
+      return { kind: 'retry', at: this.now() + ROLLBACK_RETRY_MS };
+    }
     if (error instanceof SyncIntegrityError) return error.reason === 'tooNew' ? this.retryQuietly(error.message) : this.attend(error.reason, error.message);
     if (error instanceof SyncSourceUnavailableError) {
       [this.status, this.error] = ['loading', error.message];

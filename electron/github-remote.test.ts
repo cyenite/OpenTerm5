@@ -123,3 +123,21 @@ test('two engines sync through GitHub end to end', async () => {
   assert.deepEqual(a.source.data, { L1: { name: 'Gold' }, L2: { name: 'Silver' } });
   assert.deepEqual(b.source.data, a.source.data);
 });
+
+test('no request is answered from the HTTP cache, and a refused token is renewed once', async () => {
+  const github = new FakeGitHub();
+  github.addRepository(REPO.id, REPO.fullName);
+  const caches: (RequestCache | undefined)[] = [];
+  let token = 'ghu_old';
+  const fetch = (url: string, init?: RequestInit) => {
+    caches.push(init?.cache);
+    return github.fetch(url, init);
+  };
+  const api = new GitHubApi(fetch, async () => token, () => 1_800_000_000_000, async () => (token = 'ghu_new'));
+  github.failNext = { path: /\/user$/, status: 401 };
+  assert.equal(await api.login(), 'octotrader');
+  assert.deepEqual(caches, ['no-store', 'no-store']);
+  assert.equal(github.requests.at(-1)!.headers.authorization, 'Bearer ghu_new');
+  github.isTokenRevoked = true;
+  await assert.rejects(api.login(), (error: unknown) => error instanceof GitHubAuthError && error.reason === 'reconnect');
+});

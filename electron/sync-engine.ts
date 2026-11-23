@@ -7,7 +7,9 @@ import { hasUnsafeKey, mergeRecords, parseSyncedRecord, preferRemote, pruneTombs
 const TOMBSTONE_LIFETIME_MS = 180 * 86_400_000;
 const MAX_ATTEMPTS = 5;
 // The mass-change guard: more than this share of a kind's records, or this many map items in one
-// record, removed in one sync waits for the user.
+// record, removed in one sync waits for the user. On the computer that made the change it guards
+// against a store that failed to load and fell back to its defaults; on the others, only a kind
+// emptied outright asks again, since the computer that deleted it already checked with its user.
 const MASS_SHARE = 0.2;
 const MASS_RECORDS = 2;
 const MASS_ITEMS = 25;
@@ -91,6 +93,9 @@ export interface SyncOptions {
   readonly isRemotePreferred?: boolean;
   // The user confirmed the repository was put back to an older state on purpose.
   readonly isHistoryAccepted?: boolean;
+  // The stores have already synced since they loaded, so deletions found in them now are edits
+  // the user made, not a store that came back empty.
+  readonly isLocalMassChangeAllowed?: boolean;
 }
 
 export type SyncOutcome =
@@ -120,6 +125,8 @@ export class SyncEngine {
   private readonly pause: (ms: number) => Promise<void>;
   private readonly sources: ReadonlyMap<SyncKind, SyncSource>;
   private queue: Promise<unknown> = Promise.resolve();
+  // The head the last sync in this process ended on, when it left nothing unread.
+  private syncedHead: string | null = null;
 
   constructor(private readonly deps: SyncEngineDeps) {
     this.now = deps.now ?? Date.now;
@@ -162,6 +169,11 @@ export class SyncEngine {
 
   sync(options: SyncOptions = {}): Promise<SyncOutcome> {
     return this.exclusive(() => this.syncNow(options));
+  }
+
+  // Whether the remote is where the last sync left it: one conditional request, no store read.
+  isCurrent(): Promise<boolean> {
+    return this.exclusive(async () => this.syncedHead !== null && await this.deps.remote.head() === this.syncedHead);
   }
 
   // One record as the remote holds it now, for a kind this computer may not sync yet (deciding
@@ -323,7 +335,7 @@ export class SyncEngine {
       const isDiscarded = !!options.isLocalDiscarded && (!options.discardedKinds || options.discardedKinds.includes(kind));
       const keys = new Set([...Object.keys(state.bases), ...Object.keys(view.records), ...Object.keys(state.pending)].filter((key) => splitRecordKey(key).kind === kind));
       for (const id of Object.keys(snapshot)) keys.add(recordKey(kind, id));
-      const counts = { local: 0, remote: 0, items: 0, total: 0 };
+      const counts = { local: 0, remote: 0, items: 0, total: 0, remoteAlive: 0 };
       const change = { upserts: {} as Record<string, Json>, deletes: [] as string[] };
       const undo = { upserts: {} as Record<string, Json>, deletes: [] as string[] };
       for (const key of keys) {
@@ -350,6 +362,7 @@ export class SyncEngine {
         if (next) merged[key] = next;
         if (next && !sameRecord(next, remote)) toPush.add(key);
         if (!sameRecord(remote, base)) pulled += 1;
+        if (isAlive(remote)) counts.remoteAlive += 1;
         conflicts.push(...result.conflicts.map((conflict) => ({ ...conflict, key })));
         for (const copy of result.copies) {
           const copyKey = recordKey(kind, `${id}~conflict~${this.deps.device.id}~${this.now()}`);
@@ -375,8 +388,9 @@ export class SyncEngine {
       }
       const isEmptied = counts.total >= MASS_EMPTY_FROM && !Object.keys(snapshot).length && !isDiscarded;
       const isMass = (removed: number) => removed > MASS_RECORDS && removed / Math.max(counts.total, 1) > MASS_SHARE;
-      if (isEmptied || isMass(counts.local) || (counts.items > MASS_ITEMS && !isDiscarded)) mass.push({ kind, side: 'local', removed: Math.max(counts.local, counts.items), total: counts.total });
-      if (isMass(counts.remote)) mass.push({ kind, side: 'remote', removed: counts.remote, total: counts.total });
+      const isLocalMass = isEmptied || isMass(counts.local) || (counts.items > MASS_ITEMS && !isDiscarded);
+      if (isLocalMass && !options.isLocalMassChangeAllowed) mass.push({ kind, side: 'local', removed: Math.max(counts.local, counts.items), total: counts.total });
+      if (counts.total >= MASS_EMPTY_FROM && counts.remote > 0 && !counts.remoteAlive) mass.push({ kind, side: 'remote', removed: counts.remote, total: counts.total });
       if (change.deletes.length || Object.keys(change.upserts).length) {
         changes.set(kind, change);
         inverse.set(kind, undo);
@@ -391,6 +405,7 @@ export class SyncEngine {
     const isRegistered = view.manifest.devices.some((device) => device.id === this.deps.device.id);
     if (!toPush.size && isRegistered) {
       await this.deps.store.save({ ...pulledState, clock: this.clock.last });
+      this.syncedHead = view.invalid.size ? null : view.head;
       return { status: 'synced', outcome: { status: 'synced', pulled, pushed: 0, conflicts, copies, skipped: [...skipped] } };
     }
     const pushed = this.prepare(view, merged, toPush, skipped, horizon);
@@ -400,6 +415,7 @@ export class SyncEngine {
     for (const key of pushed.written) bases[key] = merged[key];
     const left = Object.fromEntries(Object.entries(pending).filter(([key]) => !pushed.written.has(key)));
     await this.deps.store.save({ head, clock: this.clock.last, highWater: pushed.manifest.seq, isApplying: false, manifest: pushed.manifest, bases, pending: left });
+    this.syncedHead = view.invalid.size ? null : head;
     return { status: 'synced', outcome: { status: 'synced', pulled, pushed: pushed.written.size, conflicts, copies, skipped: [...skipped] } };
   }
 
