@@ -7,6 +7,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-23
+
+### Changed
+
+- **Sync is close to real time.** Each computer checks GitHub for changes every 5 seconds while it
+  is in front and every 15 seconds behind other windows, instead of every 15 seconds and every 2
+  minutes, and edits are sent about a second and a half after they settle. The checks cost nothing
+  against GitHub's limits and read none of the app's data unless something changed.
+- **Deleting layouts, charts or many drawings no longer stops sync to ask.** The question now comes
+  only when data disappears right after the app starts (which can mean it failed to load), and on
+  other computers only when another computer deleted every item of one kind.
+
+### Fixed
+
+- Sync no longer stops with "The sync data went back from version N" shortly after this computer
+  sent changes. GitHub's answer was being reused from a 60 second cache; it is now always asked
+  again, and an out-of-date answer is retried for two minutes before sync asks you about it.
+- A GitHub sign-in that GitHub refuses before it should expire is renewed by itself instead of
+  asking you to reconnect.
+- A drawing template saved from a trend line (or ray, or other line) with its label removed now
+  removes the label wherever it is applied, and saving a template makes it the look new drawings of
+  that tool start with. Clearing a label by typing on the chart carries over to the next drawing too.
+
 ## [1.2.0] - 2026-11-09
 
 ### Added
@@ -623,7 +646,8 @@ First public release of OpenTerm5 (previously developed as Terminal5), under the
 - **Project files:** documentation under `docs/`, a contributing guide, code of conduct, security
   policy, issue and pull request templates, and CI on Linux, macOS and Windows.
 
-[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/cyenite/OpenTerm5/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/cyenite/OpenTerm5/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/cyenite/OpenTerm5/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/cyenite/OpenTerm5/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/cyenite/OpenTerm5/compare/v0.11.0...v1.0.0
