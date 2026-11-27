@@ -102,9 +102,24 @@ export class TimeScale {
     return low === last ? null : low + 1;
   }
 
+  // As `barContaining`, but a time after the last bar lands on the future slot holding it, so
+  // another chart's crosshair can follow into the space right of the bars.
+  slotContaining(time: number): number | null {
+    const index = this.barContaining(time);
+    const last = this.lastIndex;
+    if (index !== null || last < 0 || time < this.times[last]) return index;
+    return last + Math.floor((time - this.times[last]) / this.interval);
+  }
+
   // The bar index nearest to x, clamped to the loaded bars.
   barAt(x: number): number {
     return Math.max(0, Math.min(this.lastIndex, Math.round(this.xToIndex(x))));
+  }
+
+  // The bar slot nearest to x: a loaded bar, or past the last one a future slot (see `timeAt`),
+  // as TradingView's crosshair moves on into the space right of the bars.
+  slotAt(x: number): number {
+    return Math.max(0, Math.round(this.xToIndex(x)));
   }
 
   visible(): { from: number; to: number } {

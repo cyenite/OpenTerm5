@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import { newOrder, setChartType, setTimeframe, showSymbol, toggleDepth, toggleFullScreen, toggleOneClick, togglePanel } from '../lib/commands';
 import { chartInstance, chartUi } from '../lib/chart-instances';
 import { defaultSymbol } from '../lib/broker-symbols';
@@ -8,6 +8,7 @@ import { favoriteIndicatorItems, toggleIndicatorsDialog } from '../lib/indicator
 import { timeframeFavorites, timeframeMenuItems, toolbarTimeframes } from '../lib/timeframe-favorites';
 import { session, signingIn } from '../lib/session';
 import { useStore } from '../lib/store';
+import { useCompactLevel } from '../lib/compact-level';
 import { useWatchedSpecs } from '../lib/watchlists';
 import { drawingSyncs } from '../lib/chart-layouts';
 import { visibleChartIds } from '../lib/chart-tabs';
@@ -94,32 +95,8 @@ const menuBelow = (event: React.MouseEvent<HTMLElement>, items: readonly MenuIte
 };
 
 // Labels stay while the toolbar fits on one row. When it would not, the least needed labels go
-// first (level 1), then the rest (level 2); each comes back once the window regains the width
-// that level needed.
+// first (level 1), then the rest (level 2).
 const compactLevels = 2;
-
-function useCompactToolbar() {
-  const toolbar = useRef<HTMLDivElement>(null);
-  const neededWidths = useRef<number[]>([]);
-  const [level, setLevel] = useState(0);
-
-  useLayoutEffect(() => {
-    const element = toolbar.current;
-    if (!element) return;
-    const measure = () => {
-      if (level < compactLevels && element.scrollWidth > element.clientWidth + 1) {
-        neededWidths.current[level] = element.scrollWidth;
-        setLevel(level + 1);
-      } else if (level > 0 && element.clientWidth >= neededWidths.current[level - 1]) setLevel(level - 1);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [level]);
-
-  return { toolbar, level };
-}
 
 interface ChartPickerProps {
   // A pop-out window's chart; the toolbar's pickers follow the active chart.
@@ -264,7 +241,7 @@ export function Toolbar() {
   const hasChart = chart !== undefined;
   const ui = useStore(chartUi, (current) => (chart ? current.byId[chart.id] : undefined));
   const engine = () => chartInstance(chart?.id);
-  const { toolbar, level } = useCompactToolbar();
+  const { element: toolbar, level } = useCompactLevel<HTMLDivElement>(compactLevels);
 
   return (
     <div ref={toolbar} className="toolbar chart-toolbar" data-level={level} role="toolbar" aria-label="Chart">

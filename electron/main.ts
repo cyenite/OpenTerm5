@@ -18,6 +18,7 @@ import { loadAccounts, secretCipher } from './accounts';
 import { SessionPool } from './session-pool';
 import { handleTradingView } from './tradingview';
 import { AppZoom } from './app-zoom';
+import { windowButtonPosition } from './window-buttons';
 import { WindowBounds } from './window-bounds';
 import { isZoomStep } from '../shared/zoom';
 import { AutomationHost } from './automation-host';
@@ -199,7 +200,10 @@ async function applySettings(): Promise<void> {
   catch (error) { journal((error as Error).message, 'Network'); }
 }
 
-const zoom = new AppZoom(path.join(app.getPath('userData'), 'zoom.json'), (factor) => send('zoom', factor));
+const zoom = new AppZoom(path.join(app.getPath('userData'), 'zoom.json'), (factor) => {
+  send('zoom', factor);
+  if (process.platform === 'darwin') window?.setWindowButtonPosition(windowButtonPosition(factor));
+});
 const windowBounds = new WindowBounds(path.join(app.getPath('userData'), 'window.json'));
 const minimumSize = { width: 960, height: 600 };
 
@@ -240,8 +244,8 @@ function createWindow(): void {
     show: false,
     // macOS takes the icon from the app bundle; Linux and Windows need it on the window.
     ...windowIcon(),
-    // On macOS the window controls sit inside the 36px app bar, centred on it, and the bar doubles as the drag region.
-    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 11 } } : {}),
+    // On macOS the window controls sit inside the app bar, centred on it, and the bar doubles as the drag region.
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: windowButtonPosition(zoom.zoomFactor) } : {}),
     backgroundColor: '#1e1f22',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

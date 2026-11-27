@@ -70,6 +70,31 @@ test('barContaining maps a time onto the bar whose span holds it, across interva
   assert.equal(months.barContaining(Date.UTC(2026, 2, 5)), null);
 });
 
+test('the crosshair slot moves on past the last bar into the future', () => {
+  const minute = 60_000;
+  const scale = new TimeScale();
+  scale.width = 800;
+  scale.setTimes(Array.from({ length: 100 }, (_, index) => index * minute), minute);
+  scale.spacing = 10;
+  scale.rightEdge = 109;
+  assert.equal(scale.slotAt(scale.indexToX(50)), 50, 'over the bars it is the bar under the pointer');
+  assert.equal(scale.slotAt(scale.indexToX(105) + 3), 105, 'right of the last bar it keeps going');
+  assert.equal(scale.barAt(scale.indexToX(105)), 99, 'bar lookups still stop at the last bar');
+  assert.equal(scale.timeAt(105), 105 * minute, 'a future slot has its own time');
+  assert.equal(scale.slotAt(-1000), 0, 'left of the first bar it stays on the first');
+});
+
+test('slotContaining follows another chart into the future slots', () => {
+  const hour = 3_600_000;
+  const scale = new TimeScale();
+  scale.setTimes([0, hour, 2 * hour], hour);
+  assert.equal(scale.slotContaining(hour + 30 * 60_000), 1, 'a time on the bars lands on its bar');
+  assert.equal(scale.slotContaining(3 * hour), 3, 'just past the last bar is the first future slot');
+  assert.equal(scale.slotContaining(5 * hour + 59 * 60_000), 5);
+  assert.equal(scale.slotContaining(-1), null, 'before the first bar there is none');
+  assert.equal(new TimeScale().slotContaining(0), null);
+});
+
 test('the time scale fits a logical range and centres an index, keeping bars on screen', () => {
   const scale = new TimeScale();
   scale.width = 800;

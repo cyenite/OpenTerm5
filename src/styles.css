@@ -3683,9 +3683,10 @@ button.is-link {
   -webkit-app-region: no-drag;
 }
 
-/* The macOS window controls float over the start of the bar, except in full screen where they hide. */
+/* The macOS window controls float over the start of the bar, except in full screen where they hide.
+   They do not scale with interface zoom, so their room is kept in screen pixels. */
 .platform-darwin .app-bar {
-  padding-left: 84px;
+  padding-left: calc(92px / var(--app-zoom, 1));
 }
 
 .platform-darwin.is-full-screen .app-bar {
@@ -3738,9 +3739,9 @@ button.is-link {
 
 .app-bar-end {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 10px;
-  min-width: 0;
   margin-left: auto;
 }
 
@@ -3813,29 +3814,37 @@ button.is-link {
   flex: none;
 }
 
-/* Narrow windows: the mode switch keeps its icons and the menus and tabs tighten, so nothing clips. */
-@media (max-width: 1240px) {
-  .mode-switch-label {
-    display: none;
-  }
-
-  .mode-switch button {
-    padding: 0 8px;
-  }
+/* Narrow rows (see `compactLevels` in AppBar.tsx): the mode switch keeps its icons, then the menus
+   and tabs tighten, and last the tabs scroll, so the mode switch and the account never clip. */
+.app-bar:not([data-level='0']) .mode-switch-label {
+  display: none;
 }
 
-@media (max-width: 1080px) {
-  .app-bar .menu-title {
-    padding: 4px 6px;
-  }
+.app-bar:not([data-level='0']) .mode-switch button {
+  padding: 0 8px;
+}
 
-  .app-bar-tabs button {
-    padding: 0 8px;
-  }
+.app-bar[data-level='2'] .menu-title,
+.app-bar[data-level='3'] .menu-title {
+  padding: 4px 6px;
+}
 
-  .app-bar-activity {
-    display: none;
-  }
+.app-bar[data-level='2'] .app-bar-tabs button,
+.app-bar[data-level='3'] .app-bar-tabs button {
+  padding: 0 8px;
+}
+
+.app-bar[data-level='2'] .app-bar-activity,
+.app-bar[data-level='3'] .app-bar-activity {
+  display: none;
+}
+
+.app-bar[data-level='3'] .app-bar-tabs {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
 }
 
 /* Chart bar: the same row in trade and analysis mode. */
