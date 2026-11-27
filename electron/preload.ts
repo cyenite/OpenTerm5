@@ -5,6 +5,7 @@ import type { JournalingApi, JournalingEvent, JournalingMethod } from '../shared
 import type { UpdateApi, UpdateEvent, UpdateMethod } from '../shared/updates';
 import type { SyncApi, SyncEvent, SyncMethod, SyncSourceRequest } from '../shared/sync';
 import type { ZoomStep } from '../shared/zoom';
+import type { AgentApi, AgentToolCall } from '../shared/agent';
 
 class RequestError extends Error {
   constructor(readonly code: number, message: string) {
@@ -80,8 +81,22 @@ const sync: SyncApi = {
   changed: () => ipcRenderer.send('sync:changed'),
 } as SyncApi;
 
+const agent: AgentApi = {
+  serve: (handler: (call: AgentToolCall) => Promise<unknown>) => {
+    ipcRenderer.removeAllListeners('agent:tool');
+    ipcRenderer.on('agent:tool', (_: IpcRendererEvent, id: number, call: AgentToolCall) => {
+      handler(call).then(
+        (result) => ipcRenderer.send('agent:tool-reply', id, { result }),
+        (error: unknown) => ipcRenderer.send('agent:tool-reply', id, { error: error instanceof Error ? error.message : String(error) }),
+      );
+    });
+    ipcRenderer.send('agent:tool-ready');
+  },
+};
+
 contextBridge.exposeInMainWorld('terminal', api);
 contextBridge.exposeInMainWorld('automation', automation);
 contextBridge.exposeInMainWorld('journaling', journaling);
 contextBridge.exposeInMainWorld('updates', updates);
 contextBridge.exposeInMainWorld('sync', sync);
+contextBridge.exposeInMainWorld('agent', agent);

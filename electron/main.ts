@@ -40,6 +40,8 @@ import { mainSyncSources } from './sync-main-sources';
 import { RendererSources } from './sync-renderer';
 import { SyncService, type LiveAccount } from './sync-service';
 import { SYNC_FILE_EXTENSION } from './file-remote';
+import { AgentBridge } from './agent-bridge';
+import { AgentMcpServer, agentMcpDefaultPort, claudeAddCommand, loadAgentMcpConfig } from './agent-mcp';
 
 migrateLegacyProfile();
 
@@ -65,6 +67,14 @@ const syncSources = new RendererSources({
     return true;
   },
 });
+const agentBridge = new AgentBridge({
+  send: (id, call) => {
+    if (!window || window.isDestroyed()) return false;
+    window.webContents.send('agent:tool', id, call);
+    return true;
+  },
+});
+let agentServer: AgentMcpServer | undefined;
 let isSyncFlushed = false;
 let isChanging = false;
 let isWindowLoaded = false;
@@ -188,6 +198,22 @@ function sendSync(view: SyncView): void {
   window?.webContents.send('sync:event', 'view', view);
 }
 
+// Experimental and off unless OPENTERM_AGENT_MCP=1: MCP clients such as Claude Code drive the charts.
+async function startAgentServer(): Promise<void> {
+  if (process.env.OPENTERM_AGENT_MCP !== '1') return;
+  const port = Number(process.env.OPENTERM_AGENT_MCP_PORT) || agentMcpDefaultPort;
+  try {
+    const config = await loadAgentMcpConfig(path.join(app.getPath('userData'), 'agent-mcp.json'), port);
+    agentServer = new AgentMcpServer({ token: config.token, version: app.getVersion(), call: (call) => agentBridge.call(call) });
+    await agentServer.listen(config.port);
+    journal(`AI agent server listening on http://127.0.0.1:${config.port}/mcp`, 'Agent');
+    console.log(`OpenTerm5 agent server is up. Connect Claude Code with:\n${claudeAddCommand(config)}`);
+  } catch (error) {
+    agentServer = undefined;
+    journal(`The AI agent server could not start: ${(error as Error).message}`, 'Agent');
+  }
+}
+
 function journal(message: string, source = 'Terminal'): void {
   const entry: JournalEntry = { time: Date.now(), source, message };
   send('journal', entry);
@@ -282,6 +308,7 @@ function createWindow(): void {
   window.webContents.on('did-start-loading', () => {
     closePopouts();
     syncSources.setReady(false);
+    agentBridge.setReady(false);
   });
   // Edits not yet synced are pushed while the window can still be asked for them.
   window.on('close', (event) => {
@@ -292,6 +319,7 @@ function createWindow(): void {
   });
   window.on('closed', () => {
     syncSources.setReady(false);
+    agentBridge.setReady(false);
     closePopouts();
     window = undefined;
     if (process.platform !== 'darwin') app.quit();
@@ -588,6 +616,8 @@ ipcMain.on('sync:source-ready', (event) => {
   sync?.windowLoaded();
 });
 ipcMain.on('sync:source-reply', (event, id: unknown, reply: unknown) => { if (isMainWindow(event.sender) && typeof id === 'number') syncSources.receive(id, reply); });
+ipcMain.on('agent:tool-ready', (event) => { if (isMainWindow(event.sender)) agentBridge.setReady(true); });
+ipcMain.on('agent:tool-reply', (event, id: unknown, reply: unknown) => { if (isMainWindow(event.sender) && typeof id === 'number') agentBridge.receive(id, reply); });
 ipcMain.on('sync:changed', (event) => { if (isMainWindow(event.sender)) sync?.noteLocalChange(); });
 ipcMain.handle('updates:request', async (_event, method: UpdateMethod, params: unknown) => {
   try {
@@ -738,6 +768,7 @@ if (!app.requestSingleInstanceLock()) {
       confirmRestart,
     });
     await updates.init();
+    await startAgentServer();
     // Leaving a computer pushes its edits, and sitting down at one catches it up.
     powerMonitor.on('suspend', () => sync?.wake());
     powerMonitor.on('lock-screen', () => sync?.wake());
@@ -762,6 +793,7 @@ app.on('before-quit', (event) => {
     return;
   }
   updates?.shutdown();
+  void agentServer?.close();
   sync?.shutdown();
   void automation?.shutdown();
   journaling?.shutdown();

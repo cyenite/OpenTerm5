@@ -22,6 +22,7 @@ import { startPineScripts } from './lib/pine/pine-scripts';
 import { startIndicatorFavorites } from './lib/indicator-favorites';
 import { startTimeframeFavorites } from './lib/timeframe-favorites';
 import { startDrawingTools } from './lib/drawing-tools';
+import { startAgentTools } from './lib/agent/chart-tools';
 import './styles.css';
 
 document.body.classList.add(`platform-${window.terminal.platform}`);
@@ -46,6 +47,7 @@ startAutomation();
 startJournaling();
 startUpdates();
 startSync();
+startAgentTools();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
