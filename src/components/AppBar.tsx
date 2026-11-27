@@ -4,6 +4,8 @@ import { connectProfile } from '../lib/accounts';
 import { openContextMenu } from '../lib/context-menu';
 import { session, signInName } from '../lib/session';
 import { useStore } from '../lib/store';
+import { useCompactLevel } from '../lib/compact-level';
+import { appZoom } from '../lib/app-zoom';
 import { openDialog, pages, workspace, type Page } from '../lib/workspace';
 import { chooseMode, interfaceModes, modeOf } from '../lib/backtest/runtime';
 import { MenuBar } from './MenuBar';
@@ -108,12 +110,20 @@ function AccountChip() {
   );
 }
 
+// When the row would overflow, the mode labels go first (level 1), then the background activity
+// and some padding (level 2), and last the workspace tabs scroll (level 3), so the mode switch and
+// the account always stay in the window.
+const compactLevels = 3;
+
 // One row for the whole application: menus, the workspace being shown, the mode and the account.
 // Analysis mode only ever shows the chart workspace, so its tabs give way there.
 export function AppBar() {
   const isAnalysis = useStore(workspace, (state) => state.isAnalysisMode);
+  const zoomFactor = useStore(appZoom, (state) => state.factor);
+  // The macOS inset is kept in screen pixels, so a new zoom level changes the width the row needs.
+  const { element, level } = useCompactLevel<HTMLElement>(compactLevels, `${isAnalysis} ${zoomFactor}`);
   return (
-    <header className="app-bar">
+    <header ref={element} className="app-bar" data-level={level}>
       <MenuBar />
       {!isAnalysis && <WorkspaceTabs />}
       <div className="app-bar-end">

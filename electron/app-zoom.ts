@@ -18,6 +18,10 @@ export class AppZoom {
     this.store = new JsonStore(file, (value) => ({ zoomFactor: restoreZoom((value as Partial<ZoomFile> | null)?.zoomFactor) }), () => ({ zoomFactor: 1 }));
   }
 
+  get zoomFactor(): number {
+    return this.factor;
+  }
+
   async load(): Promise<void> {
     try { this.factor = (await this.store.load()).zoomFactor; }
     catch { this.factor = 1; }

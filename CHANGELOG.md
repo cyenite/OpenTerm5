@@ -7,6 +7,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- On macOS the window controls no longer sit over the File menu when the interface is zoomed out,
+  stay centred on the top bar at every zoom level, and have more room on macOS 26's larger controls.
+- The Trade/Analysis/Backtest switch and the account are always fully visible in the top bar. When
+  the window is too narrow, the mode labels give way to icons, then the bar tightens, and last the
+  workspace tabs scroll.
+
 ## [1.2.1] - 2026-11-23
 
 ### Changed
