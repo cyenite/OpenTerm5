@@ -162,7 +162,8 @@ export interface MeridianDrawingTools {
 }
 
 export interface MeridianHover {
-  // Opening time of the bar under the pointer (epoch ms), or null off the bars.
+  // Opening time of the bar under the pointer (epoch ms), or of the future slot under it right of
+  // the last bar (then `ohlc` and `readout` are the last bar's), or null off the plot.
   time: number | null;
   // Price under the pointer, only while it is on the main price pane.
   price: number | null;
@@ -1655,13 +1656,16 @@ export class MeridianChart {
 
   private emitHover(): void {
     if (!this.listeners.hover.size) return;
-    const index = this.hover && this.hover.x < this.plotWidth && this.barList.length ? this.timeScale.barAt(this.hover.x) : null;
+    const slot = this.hover && this.hover.x < this.plotWidth && this.barList.length ? this.timeScale.slotAt(this.hover.x) : null;
+    // Right of the last bar the time is the future slot's, so linked charts follow the pointer there,
+    // while the values stay the last bar's, as the legend shows them.
+    const index = slot === null ? null : Math.min(slot, this.timeScale.lastIndex);
     const bar = index === null ? null : this.barList[index];
     const point = this.hover;
     const isOnPricePane = point && point.x >= 0 && point.x < this.plotWidth && this.barList.length && this.paneAt(point.y) === this.panes[0];
     const price = isOnPricePane ? this.panes[0].scale.yToPrice(this.crosshairY(point)) : null;
     const hover: MeridianHover = bar
-      ? { time: bar.time, price, ohlc: bar, readout: { groups: this.studies.filter((study) => study.isVisible).map((study) => ({ name: studyCaption(study.definition, study.inputs), rows: this.studyValues(study, index!).map((value) => ({ label: value.title, value: value.text, color: value.color })) })) } }
+      ? { time: this.timeScale.timeAt(slot!), price, ohlc: bar, readout: { groups: this.studies.filter((study) => study.isVisible).map((study) => ({ name: studyCaption(study.definition, study.inputs), rows: this.studyValues(study, index!).map((value) => ({ label: value.title, value: value.text, color: value.color })) })) } }
       : { time: null, price, ohlc: null, readout: null };
     for (const listener of this.listeners.hover) listener(hover);
   }
@@ -2289,7 +2293,7 @@ export class MeridianChart {
   // Where the crosshair's horizontal line sits: on the magnet's price when it holds one.
   private crosshairY(hover: Pt): number {
     if (!this.barList.length || hover.x >= this.plotWidth) return hover.y;
-    const price = this.magnetPrice(this.timeScale.barAt(hover.x), hover.y);
+    const price = this.magnetPrice(this.timeScale.slotAt(hover.x), hover.y);
     return price === null ? hover.y : this.panes[0].scale.priceToY(price);
   }
 
@@ -3849,7 +3853,7 @@ export class MeridianChart {
   // Another chart's crosshair: a vertical line on this chart's bar holding its time, a horizontal
   // one at its price when that is on the price pane, and their labels.
   private paintExternalCrosshair({ time, price }: MeridianCrosshair): void {
-    const index = this.timeScale.barContaining(time);
+    const index = this.timeScale.slotContaining(time);
     if (index === null) return;
     const x = this.crisp(this.timeScale.indexToX(index));
     if (x < 0 || x > this.plotWidth) return;
@@ -3871,7 +3875,7 @@ export class MeridianChart {
     ctx.stroke();
     ctx.setLineDash([]);
     if (y !== null && this.chartSettings.isPriceCrosshairLabelShown) this.priceTag(pane, y);
-    if (this.chartSettings.isTimeCrosshairLabelShown) this.timeTag(x, this.barList[index].time);
+    if (this.chartSettings.isTimeCrosshairLabelShown) this.timeTag(x, this.timeScale.timeAt(index));
   }
 
   private priceTag(pane: Pane, y: number): void {
@@ -3911,7 +3915,7 @@ export class MeridianChart {
     }
     if (!hover || !isHoverOnPlot || this.drag?.kind === 'pan' || !this.barList.length) return;
     const ctx = this.context;
-    const index = this.timeScale.barAt(hover.x);
+    const index = this.timeScale.slotAt(hover.x);
     const x = this.crisp(this.timeScale.indexToX(index));
     const pane = this.paneAt(hover.y);
     const timeAxisTop = this.height - TIME_AXIS_HEIGHT;
@@ -3939,7 +3943,7 @@ export class MeridianChart {
       ctx.setLineDash([]);
     }
     if (pane && this.chartSettings.isPriceCrosshairLabelShown) this.priceTag(pane, this.crosshairY(hover));
-    if (this.chartSettings.isTimeCrosshairLabelShown) this.timeTag(x, this.barList[index].time);
+    if (this.chartSettings.isTimeCrosshairLabelShown) this.timeTag(x, this.timeScale.timeAt(index));
   }
 
   private updateLegends(): void {

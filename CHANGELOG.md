@@ -14,6 +14,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The Trade/Analysis/Backtest switch and the account are always fully visible in the top bar. When
   the window is too narrow, the mode labels give way to icons, then the bar tightens, and last the
   workspace tabs scroll.
+- The chart crosshair no longer stops at the newest bar: it carries on into the space to the right,
+  with the future time on its label, and linked charts follow it there.
 
 ## [1.2.1] - 2026-11-23
 
